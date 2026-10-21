@@ -54,6 +54,7 @@ function checkReunion(b) {
 // куда идёт спокойный человек: домой вечером, на работу утром
 function civDestination(a) {
   const h = world.hour;
+  if (settings.curfew) return a.home >= 0 && buildings[a.home] && buildings[a.home].door ? buildings[a.home].door : null;
   if (h >= 7 && h < 10 && a.work !== undefined && buildings[a.work] && buildings[a.work].door && Math.random() < .5) return buildings[a.work].door;
   if (h >= 17 && h < 23 && a.home >= 0 && buildings[a.home] && buildings[a.home].door) return buildings[a.home].door;
   return null;

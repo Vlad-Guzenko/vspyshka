@@ -1,5 +1,13 @@
 /* ---------- ловушки, генераторы, КПП, флаги фракций, инфраструктура ---------- */
-const trapObjs = new Map(), genObjs = new Map(), cpObjs = new Map(), facObjs = new Map();
+const trapObjs = new Map(), genObjs = new Map(), cpObjs = new Map(), facObjs = new Map(), medObjs = new Map();
+function buildMedMesh(m) {
+  const g = new THREE.Group();
+  const tent = new THREE.Mesh(new THREE.BoxGeometry(14, 5, 10), new THREE.MeshStandardMaterial({ color: 0xf0f0ea, roughness: .9 })); tent.position.set(X(m.x), 2.5, Z(m.y)); tent.castShadow = true; g.add(tent);
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(0, 9, 3, 4, 1).rotateY(Math.PI / 4), new THREE.MeshStandardMaterial({ color: 0xe4e4dc, roughness: .9 })); roof.scale.set(1, 1, .75); roof.position.set(X(m.x), 6.5, Z(m.y)); g.add(roof);
+  const cross = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: canvasTex(64, 64, gg => { gg.fillStyle = "#d42020"; gg.fillRect(22, 6, 20, 52); gg.fillRect(6, 22, 52, 20); }), transparent: true, side: THREE.DoubleSide })); cross.position.set(X(m.x), 3, Z(m.y) + 5.1); g.add(cross);
+  for (const s of [-1, 1]) { const cot = new THREE.Mesh(new THREE.BoxGeometry(2, .6, 4.5), new THREE.MeshStandardMaterial({ color: 0x5a7a4a })); cot.position.set(X(m.x) + s * 9, .3, Z(m.y) + 2); g.add(cot); }
+  return g;
+}
 const steelDark = new THREE.MeshStandardMaterial({ color: 0x2a2d30, metalness: .6, roughness: .5 }), redMat = new THREE.MeshStandardMaterial({ color: 0xa83020, roughness: .6, metalness: .3 }), wireMat = new THREE.LineBasicMaterial({ color: 0x9a9a8a });
 function buildTrapMesh(t) {
   const g = new THREE.Group();
@@ -41,6 +49,8 @@ function updateWorld2(dt) {
   for (const [gn, o] of genObjs) { if (!gens.includes(gn)) { scene.remove(o); genObjs.delete(gn); continue; } o.userData.lamp.material.color.set(gn.fuel > 0 ? 0x40ff60 : 0x602020); if (dt && gn.fuel > 0 && Math.random() < dt * 8) smokeParticle(o.position.x - 1.8, 5, o.position.z + .8, .35, false); }
   for (const cp of cps) if (!cpObjs.has(cp)) { const o = buildCpMesh(cp); scene.add(o); cpObjs.set(cp, o); }
   for (const [cp, o] of cpObjs) { if (!cps.includes(cp)) { scene.remove(o); cpObjs.delete(cp); continue; } const open = cp.broken; o.userData.bar.rotation.z = cp.v ? (open ? 1.2 : 0) : 0; o.userData.bar.rotation.x = cp.v ? 0 : (open ? -1.2 : 0); o.userData.stripes.visible = !open; }
+  for (const m of medpoints) if (!medObjs.has(m)) { const o = buildMedMesh(m); scene.add(o); medObjs.set(m, o); }
+  for (const [m, o] of medObjs) if (!medpoints.includes(m)) { scene.remove(o); medObjs.delete(m); }
   for (const f of factions) if (!facObjs.has(f)) { const o = buildFlag(f); if (o) { scene.add(o); facObjs.set(f, o); } }
   for (const [f, o] of facObjs) { if (!factions.includes(f)) { scene.remove(o); facObjs.delete(f); continue; } o.userData.flag.rotation.y = Math.sin(simT * 2 + f.id) * .3; }
   // искры на электрозаборе

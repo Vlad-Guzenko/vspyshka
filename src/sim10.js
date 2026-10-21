@@ -36,7 +36,7 @@ function stepRoutine(dt) {
       if (hb && hb.door && hb.state === "ok" && Math.hypot(hb.door[0] - a.x, hb.door[1] - a.y) < 500) a.homeGoal = true;
       else { const b = findShelter(a); if (b && Math.hypot(b.door[0] - a.x, b.door[1] - a.y) < 60) { a.hideGoal = b; a.homeTrip = true; } }
     }
-    else if (a.hidden && a.homeTrip && Math.random() < act && !outbreak) { leaveShelter(a, false); a.homeTrip = false; a.dest = civDestination(a); }
+    else if (a.hidden && a.homeTrip && Math.random() < act && !outbreak && !settings.curfew) { leaveShelter(a, false); a.homeTrip = false; a.dest = civDestination(a); }
   }
   // машин на улицах столько, сколько нужно в этот час
   const moving = cars.filter(c => c.moving && !c.service), target = Math.round(trafficN() * act);

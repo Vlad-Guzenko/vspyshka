@@ -1054,7 +1054,7 @@ function newAgent(role, x, y) {
     quietT: 0, rad: 0, hostile: 0, loot: null, lootT: 0, muzzle: null, onRoof: false, hideB: null, hideT: 0, roofZ: 0, rx: 0, ry: 0, crushed: false, vapor: false, zero: false, seen: 0,
     depotDone: false, ambAssigned: false, tent: null, buildB: null, workT: 0, tool: 0, spray: 0, sprayAt: null, axe: 0, far: 0, onRoofT: 0,
     order: null, post: null, campGoal: null, inCamp: null, forage: null, carry: 0,
-    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false,
+    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0,
   };
   if (role === "civ") {
     const r = Math.random();
@@ -1335,6 +1335,7 @@ function thinkHuman(a, dt) {
     if (a.order) { const d = Math.hypot(a.order.x - a.x, a.order.y - a.y); if (zn && zd < 14) return flee(); if (d > 7) return goTo(a, a.order.x, a.order.y, 10); return [0, 0, 0]; }
     if (zn && zd < 18) return flee();
     if (zn && zd < range) return [0, 0, 0];
+    if (a.sweep && a.role === "army") { const r = armyClear(a, dt); if (r) return r; }
     if (a.ammo < a.magMax && depots.length) { const d = nearestDepot(a); if (d) return goTo(a, d.x, d.y, 9); }
     const fv = fieldVal(fZ, a.x, a.y);
     if (fv < (a.role === "army" ? (a.sweep ? 1e9 : 220) : 70)) { const d = fieldDir(fZ, a.x, a.y, false); if (d) return [d[0], d[1], a.role === "army" ? (a.sweep ? 12 : 10) : 9]; }
@@ -1513,7 +1514,7 @@ function step(dt) {
   fires = fires.filter(f => f.l > 0);
   if (evac) stepEvac(dt);
   statT -= dt; if (statT <= 0) { statT = 1; record(); }
-  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepResponse(dt);
+  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepResponse(dt); stepAuto(dt);
   for (const a of agents) if (a.hostile > 0) a.hostile -= dt;
   stepScenario(dt); stepNuke(dt); stepConstruction(dt); stepMachines(dt);
 }
@@ -1598,7 +1599,7 @@ function newCitySim(n) {
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
-  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); placeMetros();
+  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
   assignHomes(); pickHeroes();
   const p0 = pickPatientZero(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
@@ -2715,7 +2716,7 @@ function stepRoutine(dt) {
       if (hb && hb.door && hb.state === "ok" && Math.hypot(hb.door[0] - a.x, hb.door[1] - a.y) < 500) a.homeGoal = true;
       else { const b = findShelter(a); if (b && Math.hypot(b.door[0] - a.x, b.door[1] - a.y) < 60) { a.hideGoal = b; a.homeTrip = true; } }
     }
-    else if (a.hidden && a.homeTrip && Math.random() < act && !outbreak) { leaveShelter(a, false); a.homeTrip = false; a.dest = civDestination(a); }
+    else if (a.hidden && a.homeTrip && Math.random() < act && !outbreak && !settings.curfew) { leaveShelter(a, false); a.homeTrip = false; a.dest = civDestination(a); }
   }
   // машин на улицах столько, сколько нужно в этот час
   const moving = cars.filter(c => c.moving && !c.service), target = Math.round(trafficN() * act);
@@ -2790,6 +2791,7 @@ function checkReunion(b) {
 // куда идёт спокойный человек: домой вечером, на работу утром
 function civDestination(a) {
   const h = world.hour;
+  if (settings.curfew) return a.home >= 0 && buildings[a.home] && buildings[a.home].door ? buildings[a.home].door : null;
   if (h >= 7 && h < 10 && a.work !== undefined && buildings[a.work] && buildings[a.work].door && Math.random() < .5) return buildings[a.work].door;
   if (h >= 17 && h < 23 && a.home >= 0 && buildings[a.home] && buildings[a.home].door) return buildings[a.home].door;
   return null;
@@ -3522,6 +3524,72 @@ function stepResponse(dt) {
   if (alert >= 5 && evac && evac.auto && evac.leaving && since("evac2") > 40) { respLog.evac2 = simT; respLog.evac = -1e9; }
 }
 function resetResponse() { alert = 0; alertT = 0; respT = 5; respLog = {}; }
+
+/* ---------- службы действуют сами: зачистка домов, посты у укрытий, медпункт, комендантский час ---------- */
+let medpoints = [], guardT = 0, medT = 0;
+// военный на зачистке: если зомби не видно, идёт к дому, где кто-то обратился, и выбивает дверь
+function armyClear(a, dt) {
+  let b = a.clearB;
+  if (b && (b.state !== "ok" || !b.occ || !b.occ.some(o => o.role === "zombie"))) { b = a.clearB = null; }
+  if (!b) {
+    a.clearScanT = (a.clearScanT || 0) - dt; if (a.clearScanT > 0) return null; a.clearScanT = rnd(2, 4);
+    let bd = 350;
+    for (const c of buildings) { if (!c.occ || !c.occ.length || c.state !== "ok" || !c.door) continue; if (!c.occ.some(o => o.role === "zombie")) continue; const d = Math.hypot(c.door[0] - a.x, c.door[1] - a.y); if (d < bd) { bd = d; b = c; } }
+    if (!b) return null;
+    a.clearB = b; a.clearT = 0;
+  }
+  const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y);
+  if (d > 6) return goTo(a, b.door[0], b.door[1], 11);
+  a.clearT += dt; a.tool = .3; a.aim = Math.atan2(b.door[1] - a.y, b.door[0] - a.x); a.aimT = .5;
+  if (a.clearT > 2.5) {
+    a.clearT = 0;
+    const z = b.occ.find(o => o.role === "zombie");
+    if (z) { leaveShelter(z, false); z.x = b.door[0]; z.y = b.door[1]; destroyZombie(z, false); fxShot(a); logT("clear", `Военные зачистили зомби в доме ${placeName(b.door[0], b.door[1])}`, "good", 15); interest(b.door[0], b.door[1], 2); }
+    for (const o of b.occ.slice()) if (o.role !== "zombie" && o.bitten && Math.random() < .5) { leaveShelter(o, false); o.panic = .6; }
+  }
+  return [0, 0, 0];
+}
+// полиция выставляет посты у людных укрытий рядом с очагом
+function stepGuards(dt, cl) {
+  guardT -= dt; if (guardT > 0) return; guardT = 30;
+  if (alert < 2) { if (alert === 0) for (const a of agents) if (a.guardB) { a.guardB = null; a.order = null; } return; }
+  let posts = 0; for (const a of agents) if (a.state === "alive" && a.guardB) posts++;
+  if (posts >= 16 || !cl) return;
+  let best = null, bs = 0;
+  for (const b of buildings) { if (!b.occ || b.occ.length < 3 || b.state !== "ok" || !b.door || (b.guardedT && simT - b.guardedT < 400)) continue; const d = Math.hypot(b.door[0] - cl.x, b.door[1] - cl.y); if (d > 420) continue; const s = b.occ.length / (1 + d / 100); if (s > bs) { bs = s; best = b; } }
+  if (!best) return;
+  best.guardedT = simT;
+  for (let i = 0; i < 2; i++) { const [x, y] = freeNear(best.door[0] + (i ? 5 : -5), best.door[1] + 4, 6); const g = newAgent("police", x, y); g.order = { x, y }; g.guardB = best; }
+  logT("guard", `Полиция выставила пост у укрытия ${placeName(best.door[0], best.door[1])}`, "good", 20);
+}
+// медпункт: палатка, скорая и медики недалеко от очага
+function stepMedpoints(dt, cl) {
+  medT -= dt; if (medT > 0) return; medT = 10;
+  medpoints = medpoints.filter(m => simT - m.t < 600);
+  if (alert < 2 || !cl || medpoints.length >= 2 || medpoints.some(m => Math.hypot(m.x - cl.x, m.y - cl.y) < 260)) return;
+  const ang = Math.atan2(H / 2 - cl.y, W / 2 - cl.x) + rnd(-.8, .8), d = 150;
+  const [x, y] = freeNear(clamp(cl.x + Math.cos(ang) * d, 60, W - 60), clamp(cl.y + Math.sin(ang) * d, 60, H - 60), 30);
+  if (blocked(x, y)) return;
+  medpoints.push({ x, y, t: simT });
+  for (let i = 0; i < 4; i++) { const [mx, my] = freeNear(x, y, 12); newAgent("medic", mx, my); }
+  spawnService("ambulance", x, y, special.hospital); hasMedics = true;
+  logE(`Медики развернули сортировочный пункт ${placeName(x, y)}`, "good"); radio("Штаб: раненых и укушенных направлять в медпункт");
+}
+// комендантский час: при оцеплении всех по домам, утром никто не выходит
+function stepCurfew() {
+  if (alert >= 3 && !settings.curfew) {
+    settings.curfew = true; let n = 0;
+    for (const a of agents) if (a.state === "alive" && a.role === "civ" && !a.hidden && !a.forage && !a.faction && a.home >= 0) { a.homeGoal = true; a.dest = null; n++; }
+    logE(`Объявлен комендантский час: полиция гонит всех по домам, ${n} человек пошли домой`, "good"); radio("Штаб: комендантский час, гражданским не выходить на улицу");
+  }
+  if (alert < 3 && settings.curfew) { settings.curfew = false; logE("Комендантский час снят", "good"); }
+}
+function stepAuto(dt) {
+  if (!settings.services) { if (settings.curfew) settings.curfew = false; return; }
+  const cl = alert >= 2 ? zCluster() : null;
+  stepGuards(dt, cl); stepMedpoints(dt, cl); stepCurfew();
+}
+function resetAuto() { medpoints = []; guardT = 20; medT = 15; settings.curfew = false; }
 
 /* ---------- 3D-сцена: город ---------- */
 const X = x => x - W / 2, Z = y => y - H / 2;
@@ -5311,7 +5379,15 @@ function updateBuild(dt) {
 }
 
 /* ---------- ловушки, генераторы, КПП, флаги фракций, инфраструктура ---------- */
-const trapObjs = new Map(), genObjs = new Map(), cpObjs = new Map(), facObjs = new Map();
+const trapObjs = new Map(), genObjs = new Map(), cpObjs = new Map(), facObjs = new Map(), medObjs = new Map();
+function buildMedMesh(m) {
+  const g = new THREE.Group();
+  const tent = new THREE.Mesh(new THREE.BoxGeometry(14, 5, 10), new THREE.MeshStandardMaterial({ color: 0xf0f0ea, roughness: .9 })); tent.position.set(X(m.x), 2.5, Z(m.y)); tent.castShadow = true; g.add(tent);
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(0, 9, 3, 4, 1).rotateY(Math.PI / 4), new THREE.MeshStandardMaterial({ color: 0xe4e4dc, roughness: .9 })); roof.scale.set(1, 1, .75); roof.position.set(X(m.x), 6.5, Z(m.y)); g.add(roof);
+  const cross = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: canvasTex(64, 64, gg => { gg.fillStyle = "#d42020"; gg.fillRect(22, 6, 20, 52); gg.fillRect(6, 22, 52, 20); }), transparent: true, side: THREE.DoubleSide })); cross.position.set(X(m.x), 3, Z(m.y) + 5.1); g.add(cross);
+  for (const s of [-1, 1]) { const cot = new THREE.Mesh(new THREE.BoxGeometry(2, .6, 4.5), new THREE.MeshStandardMaterial({ color: 0x5a7a4a })); cot.position.set(X(m.x) + s * 9, .3, Z(m.y) + 2); g.add(cot); }
+  return g;
+}
 const steelDark = new THREE.MeshStandardMaterial({ color: 0x2a2d30, metalness: .6, roughness: .5 }), redMat = new THREE.MeshStandardMaterial({ color: 0xa83020, roughness: .6, metalness: .3 }), wireMat = new THREE.LineBasicMaterial({ color: 0x9a9a8a });
 function buildTrapMesh(t) {
   const g = new THREE.Group();
@@ -5353,6 +5429,8 @@ function updateWorld2(dt) {
   for (const [gn, o] of genObjs) { if (!gens.includes(gn)) { scene.remove(o); genObjs.delete(gn); continue; } o.userData.lamp.material.color.set(gn.fuel > 0 ? 0x40ff60 : 0x602020); if (dt && gn.fuel > 0 && Math.random() < dt * 8) smokeParticle(o.position.x - 1.8, 5, o.position.z + .8, .35, false); }
   for (const cp of cps) if (!cpObjs.has(cp)) { const o = buildCpMesh(cp); scene.add(o); cpObjs.set(cp, o); }
   for (const [cp, o] of cpObjs) { if (!cps.includes(cp)) { scene.remove(o); cpObjs.delete(cp); continue; } const open = cp.broken; o.userData.bar.rotation.z = cp.v ? (open ? 1.2 : 0) : 0; o.userData.bar.rotation.x = cp.v ? 0 : (open ? -1.2 : 0); o.userData.stripes.visible = !open; }
+  for (const m of medpoints) if (!medObjs.has(m)) { const o = buildMedMesh(m); scene.add(o); medObjs.set(m, o); }
+  for (const [m, o] of medObjs) if (!medpoints.includes(m)) { scene.remove(o); medObjs.delete(m); }
   for (const f of factions) if (!facObjs.has(f)) { const o = buildFlag(f); if (o) { scene.add(o); facObjs.set(f, o); } }
   for (const [f, o] of facObjs) { if (!factions.includes(f)) { scene.remove(o); facObjs.delete(f); continue; } o.userData.flag.rotation.y = Math.sin(simT * 2 + f.id) * .3; }
   // искры на электрозаборе
@@ -6427,7 +6505,7 @@ const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOf
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
 const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt"];
-const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp"]);
+const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB"]);
 function serializeGame() {
   const bi = new Map(buildings.map((b, i) => [b, i]));
   const agentsS = agents.filter(a => !a.player || !fps.on).map(a => {
@@ -6446,7 +6524,7 @@ function serializeGame() {
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
-    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog,
+    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { zombieT: firsts.zombieT, titan: firsts.titan, titanDead: firsts.titanDead, topple: firsts.topple, nuke: firsts.nuke, reunion: firsts.reunion, metroSeen: firsts.metroSeen },
   };
 }
@@ -6470,7 +6548,7 @@ function loadGame(S) {
   resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;
   heroes = (S.heroes || []).map(agentById).filter(Boolean); metros = S.metros || []; depots = S.depots || []; strain = S.strain || { lvl: 1, t: 0 }; chDone = S.chDone || 0; chFail = S.chFail || 0;
   resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout || null; settings.dark = !!blackout;
-  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {};
+  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; settings.curfew = !!S.curfew;
   for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) a.detained = cps[0] || null; if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
   for (const a of agents) if (!a.name) nameFor(a);
@@ -7296,7 +7374,7 @@ function updateUI() {
   for (const [id, v] of [["nH", c.H], ["nI", c.I], ["nZ", c.Z], ["nD", c.D], ["nS", c.S], ["nF", c.F]]) $(id).textContent = v;
   $("vacBar").style.width = Math.floor(research * 100) + "%"; $("vacO").textContent = vaccineReady ? "готова" : Math.floor(research * 100) + "%";
   const hungry = hungryCount();
-  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${alert ? " · ЧС " + alert + " " + ALERT_N[alert] : ""} · ${perfStats.fps} к/с`;
+  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${alert ? " · ЧС " + alert + " " + ALERT_N[alert] : ""}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
   renderHeroes(); squadHud(); renderFactions();
   if (logDirty) { logDirty = false; $("log").innerHTML = events.slice(0, 40).map(e => `<li class="${e.cls || ""}"><time>${mmss(e.t)}</time>${e.text}</li>`).join(""); updateNews(); }
   drawChart();
