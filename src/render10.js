@@ -1,39 +1,6 @@
 /* ---------- ловушки, генераторы, КПП, флаги фракций, инфраструктура ---------- */
 const trapObjs = new Map(), genObjs = new Map(), cpObjs = new Map(), facObjs = new Map(), medObjs = new Map();
-function buildMedMesh(m) {
-  const g = new THREE.Group();
-  const tent = new THREE.Mesh(new THREE.BoxGeometry(14, 5, 10), new THREE.MeshStandardMaterial({ color: 0xf0f0ea, roughness: .9 })); tent.position.set(X(m.x), 2.5, Z(m.y)); tent.castShadow = true; g.add(tent);
-  const roof = new THREE.Mesh(new THREE.CylinderGeometry(0, 9, 3, 4, 1).rotateY(Math.PI / 4), new THREE.MeshStandardMaterial({ color: 0xe4e4dc, roughness: .9 })); roof.scale.set(1, 1, .75); roof.position.set(X(m.x), 6.5, Z(m.y)); g.add(roof);
-  const cross = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: canvasTex(64, 64, gg => { gg.fillStyle = "#d42020"; gg.fillRect(22, 6, 20, 52); gg.fillRect(6, 22, 52, 20); }), transparent: true, side: THREE.DoubleSide })); cross.position.set(X(m.x), 3, Z(m.y) + 5.1); g.add(cross);
-  for (const s of [-1, 1]) { const cot = new THREE.Mesh(new THREE.BoxGeometry(2, .6, 4.5), new THREE.MeshStandardMaterial({ color: 0x5a7a4a })); cot.position.set(X(m.x) + s * 9, .3, Z(m.y) + 2); g.add(cot); }
-  return g;
-}
 const steelDark = new THREE.MeshStandardMaterial({ color: 0x2a2d30, metalness: .6, roughness: .5 }), redMat = new THREE.MeshStandardMaterial({ color: 0xa83020, roughness: .6, metalness: .3 }), wireMat = new THREE.LineBasicMaterial({ color: 0x9a9a8a });
-function buildTrapMesh(t) {
-  const g = new THREE.Group();
-  if (t.k === "mine") { const m = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, .7, 12), steelDark); m.position.set(X(t.x), .35, Z(t.y)); g.add(m); const b = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, .4, 8), new THREE.MeshBasicMaterial({ color: 0xff3030 })); b.position.set(X(t.x), .8, Z(t.y)); g.add(b); g.userData.blink = b; }
-  else if (t.k === "wire") { for (const [x, y] of [[t.x, t.y], [t.x2, t.y2]]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(.15, .2, 2.4, 6), steelDark); p.position.set(X(x), 1.2, Z(y)); g.add(p); } const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(X(t.x), 1.1, Z(t.y)), new THREE.Vector3(X(t.x2), 1.1, Z(t.y2))]), wireMat); g.add(line); }
-  else if (t.k === "barrel") { const b = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 3.6, 12), redMat); b.position.set(X(t.x), 1.8, Z(t.y)); b.castShadow = true; g.add(b); for (const y of [.9, 2.7]) { const r = new THREE.Mesh(new THREE.TorusGeometry(1.32, .08, 6, 16).rotateX(Math.PI / 2), steelDark); r.position.set(X(t.x), y, Z(t.y)); g.add(r); } }
-  return g;
-}
-function buildGenMesh(gn) {
-  const g = new THREE.Group(); g.position.set(X(gn.x), 0, Z(gn.y));
-  const body = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 3), new THREE.MeshStandardMaterial({ color: 0xe8b81a, roughness: .5, metalness: .3 })); body.position.y = 1.5; body.castShadow = true; g.add(body);
-  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(.25, .25, 2, 6), steelDark); pipe.position.set(-1.8, 3.8, .8); g.add(pipe);
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(.3, 8, 6), new THREE.MeshBasicMaterial({ color: 0x40ff60 })); lamp.position.set(2, 3.2, 0); g.add(lamp); g.userData.lamp = lamp;
-  return g;
-}
-function buildCpMesh(cp) {
-  const g = new THREE.Group();
-  // палатка-изолятор и шлагбаум
-  const tent = new THREE.Mesh(new THREE.CylinderGeometry(0, 7, 6, 4, 1).rotateY(Math.PI / 4), new THREE.MeshStandardMaterial({ color: 0xe8e8e0, roughness: .9 })); tent.position.set(X(cp.tent[0]), 3, Z(cp.tent[1])); tent.castShadow = true; g.add(tent);
-  const cross = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), new THREE.MeshBasicMaterial({ map: canvasTex(64, 64, gg => { gg.fillStyle = "#d42020"; gg.fillRect(22, 6, 20, 52); gg.fillRect(6, 22, 52, 20); }), transparent: true })); cross.position.set(X(cp.tent[0]), 3.2, Z(cp.tent[1]) + 3.6); g.add(cross);
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(cp.v ? 14 : .4, .4, cp.v ? .4 : 14), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .5 })); bar.position.set(X(cp.x), 3, Z(cp.y)); g.add(bar); g.userData.bar = bar;
-  const stripes = new THREE.Mesh(new THREE.BoxGeometry(cp.v ? 14.2 : .5, .2, cp.v ? .5 : 14.2), new THREE.MeshStandardMaterial({ color: 0xd42020 })); stripes.position.set(X(cp.x), 3.15, Z(cp.y)); g.add(stripes); g.userData.stripes = stripes;
-  for (const s of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(.3, .3, 3.2, 6), steelDark); p.position.set(X(cp.x) + (cp.v ? s * 7 : 0), 1.6, Z(cp.y) + (cp.v ? 0 : s * 7)); g.add(p); }
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(10, 3), new THREE.MeshStandardMaterial({ map: canvasTex(256, 80, gg => { gg.fillStyle = "#1d3566"; gg.fillRect(0, 0, 256, 80); gg.fillStyle = "#fff"; gg.font = "bold 44px Oswald, Arial Narrow, sans-serif"; gg.textAlign = "center"; gg.fillText("КПП · СТОП", 128, 56); }), side: THREE.DoubleSide })); sign.position.set(X(cp.x) + (cp.v ? 8 : 0), 7, Z(cp.y) + (cp.v ? 0 : 8)); if (!cp.v) sign.rotation.y = Math.PI / 2; g.add(sign);
-  return g;
-}
 function buildFlag(f) {
   const hb = buildings[f.hq]; if (!hb) return null;
   const g = new THREE.Group(); const x = hb.door ? hb.door[0] : (hb.x0 + hb.x1) / 2, y = hb.door ? hb.door[1] : (hb.y0 + hb.y1) / 2;

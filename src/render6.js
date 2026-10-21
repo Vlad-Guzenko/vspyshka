@@ -46,13 +46,3 @@ function updateMachines() {
 const carExtras = new Map();
 // палатки вакцинации
 const tentObjs = new Map();
-function updateTents() {
-  for (const t of tents) {
-    if (tentObjs.has(t)) continue;
-    const g = new THREE.Group(); g.position.set(X(t.x), hasHills ? gY(t.x, t.y) : 0, Z(t.y));
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0, 12, 9, 4, 1).rotateY(Math.PI / 4), new THREE.MeshStandardMaterial({ color: 0xf2f2ec, roughness: .8 })); body.position.y = 4.5; body.castShadow = true; g.add(body);
-    const cross = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: canvasTex(64, 64, gg => { gg.fillStyle = "#d42020"; gg.fillRect(22, 6, 20, 52); gg.fillRect(6, 22, 52, 20); }), transparent: true })); cross.position.set(0, 4, 6.3); cross.rotation.x = -.55; g.add(cross);
-    scene.add(g); tentObjs.set(t, g);
-  }
-  for (const [t, g] of tentObjs) if (!tents.includes(t)) { scene.remove(g); tentObjs.delete(t); }
-}

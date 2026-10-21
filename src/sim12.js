@@ -36,12 +36,16 @@ function addFlood(x, y) {
 function litAt(x, y) { for (const f of floods) if (f.on && Math.abs(f.x - x) < 95 && Math.abs(f.y - y) < 95 && Math.hypot(f.x - x, f.y - y) < 95) return true; return false; }
 function nearestFlood(x, y, r) { let best = null, bd = r; for (const f of floods) { if (!f.on) continue; const d = Math.hypot(f.x - x, f.y - y); if (d < bd) { bd = d; best = f; } } return best; }
 // лагерь: квадрат стен с воротами, палатки, прожектор, склад; жители идут внутрь, солдаты держат периметр
+const CAMP_TENTS = [[-20, 6, .2], [20, 8, -.3], [-8, -22, 1.4], [16, -16, 1.9], [-26, -10, .6]];
 function addCamp(x, y) {
   const R = 46;
   if (x < R + 10 || y < R + 10 || x > W - R - 10 || y > H - R - 10) return false;
   const c = { x, y, r: R, food: 240, hungryT: 0, gate: [x, y + R], n: 0 };
   const put = (px, py, hp, wall) => { const gx = Math.floor(px / CS), gy = Math.floor(py / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return; const i = gy * GW + gx, cell = grid[i]; if (cell === 3 || cell === 9 || cell === 5 || cell === 10) return; grid[i] = 6; bhp[i] = hp; wallMask[i] = wall ? 1 : 0; };
   for (let t = -R; t <= R; t += CS) { const gate = Math.abs(t) < 12; put(x + t, y - R, 220, true); if (!gate) put(x + t, y + R, 220, true); put(x - R, y + t, 220, true); put(x + R, y + t, 220, true); } // ворота открыты: их держат солдаты
+  for (const [tx, ty, rot] of CAMP_TENTS) { const along = Math.abs(Math.sin(rot)) < .7; blockFree(x + tx - (along ? 6 : 4), y + ty - (along ? 4 : 6), x + tx + (along ? 6 : 4), y + ty + (along ? 4 : 6)); }
+  blockFree(x + 7, y + 23, x + 11, y + 27); blockFree(x - 15, y + 21, x - 10, y + 23); // бочки с водой и ящики
+  for (const sx of [-1, 1]) blockFree(x + sx * 17 - 4, y + R - 5, x + sx * 17 + 4, y + R - 2); // мешки у ворот
   camps.push(c); barrDirty = true; fieldT = 0;
   floods.push({ x, y: y - 10, on: true }); depots.push({ x: x + 22, y: y - 22, ammo: 300, max: 300 });
   for (let i = 0; i < 4; i++) { const [ax, ay] = freeNear(x + (i % 2 ? 26 : -26), y + (i < 2 ? 26 : -26), 6); const a = newAgent("army", ax, ay); a.order = { x: ax, y: ay }; a.ammo = 240; }

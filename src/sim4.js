@@ -207,10 +207,75 @@ function thinkCrew(a, dt, zn, zd) {
   if (a.done && a.unit) return goTo(a, a.unit.x, a.unit.y, 9);
   return null;
 }
+/* ---------- путь к цели: поле расстояний в коробке вокруг цели и агента, кэш по клетке цели ---------- */
+// люди не проходят сквозь дома, машины, деревья и заграждения; завалы медленные. Поле хранится только для коробки
+const pathCache = new Map(); let pathBudgetT = -1, pathBudget = 0;
+function bfsBox(e, sx, sy) {
+  const { x0, y0, w, h, f } = e; f.fill(FAR);
+  const si = (clamp(Math.floor(sy / CS), y0, y0 + h - 1) - y0) * w + (clamp(Math.floor(sx / CS), x0, x0 + w - 1) - x0);
+  f[si] = 0; ring[0].push(si); let pending = 1;
+  for (let d = 0; pending > 0 && d < 3000; d++) {
+    const b = ring[d % RING];
+    while (b.length) {
+      const i = b.pop(); pending--;
+      if (f[i] !== d) continue;
+      const x = i % w, y = (i / w) | 0;
+      for (const [dx, dy] of NB4) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const c = grid[(ny + y0) * GW + nx + x0];
+        if (c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10) continue;
+        const j = ny * w + nx, nd = d + (c === 8 ? 3 : 1);
+        if (nd < f[j]) { f[j] = nd; ring[nd % RING].push(j); pending++; }
+      }
+    }
+  }
+  for (const b of ring) b.length = 0;
+}
+function boxDir(e, x, y) {
+  const gx = Math.floor(x / CS) - e.x0, gy = Math.floor(y / CS) - e.y0, w = e.w, h = e.h;
+  if (gx < 0 || gy < 0 || gx >= w || gy >= h) return null;
+  const v0 = e.f[gy * w + gx]; if (v0 >= FAR) return null;
+  let best = null, bv = v0;
+  for (const [dx, dy] of NB8) {
+    const nx = gx + dx, ny = gy + dy;
+    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+    const v = e.f[ny * w + nx]; if (v >= FAR) continue;
+    if (dx && dy && (e.f[gy * w + nx] >= FAR || e.f[ny * w + gx] >= FAR)) continue;
+    if (v < bv) { bv = v; best = [dx, dy]; }
+  }
+  if (!best) return null;
+  const l = Math.hypot(best[0], best[1]); return [best[0] / l, best[1] / l];
+}
+function pathField(a, tx, ty) {
+  if (pathBudgetT !== simT) { pathBudgetT = simT; pathBudget = 4; }
+  const gx = clamp(Math.floor(tx / CS), 0, GW - 1), gy = clamp(Math.floor(ty / CS), 0, GH - 1), key = gy * GW + gx;
+  const ax = clamp(Math.floor(a.x / CS), 0, GW - 1), ay = clamp(Math.floor(a.y / CS), 0, GH - 1);
+  let e = pathCache.get(key);
+  const inside = e && ax >= e.x0 && ax < e.x0 + e.w && ay >= e.y0 && ay < e.y0 + e.h;
+  if (e && inside && simT - e.t < 8) return e;
+  if (pathBudget <= 0) return e && inside ? e : null;
+  pathBudget--;
+  if (pathCache.size >= 300) { let ok = null, ot = 1e9; for (const [k, v] of pathCache) if (v.t < ot) { ot = v.t; ok = k; } pathCache.delete(ok); }
+  const m = 22; // коробка с запасом, чтобы обойти квартал
+  const x0 = clamp(Math.min(inside ? e.x0 : gx, ax) - m, 0, GW - 1), y0 = clamp(Math.min(inside ? e.y0 : gy, ay) - m, 0, GH - 1);
+  const x1 = clamp(Math.max(inside ? e.x0 + e.w - 1 : gx, ax) + m, 0, GW - 1), y1 = clamp(Math.max(inside ? e.y0 + e.h - 1 : gy, ay) + m, 0, GH - 1);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  if (!e || e.w !== w || e.h !== h) e = { x0, y0, w, h, f: new Int16Array(w * h), t: 0 }; else { e.x0 = x0; e.y0 = y0; }
+  pathCache.set(key, e);
+  let sx = tx, sy = ty; if (blocked(tx, ty)) { const [fx, fy] = freeNear(tx, ty, 8); sx = fx; sy = fy; }
+  bfsBox(e, sx, sy); e.t = simT;
+  return e;
+}
 function goTo(a, tx, ty, sp) {
   const d = Math.hypot(tx - a.x, ty - a.y);
   if (d < 3) return [0, 0, 0];
   const ux = (tx - a.x) / d, uy = (ty - a.y) / d;
-  if (blocked(a.x + ux * 8, a.y + uy * 8) || a.stuck > .6) { const w = wander(a, .016); return [w[0] + ux * .5, w[1] + uy * .5, sp]; }
+  // прямо, если близко и впереди свободно или цель видна; иначе по полю расстояний вокруг домов и заграждений
+  const ahead = blocked(a.x + ux * 8, a.y + uy * 8);
+  if (a.stuck < .6 && !ahead && (d < 30 || (d < 120 && los(a.x, a.y, tx, ty)))) return [ux, uy, sp];
+  const e = pathField(a, tx, ty), dir = e ? boxDir(e, a.x, a.y) : null;
+  if (dir) return [dir[0] + ux * .1, dir[1] + uy * .1, sp];
+  if (ahead || a.stuck > .6) { const w = wander(a, .016); return [w[0] + ux * .5, w[1] + uy * .5, sp]; }
   return [ux, uy, sp];
 }

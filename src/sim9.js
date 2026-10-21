@@ -81,7 +81,7 @@ function stepResearch(dt) {
   if (research >= 1) { vaccineReady = true; logE("Вакцина готова! Медики лечат укушенных на любой стадии", "good"); radio("Лаборатория: вакцина готова. Разворачивайте пункты вакцинации"); }
 }
 function addTent(x, y) {
-  const t = { x, y, done: 0 }; tents.push(t);
+  const t = { x, y, done: 0 }; tents.push(t); blockFree(x - 7, y - 5, x + 7, y + 5);
   for (let i = 0; i < 3; i++) { const [mx, my] = freeNear(x, y, 10); const m = newAgent("medic", mx, my); m.tent = t; }
   logE("Развёрнут пункт вакцинации", "good");
 }

@@ -1,3 +1,13 @@
+/* ---------- сооружения занимают клетки: люди и зомби обходят палатки, будки, ящики ---------- */
+function blockFree(x0, y0, x1, y1) {
+  const out = [];
+  for (let gy = Math.floor(y0 / CS); gy <= Math.floor(y1 / CS); gy++) for (let gx = Math.floor(x0 / CS); gx <= Math.floor(x1 / CS); gx++) {
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx, c = grid[i];
+    if (c === 0 || c === 1 || c === 2 || c === 7 || c === 8) { out.push([i, c]); grid[i] = 5; }
+  }
+  fieldT = 0; return out;
+}
+function unblock(cells) { for (const [i, c] of cells) if (grid[i] === 5) grid[i] = c; fieldT = 0; }
 /* ---------- ловушки: мины, растяжки, бочки, электрозабор с генератором ---------- */
 let traps = [], gens = [];
 const elecMask = new Uint8Array(GW * GH);
@@ -98,6 +108,9 @@ function addCheckpoint(x, y) {
   }
   const cp = { x: cx, y: cy, v: s.v, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: s.v ? [cx + s.hw + 12, cy + 10] : [cx + 10, cy + s.hw + 12] };
   for (let i = 0; i < 2; i++) { const [gx, gy] = freeNear(s.v ? cx + (i ? 10 : -10) : cx, s.v ? cy : cy + (i ? 10 : -10), 5); const g = newAgent("police", gx, gy); g.order = { x: gx, y: gy }; g.cp = cp; }
+  // будка справа от проезда, изолятор: клетки заняты
+  const bx = s.v ? cx + 9.5 : cx + 3, by = s.v ? cy + 3 : cy - 9.5;
+  cp.cells2 = blockFree(bx - 2, by - 2, bx + 2, by + 2).concat(blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7));
   cps.push(cp); barrDirty = true; fieldT = 0;
   logE("Развёрнут КПП: полиция проверяет проходящих на укусы, заражённых отправляют в изолятор", "good"); return true;
 }

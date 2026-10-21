@@ -16,17 +16,6 @@ function buildMetros() {
     scene.add(g); metroObjs.push(g);
   }
 }
-function buildDepot(d) {
-  const g = new THREE.Group(); g.position.set(X(d.x), 0, Z(d.y));
-  const wood = new THREE.MeshStandardMaterial({ color: 0x8a6a3a, roughness: .9 }), olive = new THREE.MeshStandardMaterial({ color: 0x4d5634, roughness: .8 });
-  for (const [x, y, z, s] of [[-2, 1, -1.5, 2.2], [1, 1, -1, 2.2], [-.5, 3.1, -1.3, 2], [2.5, .9, 1.5, 1.8], [-2.5, .8, 1.8, 1.6], [0, .9, 2.4, 1.8]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(s, s * .9, s * .7), Math.random() < .5 ? wood : olive); b.position.set(x, y, z); b.rotation.y = rnd(-.3, .3); b.castShadow = b.receiveShadow = true; g.add(b); }
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 9, 5), new THREE.MeshStandardMaterial({ color: 0x333 })); pole.position.set(3.5, 4.5, -2.5); g.add(pole);
-  const flag = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.8), new THREE.MeshStandardMaterial({ color: 0xf2b33d, side: THREE.DoubleSide })); flag.position.set(5, 8, -2.5); g.add(flag);
-  const tent = new THREE.Mesh(new THREE.BoxGeometry(9, .3, 7), new THREE.MeshStandardMaterial({ color: 0x5a6a44, roughness: .9, side: THREE.DoubleSide })); tent.position.set(0, 5.2, 0); tent.castShadow = true; g.add(tent);
-  for (const [x, z] of [[-4, -3], [4, -3], [-4, 3], [4, 3]]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(.1, .1, 5.2, 5), olive); p.position.set(x, 2.6, z); g.add(p); }
-  g.userData.flag = flag; g.userData.crates = g.children.slice(0, 6);
-  return g;
-}
 const ACID = [.55, 1.2, .2], ACID2 = [.2, .5, .05];
 const meteorMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(7, 1), new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: .9, emissive: 0xff6020, emissiveIntensity: .8 }));
 meteorMesh.visible = false; scene.add(meteorMesh);

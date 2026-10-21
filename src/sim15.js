@@ -38,12 +38,13 @@ function stepGuards(dt, cl) {
 // медпункт: палатка, скорая и медики недалеко от очага
 function stepMedpoints(dt, cl) {
   medT -= dt; if (medT > 0) return; medT = 10;
+  for (const m of medpoints) if (simT - m.t >= 600 && m.cells) { unblock(m.cells); m.cells = null; }
   medpoints = medpoints.filter(m => simT - m.t < 600);
   if (alert < 2 || !cl || medpoints.length >= 2 || medpoints.some(m => Math.hypot(m.x - cl.x, m.y - cl.y) < 260)) return;
   const ang = Math.atan2(H / 2 - cl.y, W / 2 - cl.x) + rnd(-.8, .8), d = 150;
   const [x, y] = freeNear(clamp(cl.x + Math.cos(ang) * d, 60, W - 60), clamp(cl.y + Math.sin(ang) * d, 60, H - 60), 30);
   if (blocked(x, y)) return;
-  medpoints.push({ x, y, t: simT });
+  medpoints.push({ x, y, t: simT, cells: blockFree(x - 9, y - 6, x + 9, y + 6) });
   for (let i = 0; i < 4; i++) { const [mx, my] = freeNear(x, y, 12); newAgent("medic", mx, my); }
   spawnService("ambulance", x, y, special.hospital); hasMedics = true;
   logE(`Медики развернули сортировочный пункт ${placeName(x, y)}`, "good"); radio("Штаб: раненых и укушенных направлять в медпункт");
