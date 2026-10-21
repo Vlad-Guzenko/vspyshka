@@ -56,9 +56,15 @@ function addCurve(pts, hw, closed) {
   rasterCurve(cv); curves.push(cv); return cv;
 }
 // стыки с осевыми улицами: концы дорог, с которых машины съезжают на обычную полосу и наоборот
+// ближайшая точка любой полосы (по настоящему расстоянию, а не только поперёк)
+function nearestLaneTo(x, y, maxD) {
+  let best = null, bd = maxD;
+  for (const l of lanes) { const along = clamp(l.s.v ? y : x, l.a0 + 20, l.a1 - 20), px = l.s.v ? l.c : along, py = l.s.v ? along : l.c, d = Math.hypot(px - x, py - y); if (d < bd && !blocked(px, py)) { bd = d; best = { l, along }; } }
+  return best;
+}
 function buildJunctions() {
   junctions = [];
-  for (const cv of curves) { if (cv.closed) continue; for (const t of [0, cv.len]) { const p = curvePos(cv, t); const l = nearestLanePoint(p.x, p.y); if (l && Math.hypot((l.l.s.v ? l.l.c : l.along) - p.x, (l.l.s.v ? l.along : l.l.c) - p.y) < 40) junctions.push({ cv, t, x: p.x, y: p.y }); } }
+  for (const cv of curves) { if (cv.closed) continue; for (const t of [0, cv.len]) { const p = curvePos(cv, t); if (nearestLaneTo(p.x, p.y, 45)) junctions.push({ cv, t, x: p.x, y: p.y }); } }
 }
 function ringPts(cx, cy, r, n, wob) { const pts = []; for (let i = 0; i < n; i++) { const a = i / n * TAU, rr = r + rnd(-wob, wob); pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]); } return pts; }
 function spokePts(cx, cy, a, r0, r1) { return [[cx + Math.cos(a) * r0, cy + Math.sin(a) * r0], [cx + Math.cos(a) * r1, cy + Math.sin(a) * r1]]; }
@@ -111,8 +117,8 @@ function stepCurveCar(c, dt) {
   if (c.ct < 0 || c.ct > cv.len) {
     if (cv.closed) { c.ct = (c.ct + cv.len) % cv.len; }
     else {
-      const e = curvePos(cv, c.ct < 0 ? 0 : cv.len), l = nearestLanePoint(e.x, e.y);
-      if (l && Math.hypot((l.l.s.v ? l.l.c : l.along) - e.x, (l.l.s.v ? l.along : l.l.c) - e.y) < 40 && Math.random() < .8) { c.curve = null; placeOnLane(c, l.l, l.along); c.ang = Math.atan2(DY[c.dir], DX[c.dir]); c.plan = -1; c.planAt = null; return; }
+      const e = curvePos(cv, c.ct < 0 ? 0 : cv.len), l = nearestLaneTo(e.x, e.y, 45);
+      if (l && Math.random() < .8) { c.curve = null; placeOnLane(c, l.l, l.along); c.ang = Math.atan2(DY[c.dir], DX[c.dir]); c.plan = -1; c.planAt = null; return; }
       c.cdir = -c.cdir; c.ct = clamp(c.ct, 0, cv.len); c.v = 0;
     }
   }
