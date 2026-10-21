@@ -597,20 +597,103 @@ function updateCity(dt) {
 }
 /* ---------- баррикады ---------- */
 const barrMax = 6000;
-const barr = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), new THREE.MeshStandardMaterial({ roughness: .9 }), barrMax);
-barr.castShadow = barr.receiveShadow = true; barr.count = 0; scene.add(barr);
+/* ---------- заграждения: бетонные плиты с колючкой, мешки с песком, дорожные блоки, сетка под током ---------- */
+function noiseOn(g, w, h, n, a) { for (let i = 0; i < n; i++) { const v = Math.random() < .5 ? 0 : 255; g.fillStyle = `rgba(${v},${v},${v},${a})`; g.fillRect(Math.random() * w, Math.random() * h, rnd(1, 4), rnd(1, 3)); } }
+function dirtOn(g, w, h, k) { const gr = g.createLinearGradient(0, h * (1 - k), 0, h); gr.addColorStop(0, "rgba(60,50,38,0)"); gr.addColorStop(1, "rgba(60,50,38,.55)"); g.fillStyle = gr; g.fillRect(0, 0, w, h); }
+function rustOn(g, w, h, n) { for (let i = 0; i < n; i++) { const x = rnd(10, w - 10), y0 = rnd(0, h * .5), L = rnd(h * .2, h * .6); const gr = g.createLinearGradient(0, y0, 0, y0 + L); gr.addColorStop(0, "rgba(150,80,30,.45)"); gr.addColorStop(1, "rgba(150,80,30,0)"); g.fillStyle = gr; g.fillRect(x, y0, rnd(2, 5), L); } }
+function paintConcrete(g, w, h, stencil) {
+  g.fillStyle = "#8e8c85"; g.fillRect(0, 0, w, h); noiseOn(g, w, h, 1800, .07);
+  // две плиты одна над другой с фаской
+  for (const [y0, y1] of [[0, h * .55], [h * .55, h]]) {
+    g.strokeStyle = "rgba(255,255,255,.28)"; g.lineWidth = 3; g.beginPath(); g.moveTo(8, y1 - 8); g.lineTo(8, y0 + 8); g.lineTo(w - 8, y0 + 8); g.stroke();
+    g.strokeStyle = "rgba(0,0,0,.35)"; g.beginPath(); g.moveTo(w - 8, y0 + 8); g.lineTo(w - 8, y1 - 8); g.lineTo(8, y1 - 8); g.stroke();
+    g.fillStyle = "rgba(0,0,0,.22)"; g.fillRect(0, y1 - 3, w, 3);
+    // ромбический рельеф, как на заборных плитах
+    g.strokeStyle = "rgba(0,0,0,.12)"; g.lineWidth = 2;
+    for (let x = 24; x < w - 24; x += 48) { const cy = (y0 + y1) / 2, r = (y1 - y0) * .22; g.beginPath(); g.moveTo(x, cy - r); g.lineTo(x + 24, cy); g.lineTo(x, cy + r); g.lineTo(x - 24, cy); g.closePath(); g.stroke(); }
+  }
+  g.fillStyle = "rgba(0,0,0,.4)"; g.fillRect(0, 0, 3, h); g.fillRect(w - 3, 0, 3, h);
+  rustOn(g, w, h, 4); dirtOn(g, w, h, .3);
+  if (stencil) {
+    g.save(); g.translate(w / 2, h * .3); g.rotate(-.03); g.fillStyle = "rgba(184,36,24,.85)"; g.font = "bold 46px Oswald, Arial Narrow, Impact, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("КАРАНТИН", 0, 0);
+    g.fillStyle = "rgba(142,140,133,.9)"; for (let i = -3; i <= 3; i++) g.fillRect(-120, i * 11 + 2, 240, 2); // трафаретные перемычки
+    g.restore();
+    g.fillStyle = "rgba(184,36,24,.8)"; g.font = "bold 22px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.fillText("ВХОД ЗАПРЕЩЁН", w / 2, h * .78);
+  }
+}
+function paintWire(g, w, h) {
+  g.clearRect(0, 0, w, h); g.strokeStyle = "#555550"; g.lineWidth = 2.2;
+  for (let x = 0; x <= w; x += 13) { g.beginPath(); g.ellipse(x, h / 2, h * .36, h * .44, .5, 0, TAU); g.stroke(); }
+  g.fillStyle = "#6a6a62"; for (let x = 0; x <= w; x += 13) { g.fillRect(x - 1, h * .1, 3, 4); g.fillRect(x + 4, h * .84, 3, 4); }
+}
+function paintSand(g, w, h) {
+  g.fillStyle = "#6f6248"; g.fillRect(0, 0, w, h);
+  const bw = 62, bh = 30;
+  for (let row = 0; row * bh < h + bh; row++) for (let x = (row % 2 ? -bw / 2 : 0); x < w + bw; x += bw + 2) {
+    const y = h - (row + 1) * bh, gr = g.createRadialGradient(x + bw / 2, y + bh * .4, 4, x + bw / 2, y + bh / 2, bw * .7);
+    const t = Math.random(); gr.addColorStop(0, t < .5 ? "#b9a77c" : "#a8976d"); gr.addColorStop(1, "#6e6148");
+    g.fillStyle = gr; g.beginPath(); g.roundRect(x, y + 2, bw, bh - 3, 12); g.fill();
+    g.strokeStyle = "rgba(40,30,15,.5)"; g.lineWidth = 2; g.stroke();
+    g.strokeStyle = "rgba(255,240,200,.15)"; g.beginPath(); g.moveTo(x + 10, y + 8); g.lineTo(x + bw - 10, y + 8); g.stroke();
+  }
+  noiseOn(g, w, h, 1200, .06); dirtOn(g, w, h, .2);
+}
+function paintJersey(g, w, h) {
+  g.fillStyle = "#9b9a93"; g.fillRect(0, 0, w, h); noiseOn(g, w, h, 1500, .07);
+  g.save(); g.beginPath(); g.rect(0, 0, w, h * .34); g.clip();
+  for (let x = -h; x < w + h; x += 44) { g.fillStyle = "#c8281e"; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 22, 0); g.lineTo(x + 22 - h * .34, h * .34); g.lineTo(x - h * .34, h * .34); g.closePath(); g.fill(); }
+  g.restore();
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(0, h * .34, w, 3); g.fillRect(0, 0, 3, h); g.fillRect(w - 3, 0, 3, h);
+  g.strokeStyle = "rgba(0,0,0,.18)"; g.lineWidth = 2; g.strokeRect(10, h * .42, w - 20, h * .5);
+  rustOn(g, w, h, 2); dirtOn(g, w, h, .25);
+}
+function paintChain(g, w, h) {
+  g.clearRect(0, 0, w, h); g.strokeStyle = "#3a3d40"; g.lineWidth = 1.6;
+  for (let d = -h; d < w + h; d += 11) { g.beginPath(); g.moveTo(d, 0); g.lineTo(d + h, h); g.stroke(); g.beginPath(); g.moveTo(d + h, 0); g.lineTo(d, h); g.stroke(); }
+  g.fillStyle = "#2c2f32"; g.fillRect(0, 0, w, 3); g.fillRect(0, h - 3, w, 3);
+  // табличка «высокое напряжение»
+  g.fillStyle = "#f2c81e"; g.fillRect(w / 2 - 14, h / 2 - 16, 28, 28); g.strokeStyle = "#222"; g.lineWidth = 2; g.strokeRect(w / 2 - 14, h / 2 - 16, 28, 28);
+  g.fillStyle = "#222"; g.beginPath(); g.moveTo(w / 2 + 4, h / 2 - 12); g.lineTo(w / 2 - 6, h / 2 + 1); g.lineTo(w / 2, h / 2 + 1); g.lineTo(w / 2 - 4, h / 2 + 10); g.lineTo(w / 2 + 7, h / 2 - 3); g.lineTo(w / 2 + 1, h / 2 - 3); g.closePath(); g.fill();
+}
+const texConcrete = canvasTex(256, 256, paintConcrete), texStencil = canvasTex(256, 256, (g, w, h) => paintConcrete(g, w, h, true)), texWire = canvasTex(256, 64, paintWire), texSand = canvasTex(256, 256, paintSand), texJersey = canvasTex(256, 256, paintJersey), texChain = canvasTex(128, 128, paintChain);
+const barrBox = new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), barrPlane = new THREE.PlaneGeometry(1, 1).translate(0, .5, 0);
+function mkInst(geo, mat, shadow) { const m = new THREE.InstancedMesh(geo, mat, barrMax); m.castShadow = shadow; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; scene.add(m); return m; }
+const barr = mkInst(barrBox, new THREE.MeshStandardMaterial({ map: texSand, roughness: .95 }), true); // мешки с песком
+const barrJersey = mkInst(barrBox, new THREE.MeshStandardMaterial({ map: texJersey, roughness: .85 }), true);
+const wallPanel = mkInst(barrBox, new THREE.MeshStandardMaterial({ map: texConcrete, roughness: .95 }), true);
+const wallStencil = mkInst(barrBox, new THREE.MeshStandardMaterial({ map: texStencil, roughness: .95 }), true);
+const wallPost = mkInst(new THREE.CylinderGeometry(.5, .55, 1, 8).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x5a5c58, roughness: .7, metalness: .3 }), true);
+const wallWire = mkInst(barrPlane, new THREE.MeshStandardMaterial({ map: texWire, transparent: true, alphaTest: .4, side: THREE.DoubleSide, roughness: .6, metalness: .5 }), false);
+const fenceMesh = mkInst(barrPlane, new THREE.MeshStandardMaterial({ map: texChain, transparent: true, alphaTest: .4, side: THREE.DoubleSide, roughness: .6, metalness: .4 }), false);
+const barrAll = [barr, barrJersey, wallPanel, wallStencil, wallPost, wallWire, fenceMesh];
 function updateBarricades() {
   if (!barrDirty) return; barrDirty = false;
-  const m = new THREE.Matrix4(), col = new THREE.Color();
-  let n = 0;
-  for (let i = 0; i < grid.length && n < barrMax; i++) {
+  const m = new THREE.Matrix4(), col = new THREE.Color(), q = new THREE.Quaternion(), qx = new THREE.Quaternion(), qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), p = new THREE.Vector3(), s = new THREE.Vector3();
+  const n = new Map(barrAll.map(o => [o, 0]));
+  const put = (o, x, y, z, sx, sy, sz, rot, k) => { const i = n.get(o); if (i >= barrMax) return; p.set(x, y, z); s.set(sx, sy, sz); m.compose(p, rot ? qz : qx, s); o.setMatrixAt(i, m); o.setColorAt(i, col.setScalar(k)); n.set(o, i + 1); };
+  for (let i = 0; i < grid.length; i++) {
     if (grid[i] !== 6) continue;
     const gx = i % GW, gy = (i / GW) | 0, wall = wallMask[i], el = elecMask[i], hp = clamp(bhp[i] / (wall ? 300 : el ? 60 : 35), .25, 1), r = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
-    // тонкая линия вдоль соседей: если слева/справа тоже заграждение — плита вытянута по x, иначе по z
+    const x = X(gx * CS + 4), y = gY(gx * CS + 4, gy * CS + 4), z = Z(gy * CS + 4), k = .55 + .45 * hp;
+    // линия идёт вдоль соседей: по x, по z, или угол
     const hx = (gx > 0 && grid[i - 1] === 6) || (gx < GW - 1 && grid[i + 1] === 6), hy = (gy > 0 && grid[i - GW] === 6) || (gy < GH - 1 && grid[i + GW] === 6);
-    const thin = wall ? .38 : el ? .25 : .55, sx = hx && !hy ? 1.01 : hy && !hx ? thin : hx && hy ? 1.01 : .7, sz = hx && !hy ? thin : hy && !hx ? 1.01 : hx && hy ? 1.01 : .7;
-    m.makeScale(CS * sx, (wall ? 18 : el ? 9 : 6.5) * hp, CS * sz).setPosition(X(gx * CS + 4), gY(gx * CS + 4, gy * CS + 4), Z(gy * CS + 4));
-    barr.setMatrixAt(n, m); barr.setColorAt(n, col.set(wall ? (r % 2 ? "#a19d93" : "#97938a") : el ? "#4a6a7a" : r % 3 === 0 ? "#8a7a5a" : r % 3 === 1 ? "#a3a29a" : "#7d6c4c").multiplyScalar(.6 + .4 * hp)); n++;
+    const alongZ = hy && !hx, corner = hx && hy;
+    if (wall) {
+      const hgt = 18 * hp, th = 1.3;
+      if (corner) { put(wallPanel, x, y, z, CS * 1.02, hgt, th, false, k); put(wallPanel, x, y, z, th, hgt, CS * 1.02, false, k); }
+      else put(r % 4 === 0 ? wallStencil : wallPanel, x, y, z, alongZ ? th : CS * 1.02, hgt, alongZ ? CS * 1.02 : th, false, k);
+      put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), 1, hgt + 1.6, 1, false, k);
+      if (hp > .5) put(wallWire, x, y + hgt + .2, z, CS * 1.02, 2.6, 1, alongZ, k);
+    } else if (el) {
+      const hgt = 9 * hp;
+      put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, alongZ, k);
+      if (corner) put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, true, k);
+      put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), .7, hgt + .6, .7, false, k);
+    } else {
+      // баррикада: мешки с песком или дорожные блоки, слегка вразнобой
+      const jersey = r % 3 === 0, hgt = (jersey ? 5.2 : 6.5) * hp, th = jersey ? .5 : .62, j = ((r >> 8) % 100) / 100 - .5;
+      put(jersey ? barrJersey : barr, x + (alongZ ? j * 1.2 : 0), y, z + (alongZ ? 0 : j * 1.2), (alongZ ? th : 1.02) * CS, hgt, (alongZ ? 1.02 : th) * CS, false, k * (jersey ? 1 : .9 + j * .2));
+    }
   }
-  barr.count = n; barr.instanceMatrix.needsUpdate = true; if (barr.instanceColor) barr.instanceColor.needsUpdate = true;
+  for (const o of barrAll) { o.count = n.get(o); o.instanceMatrix.needsUpdate = true; if (o.instanceColor) o.instanceColor.needsUpdate = true; }
 }
