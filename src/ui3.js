@@ -3,6 +3,7 @@ const LAYOUT_INFO = {
   random: "каждый раз новая", grid: "ровные кварталы, проспекты", river: "река и мосты через неё", port: "море вдоль одного края",
   mega: "небоскрёбы почти везде", old: "круглая площадь, лучи и кольца", park: "огромный парк с прудом", suburb: "частные дома и сады", industry: "склады и контейнеры",
   mountain: "горы с двух сторон, холмы в городе", valley: "река в долине между хребтами",
+  ring: "два кольца и восемь лучей вокруг площади", radial: "двенадцать лучей и три кольца", diag: "сетка, прорезанная диагоналями", winding: "петляющие улицы без прямых углов",
 };
 const wiz = { step: 0, scen: "sandbox", layout: "random", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true };
 function cardHTML(name, value, title, sub, checked) {

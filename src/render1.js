@@ -152,6 +152,17 @@ function paintGround(g) {
     else { const sd = shoreD(x, y), wd = waterD(x, y); if (sd < 14) { g.fillStyle = "#c9b98f"; g.fillRect(gx * CS, gy * CS, CS + .5, CS + .5); } else if (wd < 10 && c === 2) { g.fillStyle = wd < 4 ? "#8a7a52" : "#6a7a44"; g.fillRect(gx * CS, gy * CS, CS + .5, CS + .5); } }
   }
   for (const b of bridges) { g.fillStyle = "#3d4042"; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); g.strokeStyle = "rgba(235,235,230,.75)"; g.lineWidth = .7; g.setLineDash([10, 10]); g.beginPath(); if (b.v) { g.moveTo((b.x0 + b.x1) / 2, b.y0); g.lineTo((b.x0 + b.x1) / 2, b.y1); } else { g.moveTo(b.x0, (b.y0 + b.y1) / 2); g.lineTo(b.x1, (b.y0 + b.y1) / 2); } g.stroke(); g.setLineDash([]); }
+  // изогнутые и диагональные дороги: тротуар, асфальт, разметка
+  for (const cv of curves) {
+    const path = () => { g.beginPath(); cv.pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
+    g.lineJoin = "round"; g.lineCap = cv.closed ? "butt" : "round"; g.setLineDash([]);
+    path(); g.strokeStyle = "#8f8f8a"; g.lineWidth = cv.hw * 2 + 13; g.stroke();
+    path(); g.strokeStyle = "#b9b8b0"; g.lineWidth = cv.hw * 2 + 2.4; g.stroke();
+    path(); g.strokeStyle = "#3b3e40"; g.lineWidth = cv.hw * 2; g.stroke();
+    path(); g.strokeStyle = "rgba(235,235,230,.75)"; g.lineWidth = .7; g.setLineDash([10, 10]); g.stroke(); g.setLineDash([]);
+    if (cv.hw >= 20) { for (const off of [-cv.hw / 2, cv.hw / 2]) { g.beginPath(); for (let t = 0; t <= cv.len; t += 6) { const p = curvePos(cv, t); const x = p.x - p.ty * off, y = p.y + p.tx * off; t ? g.lineTo(x, y) : g.moveTo(x, y); } g.strokeStyle = "rgba(235,235,230,.6)"; g.lineWidth = .6; g.setLineDash([10, 12]); g.stroke(); g.setLineDash([]); } }
+  }
+  g.lineJoin = "miter"; g.lineCap = "butt";
   g.restore();
 }
 const groundCv = document.createElement("canvas"); groundCv.width = W * GS; groundCv.height = H * GS;

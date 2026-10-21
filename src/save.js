@@ -17,7 +17,7 @@ function serializeGame() {
     v: 1, date: Date.now(), layoutKey, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId,
     grid: b64(grid), bhp: b64(Uint8Array.from(bhp, v => clamp(Math.round(v), 0, 255))), wall: b64(wallMask),
     buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
-    streets, lanes: lanes.map(l => ({ s: streets.indexOf(l.s), dir: l.dir, c: l.c, a0: l.a0, a1: l.a1 })), blocks: blocks.map(b => ({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, kind: b.kind, d: b.d, lot: b.lot })),
+    curves: curves.map(c => ({ pts: c.closed ? c.pts.slice(0, -1) : c.pts, hw: c.hw, closed: c.closed })), streets, lanes: lanes.map(l => ({ s: streets.indexOf(l.s), dir: l.dir, c: l.c, a0: l.a0, a1: l.a1 })), blocks: blocks.map(b => ({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, kind: b.kind, d: b.d, lot: b.lot })),
     trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), lamps, fountains, fences, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
     special: Object.fromEntries(Object.entries(special).map(([k, v]) => [k, { x: v.x, y: v.y, b: bi.get(v.b) }])),
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
@@ -31,8 +31,8 @@ function loadGame(S) {
   if (fps.on) stopFps();
   layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
   grid.set(unb64(S.grid, Uint8Array)); bhp.set(unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
-  streets = S.streets; for (const s of streets) { if (s.a0 === undefined) { s.a0 = 0; s.a1 = s.v ? H : W; } }
-  lanes = S.lanes.map(l => ({ s: streets[l.s], dir: l.dir, c: l.c, a0: l.a0 ?? 0, a1: l.a1 ?? (streets[l.s].v ? H : W) })); blocks = S.blocks;
+  curves = (S.curves || []).map(c => curveBuild(c.pts, c.hw, c.closed)); streets = S.streets; for (const s of streets) { if (s.a0 === undefined) { s.a0 = 0; s.a1 = s.v ? H : W; } }
+  lanes = S.lanes.map(l => ({ s: streets[l.s], dir: l.dir, c: l.c, a0: l.a0 ?? 0, a1: l.a1 ?? (streets[l.s].v ? H : W) })); blocks = S.blocks; buildJunctions();
   buildings = S.buildings.map(b => ({ ...b, h: b.floors * (b.kind === "house" ? 11 : 12), occ: [] }));
   trees = S.trees; lamps = S.lamps; fountains = S.fountains; fences = S.fences; waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
   special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));

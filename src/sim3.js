@@ -34,7 +34,7 @@ function placeOnLane(c, lane, along) {
 }
 let fled = 0;
 // сколько машин нужно городу: по суммарной длине полос
-function trafficN() { let L = 0; for (const l of lanes) L += Math.max(0, l.a1 - l.a0); return Math.round(L / 760); }
+function trafficN() { let L = 0; for (const l of lanes) L += Math.max(0, l.a1 - l.a0); for (const cv of curves) L += cv.len * 2; return Math.round(L / 760); }
 function nearestEdge(x, y) { const opts = [[x, -40], [x, H + 40], [-40, y], [W + 40, y]]; let best = opts[0], bd = 1e9; for (const o of opts) { const d = Math.hypot(o[0] - x, o[1] - y); if (d < bd) { bd = d; best = o; } } return { x: best[0], y: best[1] }; }
 function turnToward(c, g) {
   const gx = g.x - c.x, gy = g.y - c.y, L = Math.hypot(gx, gy) || 1;
@@ -45,10 +45,11 @@ function turnToward(c, g) {
 function spawnTraffic(n) {
   for (let i = 0; i < n; i++) {
     const lane = pick(lanes);
-    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
+    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
     const r = Math.random();
     if (r < .04) { c.tanker = true; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
     else if (r < .09) { c.bus = true; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
+    if (curves.length && Math.random() < .4) { const cv = pick(curves); c.lane = lane; placeOnCurve(c, cv, rnd(10, cv.len - 10), Math.random() < .5 ? 1 : -1); if (blocked(c.x, c.y)) continue; c.v = c.spd * rnd(.5, 1); cars.push(c); continue; }
     placeOnLane(c, lane, rnd(lane.a0 + 30, lane.a1 - 30));
     if (blocked(c.x, c.y) || laneBusy(lane, lane.s.v ? c.y : c.x, c)) continue;
     c.ang = Math.atan2(DY[c.dir], DX[c.dir]); c.v = c.spd * rnd(.5, 1);
@@ -87,6 +88,8 @@ function stepTraffic(dt) {
     }
     if (!c.moving) continue;
     if (c.wreck) { abandonCar(c, null); continue; }
+    if (c.curve) { stepCurveCar(c, dt); continue; }
+    if (junctions.length && tryEnterCurve(c)) continue;
     const dx = DX[c.dir], dy = DY[c.dir];
     // что впереди: машины, люди, препятствия
     let clear = 1e9, people = false, zAhead = false, ahead = null;

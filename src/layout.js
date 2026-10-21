@@ -26,7 +26,7 @@ function gridStreets() {
 function bspStreets(irr) {
   edgeStreets();
   const MINB = 92;
-  const maxBlock = (x, y) => { const d = districtOf(x, y); return d === 0 ? 190 : d === 1 ? 235 : 285; };
+  const maxBlock = (x, y) => { const d = districtOf(x, y); return (d === 0 ? 190 : d === 1 ? 235 : 285) * (L.blockK || 1); };
   const rec = (x0, y0, x1, y1, hL, hR, hT, hB, depth) => {
     const w = x1 - x0 - hL - hR, h = y1 - y0 - hT - hB, MAXB = maxBlock((x0 + x1) / 2, (y0 + y1) / 2);
     const canX = w > 2 * MINB + 40, canY = h > 2 * MINB + 40, mustX = canX && w > MAXB, mustY = canY && h > MAXB;

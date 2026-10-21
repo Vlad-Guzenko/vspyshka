@@ -563,7 +563,7 @@ function pickPatientZero() {
   return pick(scored.slice(0, Math.max(1, Math.ceil(scored.length / 3))))[1];
 }
 function newCitySim(n) {
-  genCity(); buildCrossings();
+  genCity(); buildCrossings(); buildJunctions();
   agents = []; stats = []; events = []; firsts = {}; noises = []; simT = 0; bites = 0; deaths = 0; zkills = 0; saved = 0; cured = 0;
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();

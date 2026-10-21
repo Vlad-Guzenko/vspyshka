@@ -29,6 +29,10 @@ const LAYOUTS = {
   park: { n: "Город-парк", d: [.3, .85], park: true, irregular: .6 },
   suburb: { n: "Пригород", d: [.12, .38], irregular: .85, compact: true },
   industry: { n: "Промзона", d: [.25, .85], industry: .45, irregular: .5 },
+  ring: { n: "Кольцевой город", d: [.3, .85], irregular: .5, blockK: 1.5, curves: "ring" },
+  radial: { n: "Лучевой город", d: [.3, .9], irregular: .45, blockK: 1.9, curves: "radial" },
+  diag: { n: "Диагонали", d: [.36, .82], irregular: 0, curves: "diag" },
+  winding: { n: "Извилистые улицы", d: [.25, .8], irregular: .7, blockK: 1.3, curves: "winding" },
   mountain: { n: "Горный городок", d: [.3, .8], hills: true, ridges: 2, irregular: .8, hidden: true },
   valley: { n: "Долина", d: [.28, .82], river: true, hills: true, ridges: "long", irregular: .7, hidden: true },
 };
@@ -142,6 +146,7 @@ function genCity(layout = "random") {
     }
   }
   buildSpecialDistricts(); buildRural(); buildWalls();
+  genCurves();
   // вода поверх всего: клетки в воде — вода, мосты — дорога
   for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) { const x = gx * CS + 4, y = gy * CS + 4; if (waterAt(x, y)) grid[gy * GW + gx] = 9; }
   for (const b of bridges) fillCells(b.x0, b.y0, b.x1, b.y1, 0);
