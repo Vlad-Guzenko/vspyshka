@@ -48,9 +48,16 @@ function rasterCurve(cv) {
   for (const i of road) grid[i] = 0;
   for (let t = 40; t < cv.len - 20; t += 64) { const p = curvePos(cv, t); for (const s of [-1, 1]) { const x = p.x + s * (-p.ty) * (cv.hw + 3), y = p.y + s * p.tx * (cv.hw + 3); if (x > 10 && y > 10 && x < W - 10 && y < H - 10 && cellAt(x, y) === 1) lamps.push({ x, y, f: Math.abs(p.tx) > Math.abs(p.ty) ? (s < 0 ? 0 : 1) : (s < 0 ? 2 : 3) }); } }
 }
+// ближайшая точка на осевой улице (не краевой): концы открытых дорог притягиваются к ним, чтобы был стык
+function nearestStreetPt(x, y, maxD) {
+  let best = null, bd = maxD;
+  for (const s of streets) { if (s.gone || s.edge) continue; const along = clamp(s.v ? y : x, s.a0 + 20, s.a1 - 20), px = s.v ? s.p : along, py = s.v ? along : s.p, d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = [px, py]; } }
+  return best;
+}
 function addCurve(pts, hw, closed) {
   pts = pts.filter(p => p[0] > 4 && p[1] > 4 && p[0] < W - 4 && p[1] < H - 4);
   if (pts.length < 2) return null;
+  if (!closed) for (const k of [0, pts.length - 1]) { const q = nearestStreetPt(pts[k][0], pts[k][1], 200); if (q && Math.hypot(q[0] - pts[k][0], q[1] - pts[k][1]) > 6) { if (k === 0) pts.unshift(q); else pts.push(q); } }
   const cv = curveBuild(pts, hw, closed);
   if (cv.len < 60 || !curveClear(cv)) return null;
   rasterCurve(cv); curves.push(cv); return cv;
@@ -133,7 +140,7 @@ function tryEnterCurve(c) {
   for (const j of junctions) {
     if (c.jAt === j) continue;
     if (Math.abs(j.x - c.x) > 9 || Math.abs(j.y - c.y) > 9) continue;
-    c.jAt = j; if (Math.random() > .45) return false;
+    c.jAt = j; if (Math.random() > .6) return false;
     placeOnCurve(c, j.cv, j.t === 0 ? 0 : j.cv.len, j.t === 0 ? 1 : -1); return true;
   }
   return false;
