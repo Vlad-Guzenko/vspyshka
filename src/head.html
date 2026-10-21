@@ -1,0 +1,414 @@
+<title>Вспышка</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Штаб наблюдения: слева 3D-город, справа сводка, график и журнал */
+:root{
+  --bg:#0e1112; --panel:#161b1d; --raise:#1e2527; --line:#2a3336;
+  --fg:#e3e7e5; --muted:#8b9692; --amber:#f2b33d;
+  --c-healthy:#5fb3e8; --c-infected:#e8c447; --c-zombie:#7fcf5a; --c-dead:#9a3b3b; --c-saved:#c9a5f0; --c-army:#9aa36a; --c-police:#4f7fe0;
+  --f-display:"Oswald","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+.vig{position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(160,0,0,.75) 100%);transition:opacity .15s}
+.vig.z{background:radial-gradient(ellipse at center,transparent 40%,rgba(70,0,0,.85) 100%)}
+.fpshud{position:absolute;inset:0;pointer-events:none}
+.cross{position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%)}
+.cross::before,.cross::after{content:"";position:absolute;background:rgba(255,255,255,.85);box-shadow:0 0 2px #000}
+.cross::before{left:8px;top:0;width:2px;height:18px}.cross::after{top:8px;left:0;width:18px;height:2px}
+.fbars{position:absolute;left:16px;bottom:16px;display:flex;flex-direction:column;gap:5px;width:220px}
+.fbar{height:9px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px;overflow:hidden}
+.fbar i{display:block;height:100%;width:100%}
+.fbar.hp i{background:#d8443a}.fbar.st i{background:#e2c25a}
+.fammo{position:absolute;right:18px;bottom:16px;font-family:var(--f-mono);font-size:24px;color:#fff;text-shadow:0 1px 3px #000}
+.fstatus{position:absolute;left:16px;bottom:52px;font-size:13px;color:#ffd9a0;text-shadow:0 1px 2px #000}
+.fmsg{position:absolute;left:50%;top:22%;transform:translateX(-50%);font-family:var(--f-display);font-size:20px;letter-spacing:.04em;color:#fff;text-shadow:0 2px 6px #000;pointer-events:none;text-align:center;max-width:80%}
+.fdead{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--f-display);font-size:26px;color:#fff;background:rgba(60,0,0,.45);text-shadow:0 2px 6px #000;pointer-events:none;text-align:center;padding:20px}
+.fhelp{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:11.5px;color:#d5dbd8;background:rgba(14,17,18,.65);border-radius:4px;padding:4px 8px;pointer-events:none;white-space:nowrap}
+.fpause{position:absolute;inset:0;display:grid;place-items:center;background:rgba(5,7,8,.5)}
+body.fps .cams,body.fps #mini,body.fps .camhelp,body.fps .objective{display:none}
+button.card{text-align:left;font:inherit;color:inherit}
+@media (max-width:700px){.fhelp{white-space:normal;width:90%}}
+
+.vac{display:flex;align-items:center;gap:8px;font-size:12px}.vac small{color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-size:10.5px}.vbar{flex:1;height:8px;background:var(--raise);border-radius:4px;overflow:hidden}.vbar i{display:block;height:100%;width:0;background:#5fe0a0}.vac output{font-family:var(--f-mono);min-width:48px;text-align:right}
+.slots{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}.slots li{display:flex;flex-direction:column;gap:6px;background:var(--raise);border-radius:6px;padding:10px}.slots small{display:block;color:var(--muted);font-size:12px}.slotbtns{display:flex;gap:6px;flex-wrap:wrap}.facrow{display:flex;flex-direction:column;gap:5px;background:var(--raise);border-radius:6px;padding:9px 10px;margin-bottom:6px;border-left:3px solid var(--k,#888)}.facrow b{font-size:13px}.facrow span{font-size:12px;color:var(--muted)}.btn:disabled{opacity:.4;cursor:not-allowed}
+.edfl{display:flex;align-items:center;gap:6px;font-size:12.5px;margin-left:8px}.edfl button{background:var(--panel);border:1px solid var(--line);border-radius:4px;width:26px;height:26px}
+.credits{font-size:12px;color:var(--muted)}.credits summary{cursor:pointer;color:var(--fg)}.credits p{margin:6px 0 0;line-height:1.5}
+.tut{position:fixed;z-index:120;background:var(--panel);border:1px solid var(--amber);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,.5)}.tut p{margin:0;font-size:13.5px;line-height:1.5}.tutbar{display:flex;align-items:center;gap:8px}.tutbar small{flex:1;color:var(--muted)}
+.tut-hl{outline:2px solid var(--amber)!important;outline-offset:3px;border-radius:6px}
+.tools{gap:6px 10px}.tgroup{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:3px 6px 3px 3px;border:1px solid var(--line);border-radius:6px}.tgroup>span{font-family:var(--f-display);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 4px}
+.flash{position:fixed;inset:0;background:#fffaf0;z-index:90;pointer-events:none}
+.modal{position:fixed;inset:0;z-index:100;background:rgba(5,7,8,.62);display:grid;place-items:center;padding:16px}
+.dlg{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;display:flex;flex-direction:column;gap:10px;width:min(460px,100%);max-height:calc(100vh - 32px);overflow:auto}
+.dlg.wide{width:min(860px,100%)}
+.dlghead{display:flex;justify-content:space-between;align-items:center}
+.dlg h2{font-family:var(--f-display);font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin:0;font-size:22px}
+.dlg h2.good{color:#8fe08a}.dlg h2.bad{color:#ff7a6a}
+.dlg h3{font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;margin:6px 0 0;font-size:13px;color:var(--muted)}
+.x{background:none;border:0;font-size:24px;color:var(--muted);line-height:1}
+.steps{display:flex;gap:6px;list-style:none;margin:0;padding:0;counter-reset:s}
+.steps li{counter-increment:s;font-size:12px;color:var(--muted);padding:4px 10px;border:1px solid var(--line);border-radius:999px}
+.steps li::before{content:counter(s) ". "}
+.steps li[aria-current="step"]{color:var(--amber);border-color:var(--amber)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
+.cards.small{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+.card{display:flex;flex-direction:column;gap:4px;background:var(--raise);border:1px solid var(--line);border-radius:6px;padding:10px 12px;cursor:pointer;position:relative}
+.card input{position:absolute;opacity:0}
+.card:has(input:checked){border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
+.card:has(input:focus-visible){outline:2px solid var(--amber);outline-offset:2px}
+.card b{font-size:14px}.card small{font-size:12px;color:var(--muted);line-height:1.4}
+.tag{display:block;font-family:var(--f-mono);font-size:10.5px;color:var(--amber);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+fieldset{border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px 16px}
+legend{font-size:12px;color:var(--muted);padding:0 4px}
+.note{font-size:12.5px;color:var(--amber);margin:0}
+.dlgbar{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.btn.primary{background:var(--amber);color:#1a1405;border-color:var(--amber)}
+.resstats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.resstats div{background:var(--raise);border-radius:4px;padding:6px 8px;display:flex;flex-direction:column}
+.resstats small{font-size:10.5px;color:var(--muted);text-transform:uppercase}.resstats b{font-family:var(--f-mono);font-size:17px}
+.objective{position:absolute;left:10px;top:10px;max-width:min(420px,60%);background:rgba(14,17,18,.85);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:4px;padding:6px 10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;pointer-events:none}
+.objective b{font-family:var(--f-display);font-weight:500;letter-spacing:.05em;text-transform:uppercase;font-size:13px;color:var(--amber)}
+.radio{position:absolute;left:50%;top:60px;transform:translateX(-50%);background:rgba(14,17,18,.9);border:1px solid #4a5a40;border-radius:4px;padding:6px 12px;font-family:var(--f-mono);font-size:12px;color:#c9e0b8;pointer-events:none;max-width:80%}
+
+html,body{height:100%;background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-body);font-size:14px;line-height:1.45;box-sizing:border-box;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
+.app{height:100%;max-width:1680px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.top{flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 20px}
+.brand{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap}
+h1{font-family:var(--f-display);font-weight:600;font-size:clamp(22px,2.6vw,30px);margin:0;letter-spacing:.04em;text-transform:uppercase}
+h1 span{color:var(--c-zombie)}
+.clock{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
+.acts{display:flex;flex-wrap:wrap;gap:6px}
+.btn{background:var(--raise);border:1px solid var(--line);border-radius:4px;padding:6px 10px;font-size:12.5px;font-weight:600}
+.btn:hover{border-color:var(--muted)}
+.btn[aria-pressed="true"]{border-color:var(--amber);color:var(--amber)}
+.lab{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px}
+.play{display:flex;flex-direction:column;gap:8px;min-height:0;min-width:0}
+.tools{flex:none;display:flex;flex-wrap:wrap;gap:4px}
+.tools button{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 10px;font-size:12.5px;display:flex;gap:6px;align-items:center}
+.tools button i{width:9px;height:9px;border-radius:50%;flex:none}
+.tools button kbd{font-family:var(--f-mono);font-size:10px;color:var(--muted)}
+.tools button[aria-pressed="true"]{border-color:var(--amber);color:var(--amber)}
+.tools button:disabled{opacity:.4;cursor:not-allowed}
+.tools em{font-style:normal;font-family:var(--f-mono);font-size:11px;color:var(--amber)}
+.stage{flex:1;min-height:0;position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#1b1f20}
+#cv{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}
+.hover{position:absolute;pointer-events:none;background:rgba(14,17,18,.88);border:1px solid var(--line);border-radius:4px;padding:5px 8px;font-size:12px;line-height:1.35;max-width:240px;transform:translate(14px,14px)}
+.hover b{display:block;font-weight:600}
+.cams{position:absolute;right:10px;top:10px;display:flex;gap:4px}
+.cams button{background:rgba(14,17,18,.78);border:1px solid var(--line);border-radius:4px;padding:5px 9px;font-size:12px;color:var(--fg)}
+.cams button[aria-pressed="true"]{border-color:var(--amber);color:var(--amber)}
+#mini{position:absolute;left:10px;bottom:10px;width:240px;height:160px;border:1px solid var(--line);border-radius:4px;cursor:pointer;background:#222}
+.help{position:absolute;inset:50px 20px auto auto;max-width:440px;max-height:calc(100% - 70px);overflow:auto;background:rgba(14,17,18,.94);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;font-size:13px}
+.help h3{margin:0;font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:15px}
+.help dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.help dt{font-family:var(--f-mono);font-size:12px;color:var(--amber)}
+.help dd{margin:0}
+.day i{display:inline-block;width:10px;height:10px;border-radius:50%;background:#f2c94c;margin-right:6px;vertical-align:-1px;box-shadow:0 0 6px #f2c94c}
+.day[aria-pressed="true"] i{background:#cfd8ff;box-shadow:inset -3px -2px 0 #1b2236}
+@media (max-width:600px){#mini{width:150px;height:100px}.cams{flex-wrap:wrap;max-width:60%;justify-content:flex-end}.camhelp{display:none}}
+.camhelp{position:absolute;right:10px;bottom:10px;max-width:calc(100% - 280px);pointer-events:none;font-size:11.5px;color:#cfd6d3;background:rgba(14,17,18,.7);border-radius:4px;padding:5px 8px;line-height:1.5}
+.loading{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.banner{position:absolute;left:50%;top:14px;transform:translateX(-50%);font-family:var(--f-display);font-size:22px;letter-spacing:.06em;text-transform:uppercase;padding:6px 16px;border-radius:4px;background:rgba(14,17,18,.85);border:1px solid var(--line);pointer-events:none}
+.tip{flex:none;font-size:13px;color:var(--muted);min-height:20px}
+.tip b{color:var(--fg)}
+.panel{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:auto}
+.sec{padding:12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.sec h2{font-family:var(--f-display);font-weight:500;font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:0;color:var(--muted)}
+.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.counts div{background:var(--raise);border-radius:4px;padding:6px 8px;display:flex;flex-direction:column;gap:1px;border:1px solid transparent;border-left:3px solid var(--k);cursor:pointer}
+.counts div:hover{border-color:var(--line);border-left-color:var(--k)}
+.counts div[aria-pressed="true"]{border-color:var(--k);box-shadow:0 0 0 1px var(--k) inset}
+.counts small{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.counts b{font-family:var(--f-mono);font-size:18px;font-variant-numeric:tabular-nums;color:var(--k)}
+#chart{width:100%;height:120px;display:block}
+.row{display:flex;align-items:center;gap:10px;font-size:13px}
+.row label{flex:1;min-width:0}
+.row output{font-family:var(--f-mono);font-size:12px;min-width:56px;text-align:right}
+input[type=range]{width:100%;accent-color:var(--amber)}
+.sel{background:var(--raise);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-size:13px}
+#layoutName{min-width:0;font-family:var(--f-body);color:var(--amber)}
+.chk{display:flex;gap:8px;align-items:center;font-size:13px}
+.chk input{accent-color:var(--amber)}
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-family:var(--f-mono);font-size:11.5px}
+.log li{color:#a6b2ae}
+.log li.bad{color:#ff7a6a}
+.log li.good{color:#8fe08a}
+.log time{color:#5f6c68;margin-right:6px}
+@media (max-width:980px){html,body{height:auto}.app{height:auto}.lab{grid-template-columns:minmax(0,1fr)}.stage{flex:none;aspect-ratio:14/9}}
+.stage.cine::before,.stage.cine::after{content:"";position:absolute;left:0;right:0;height:8%;background:#000;z-index:5;pointer-events:none}
+.stage.cine::before{top:0}.stage.cine::after{bottom:0}
+.stage.cine #mini,.stage.cine .camhelp,.stage.cine .objective{display:none}
+.news{position:absolute;inset:0;pointer-events:none;z-index:6;font-family:var(--f-body)}
+.nlive{position:absolute;left:18px;top:11%;background:rgba(200,20,20,.92);color:#fff;font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;font-size:13px;padding:4px 10px;border-radius:3px;display:flex;align-items:center;gap:7px}
+.nlive i{width:9px;height:9px;border-radius:50%;background:#fff;animation:blink 1s steps(2) infinite}
+@keyframes blink{to{opacity:.2}}
+.nhead{position:absolute;left:18px;bottom:calc(8% + 40px);max-width:60%;display:flex;flex-direction:column}
+.nhead b{background:#f2b33d;color:#1a1405;font-family:var(--f-display);font-size:22px;letter-spacing:.03em;text-transform:uppercase;padding:4px 12px;line-height:1.2}
+.nhead span{background:rgba(14,17,18,.9);color:#e3e7e5;font-size:12.5px;padding:3px 12px;align-self:flex-start}
+.nbar{position:absolute;left:0;right:0;bottom:8%;height:30px;background:rgba(10,12,14,.92);border-top:2px solid #f2b33d;display:flex;align-items:center;overflow:hidden}
+.nticker{flex:1;overflow:hidden;white-space:nowrap}
+.nticker span{display:inline-block;padding-left:100%;animation:ticker 28s linear infinite;font-size:13px;color:#e3e7e5;font-family:var(--f-mono)}
+@keyframes ticker{to{transform:translateX(-100%)}}
+.nclock{flex:none;background:#f2b33d;color:#1a1405;font-family:var(--f-mono);font-weight:600;padding:0 12px;height:100%;display:flex;align-items:center;font-size:13px}
+.rec{position:absolute;left:10px;top:48px;z-index:7;display:flex;align-items:center;gap:6px;background:rgba(14,17,18,.8);border-radius:4px;padding:3px 8px;font-family:var(--f-mono);font-size:12px;color:#ff5a4a;pointer-events:none}
+.rec i{width:9px;height:9px;border-radius:50%;background:#ff3a2a;animation:blink 1s steps(2) infinite}
+.squad{position:absolute;right:10px;top:48px;background:rgba(14,17,18,.88);border:1px solid #4fe0ff;border-radius:4px;padding:6px 10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;max-width:260px;pointer-events:none}
+.squad b{color:#4fe0ff;font-family:var(--f-display);letter-spacing:.05em;text-transform:uppercase}.squad small{color:var(--muted);font-size:11px}
+.heroes{display:flex;flex-direction:column;gap:4px}
+.hero{display:flex;flex-direction:column;gap:1px;text-align:left;background:var(--raise);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:4px;padding:5px 8px;font-size:12.5px}
+.hero span{color:var(--muted);font-size:11.5px}.hero.on{border-color:var(--amber);color:var(--amber)}.hero.gone{opacity:.55;border-left-color:var(--c-dead)}
+.muted{color:var(--muted)}
+.toast{position:fixed;right:18px;bottom:18px;z-index:110;background:var(--panel);border:1px solid var(--amber);border-radius:6px;padding:10px 14px;display:flex;flex-direction:column;gap:2px;box-shadow:0 10px 30px rgba(0,0,0,.5);min-width:220px;pointer-events:none}
+.toast small{font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--amber);font-size:10.5px}.toast b{font-size:15px}.toast span{font-size:12px;color:var(--muted)}
+.achs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px}.achs li{background:var(--raise);border-radius:4px;padding:5px 8px;opacity:.45;display:flex;flex-direction:column}.achs li.done{opacity:1;border-left:3px solid var(--amber)}.achs b{font-size:12.5px}.achs small{font-size:11px;color:var(--muted)}
+.chron h3{margin:10px 0 2px;font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:13px;color:var(--amber)}.chron ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5}.chron li{margin:2px 0}
+</style>
+
+
+<div class="modal" id="wizard" hidden role="dialog" aria-modal="true" aria-labelledby="wTitle">
+  <div class="dlg wide">
+    <div class="dlghead"><h2 id="wTitle">Новая игра</h2><button class="x" id="wClose" aria-label="Закрыть">×</button></div>
+    <ol class="steps"><li data-s="0">Сценарий</li><li data-s="1">Город</li><li data-s="2">Условия</li></ol>
+    <section data-s="0"><div class="cards" id="scenCards"></div></section>
+    <section data-s="1" hidden>
+      <div class="cards small" id="layoutCards"></div>
+      <p class="note" id="layoutNote" hidden></p>
+      <div class="row"><label for="wPop">Население</label><output id="wPopO">900</output></div>
+      <input type="range" id="wPop" min="100" max="2500" step="100" value="900">
+    </section>
+    <section data-s="2" hidden>
+      <fieldset><legend>Зомби</legend>
+        <label class="chk"><input type="radio" name="wZ" value="slow" checked> Медленные: бредут, но не устают</label>
+        <label class="chk"><input type="radio" name="wZ" value="fast"> Бегающие: догоняют почти любого</label>
+      </fieldset>
+      <div class="row"><label for="wInc">Инкубация после укуса</label><output id="wIncO">20 с</output></div>
+      <input type="range" id="wInc" min="3" max="60" step="1" value="20">
+      <div class="row"><label for="wArm">Вооружённых горожан</label><output id="wArmO">5%</output></div>
+      <input type="range" id="wArm" min="0" max="40" step="1" value="5">
+      <fieldset><legend>Время</legend>
+        <label class="chk"><input type="radio" name="wTime" value="13" checked> День</label>
+        <label class="chk"><input type="radio" name="wTime" value="19.2"> Закат</label>
+        <label class="chk"><input type="radio" name="wTime" value="23"> Ночь</label>
+      </fieldset>
+      <div class="row"><label for="wWeather">Погода</label></div>
+      <select id="wWeather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option></select>
+      <label class="chk" for="wSvc"><input type="checkbox" id="wSvc" checked> Город реагирует сам: полиция, пожарные, скорая, ремонтники, а штаб ЧС по уровню угрозы вводит армию, оцепление, лагеря, эвакуацию, танки и авиацию</label>
+    </section>
+    <div class="dlgbar"><button class="btn" id="wBack">Назад</button><button class="btn primary" id="wNext">Далее</button></div>
+  </div>
+</div>
+<div class="modal" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="sTitle">
+  <div class="dlg">
+    <div class="dlghead"><h2 id="sTitle">Настройки</h2><button class="x" id="sClose" aria-label="Закрыть">×</button></div>
+    <h3>Звук</h3>
+    <div class="row"><label for="s_master">Общая громкость</label><output id="s_masterO"></output></div><input type="range" id="s_master" min="0" max="100">
+    <div class="row"><label for="s_weap">Выстрелы и взрывы</label><output id="s_weapO"></output></div><input type="range" id="s_weap" min="0" max="100">
+    <div class="row"><label for="s_voice">Голоса: крики, зомби</label><output id="s_voiceO"></output></div><input type="range" id="s_voice" min="0" max="100">
+    <div class="row"><label for="s_amb">Окружение: город, погода, машины</label><output id="s_ambO"></output></div><input type="range" id="s_amb" min="0" max="100">
+    <div class="row"><label for="s_music">Музыка</label><output id="s_musicO"></output></div><input type="range" id="s_music" min="0" max="100">
+    <label class="chk" for="s_radioVoice"><input type="checkbox" id="s_radioVoice"> Голос диспетчера по рации (синтез речи браузера)</label>
+    <h3>Достижения <small id="achCount" class="muted"></small></h3>
+    <ul class="achs" id="achList"></ul>
+    <h3>Графика</h3>
+    <div class="row"><button class="btn" id="s_fast">Быстро: максимум кадров</button><button class="btn" id="s_pretty">Красиво: всё включено</button></div>
+    <div class="row"><label for="s_quality">Качество</label></div>
+    <select id="s_quality" class="sel"><option value="low">Низкое: быстрее на слабых компьютерах</option><option value="medium">Среднее</option><option value="high">Высокое: чёткие тени и картинка</option></select>
+    <div class="row"><label for="s_particles">Дым, огонь, кровь</label></div>
+    <select id="s_particles" class="sel"><option value="low">Мало</option><option value="medium">Средне</option><option value="high">Много</option></select>
+    <details class="credits"><summary>Авторы звуков и моделей</summary>
+      <p>Модель человека: Quaternius, «Animated Human» (CC0). Выстрелы: Vincent Sevedge / Tabasco, «Gunshot Sounds» (CC BY 3.0). Крики: HaelDB, «Male Grunt/Yelling sounds» (CC0). Зомби: Darsycho «Zombie moans», ianzazz «Zombie noises and moans» (CC0). Дождь: Ylmir (CC0). Сирена и вертолёт: aquinn (CC0). Огонь: AntumDeluge (CC0). Взрывы: EZduzziteh «Explosions» (CC0), стекло и удары: rubberduck «100 CC0 SFX» (CC0). Остальное синтезировано в игре.</p>
+    </details>
+    <label class="chk" for="s_shadows"><input type="checkbox" id="s_shadows"> Тени</label>
+    <label class="chk" for="s_realPeople"><input type="checkbox" id="s_realPeople"> Настоящие модели людей вблизи камеры (до 44 человек)</label>
+    <label class="chk" for="s_post"><input type="checkbox" id="s_post"> Обработка картинки: свечение, цвет, затенение в углах (на высоком качестве)</label>
+    <label class="chk" for="s_slowmo"><input type="checkbox" id="s_slowmo"> Замедление времени при больших событиях: взрывы, падение башен, ядерный удар</label>
+  </div>
+</div>
+<div class="modal" id="result" hidden role="dialog" aria-modal="true" aria-labelledby="resTitle">
+  <div class="dlg">
+    <h2 id="resTitle">Итог</h2><p id="resText"></p>
+    <div class="resstats" id="resStats"></div>
+    <div class="dlgbar"><button class="btn" id="resChron">Хроника</button><button class="btn" id="resStay">Смотреть дальше</button><button class="btn" id="resNew">Новая игра</button><button class="btn primary" id="resAgain">Ещё раз</button></div>
+  </div>
+</div>
+<div class="modal" id="chron" hidden role="dialog" aria-modal="true" aria-labelledby="chTitle">
+  <div class="dlg wide chron">
+    <div class="dlghead"><h2 id="chTitle">Хроника города</h2><button class="x" id="chronClose" aria-label="Закрыть">×</button></div>
+    <div id="chronBody"></div>
+    <div class="dlgbar"><button class="btn" id="chronAgain">Обновить</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<div class="modal" id="fpsChoose" hidden role="dialog" aria-modal="true" aria-labelledby="fcTitle">
+  <div class="dlg wide">
+    <div class="dlghead"><h2 id="fcTitle">Играть самому</h2><button class="x" id="fpsChooseClose" aria-label="Закрыть">×</button></div>
+    <p class="note">Вид от первого лица. Нужны мышь и клавиатура; курсор захватывается кликом, Esc его отпускает.</p>
+    <div class="cards">
+      <button class="card" id="fpsAsHuman"><b>Выживший</b><small>Пистолет, 12 патронов в магазине. Беги, прячься, собирай патроны у погибших полицейских и солдат. Если укусят — станешь зомби и продолжишь за них.</small></button>
+      <button class="card" id="fpsAsZombie"><b>Зомби</b><small>Быстрый бег, укус, чутьё: живые светятся сквозь стены, слышно их сердцебиение. Заражай как можно больше людей, пока тебя не упокоили.</small></button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="saves" hidden role="dialog" aria-modal="true" aria-labelledby="svTitle">
+  <div class="dlg">
+    <div class="dlghead"><h2 id="svTitle">Сохранения</h2><button class="x" id="savesClose" aria-label="Закрыть">×</button></div>
+    <ul class="slots" id="saveList"></ul>
+    <p class="note" id="saveNote"></p>
+  </div>
+</div>
+<div class="tut" id="tut" hidden role="dialog" aria-label="Обучение"><p id="tutText"></p><div class="tutbar"><small id="tutStep"></small><button class="btn" id="tutSkip">Пропустить</button><button class="btn primary" id="tutNext">Дальше</button></div></div>
+<div class="flash" id="flash" hidden></div>
+<div class="app">
+  <header class="top">
+    <div class="brand"><h1>Вспыш<span>ка</span></h1><span class="clock" id="clock">00:00</span></div>
+    <div class="acts">
+      <button class="btn day" id="dayNight" aria-pressed="false" title="Клавиша N"><i></i><span>Ночь</span></button>
+      <button class="btn" id="pause" aria-pressed="false">Пауза</button>
+      <button class="btn" id="speed">Скорость ×1</button>
+      <button class="btn" id="mute" aria-pressed="false">Звук включён</button>
+      <button class="btn" id="music" aria-pressed="true">Музыка включена</button>
+      <button class="btn" id="playSelf">Играть самому</button>
+      <button class="btn" id="editBtn" aria-pressed="false">Редактор города</button>
+      <button class="btn" id="openChron">Хроника</button>
+      <button class="btn" id="openSaves">Сохранения</button>
+      <button class="btn" id="openSettings">Настройки</button>
+      <button class="btn primary" id="newCity">Новая игра</button>
+    </div>
+  </header>
+  <main class="lab">
+    <section class="play">
+      <div class="tools" id="tools" role="toolbar" aria-label="Инструменты"></div>
+      <div class="stage" id="stage">
+        <canvas id="cv" aria-label="3D-город"></canvas>
+        <div class="loading" id="loading">Строим город…</div>
+        <div class="hover" id="hover" hidden></div>
+        <div class="camhelp" id="camhelp">Правая кнопка — вращать · Колесо — приблизить к курсору · WASD — двигать · ? — все клавиши</div>
+        <div class="cams" role="toolbar" aria-label="Камера">
+          <button id="camOver" title="Клавиша Home">Обзор</button><button id="camStreet" title="Клавиша V">Улица</button><button id="camThird" aria-pressed="false" title="Клавиша T">3-е лицо</button><button id="camCine" aria-pressed="false" title="Клавиша C">Кино</button><button id="camNews" aria-pressed="false" title="Телерепортаж: кинокамера и бегущая строка">Новости</button><button id="camRec" aria-pressed="false" title="Записать видео с экрана (до 30 с, файл .webm)">⏺ Запись</button><button id="camHelp" title="Все клавиши">?</button>
+        </div>
+        <canvas id="mini" width="240" height="160" aria-label="Мини-карта: клик переносит камеру"></canvas>
+        <div class="help" id="help" hidden>
+          <h3>Управление</h3>
+          <dl>
+            <dt>Левая кнопка</dt><dd>инструмент; в «Наблюдать» — выбрать человека или тащить карту</dd>
+            <dt>Правая кнопка</dt><dd>вращать камеру</dd>
+            <dt>Колесо, PgUp / PgDn</dt><dd>приблизить к курсору</dd>
+            <dt>WASD, стрелки</dt><dd>двигать камеру</dd>
+            <dt>Q / E, R / F</dt><dd>поворот и наклон</dd>
+            <dt>Home, V</dt><dd>обзор города, вид с улицы</dd>
+            <dt>T</dt><dd>камера от третьего лица за выбранным</dd>
+            <dt>C</dt><dd>кинокамера: сама летит к событиям</dd>
+            <dt>N</dt><dd>день или ночь</dd>
+            <dt>G</dt><dd>к нулевому пациенту</dd>
+            <dt>1–0, −</dt><dd>инструменты</dd>
+            <dt>Пробел</dt><dd>пауза</dd>
+            <dt>Esc</dt><dd>отпустить камеру и подсветку</dd>
+            <dt>Мини-карта</dt><dd>клик или перетаскивание переносит камеру</dd>
+            <dt>Плашки сводки</dt><dd>клик подсвечивает всех этого типа и показывает одного</dd>
+            <dt>Обучение</dt><dd><button class="btn" id="tutAgain" type="button">Показать ещё раз</button></dd>
+          </dl>
+          <button class="btn" id="helpClose">Понятно</button>
+        </div>
+
+        <div class="vig" id="fpsVig"></div>
+        <div class="fpshud" id="fpsHud" hidden>
+          <div class="cross"></div>
+          <div class="fbars"><div class="fbar hp"><i id="fpsHp"></i></div><div class="fbar st"><i id="fpsSt"></i></div></div>
+          <div class="fammo" id="fpsAmmo"></div>
+          <div class="fstatus" id="fpsStatus"></div>
+        </div>
+        <div class="fmsg" id="fpsMsg" hidden></div>
+        <div class="fdead" id="fpsDead" hidden></div>
+        <div class="fhelp" id="fpsHelp" hidden>WASD — идти · Shift — бег · мышь — смотреть · ЛКМ — стрелять или кусать · R — перезарядка · E — подобрать · Q — чутьё зомби · Esc — пауза</div>
+        <div class="fpause" id="fpsPause" hidden><div class="dlg"><h2>Пауза</h2><p>Курсор освобождён. Кликни «Продолжить», чтобы снова управлять персонажем.</p><div class="dlgbar"><button class="btn" id="fpsExit">Выйти из режима</button><button class="btn primary" id="fpsResume">Продолжить</button></div></div></div>
+        <div class="news" id="news" hidden>
+          <div class="nlive"><i></i>Прямой эфир · <span id="newsChan">ВСПЫШКА-24</span></div>
+          <div class="nhead"><b id="newsHead"></b><span id="newsSub"></span></div>
+          <div class="nbar"><div class="nticker"><span id="newsTicker"></span></div><div class="nclock" id="newsClock"></div></div>
+        </div>
+        <div class="rec" id="recBadge" hidden><i></i><span id="recT">REC 00:00</span></div>
+        <div class="banner" id="banner" hidden></div>
+        <div class="objective" id="objective" hidden><b></b><span></span></div>
+        <div class="squad" id="squad" hidden></div>
+        <div class="radio" id="radio" hidden></div>
+      </div>
+      <div class="tip" id="tip"></div>
+    </section>
+    <aside class="panel">
+      <div class="sec">
+        <h2>Сводка</h2>
+        <div class="counts">
+          <div data-k="H" aria-pressed="false" title="Подсветить и показать" style="--k:var(--c-healthy)"><small>Здоровы</small><b id="nH">0</b></div>
+          <div data-k="I" aria-pressed="false" title="Подсветить и показать" style="--k:var(--c-infected)"><small>Укушены</small><b id="nI">0</b></div>
+          <div data-k="Z" aria-pressed="false" title="Подсветить и показать" style="--k:var(--c-zombie)"><small>Зомби</small><b id="nZ">0</b></div>
+          <div data-k="D" aria-pressed="false" title="Подсветить и показать" style="--k:var(--c-dead)"><small>Погибли</small><b id="nD">0</b></div>
+          <div data-k="S" aria-pressed="false" title="Подсветить и показать" style="--k:var(--c-saved)"><small>Спасены</small><b id="nS">0</b></div>
+          <div data-k="F" aria-pressed="false" title="Подсветить и показать" style="--k:var(--c-army)"><small>Силовики</small><b id="nF">0</b></div>
+        </div>
+        <div class="vac"><small>Вакцина</small><div class="vbar"><i id="vacBar"></i></div><output id="vacO">0%</output></div>
+        <canvas id="chart" width="620" height="240" aria-label="График вспышки"></canvas>
+      </div>
+      <div class="sec">
+        <h2>Герои</h2>
+        <div class="heroes" id="heroes"></div>
+      </div>
+      <div class="sec">
+        <h2>Штаб и группировки</h2>
+        <div class="factions" id="factions"></div>
+      </div>
+      <div class="sec">
+        <h2>Параметры</h2>
+        <div class="row"><label for="pop">Население нового города</label><output id="popO">900</output></div>
+        <input type="range" id="pop" min="100" max="2500" step="100" value="900">
+        <div class="row"><label for="layout">Планировка</label><output id="layoutName"></output></div>
+        <select id="layout" class="sel"><option value="random">Случайная</option><option value="grid">Классическая сетка</option><option value="mega">Мегаполис</option><option value="old">Исторический центр</option><option value="park">Город-парк</option><option value="suburb">Пригород</option><option value="industry">Промзона</option></select>
+        <div class="row"><label for="inc">Инкубация после укуса</label><output id="incO">20 с</output></div>
+        <input type="range" id="inc" min="3" max="60" step="1" value="20">
+        <div class="row"><label for="arm">Вооружённых горожан</label><output id="armO">5%</output></div>
+        <input type="range" id="arm" min="0" max="40" step="1" value="5">
+        <label class="chk" for="fast"><input type="checkbox" id="fast"> Бегающие зомби</label>
+        <label class="chk" for="services"><input type="checkbox" id="services" checked> Город реагирует сам: полиция, пожарные, скорая, ремонтники, армия</label>
+        <div class="row"><label for="hour">Время суток</label><output id="hourO">13:00</output></div>
+        <input type="range" id="hour" min="0" max="23.9" step=".1" value="13">
+        <label class="chk" for="cycle"><input type="checkbox" id="cycle"> Смена дня и ночи (сутки за 12 минут)</label>
+        <div class="row"><label for="weather">Погода</label></div>
+        <select id="weather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option></select>
+        <label class="chk" for="marks"><input type="checkbox" id="marks" checked> Подсвечивать укушенных</label>
+        <label class="chk" for="shadows"><input type="checkbox" id="shadows" checked> Тени (выключи, если тормозит)</label>
+      </div>
+      <div class="sec">
+        <h2>Журнал</h2>
+        <ul class="log" id="log"></ul>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/shaders/SSAOShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/math/SimplexNoise.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/SSAOPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/libs/fflate.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/FBXLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/utils/SkeletonUtils.js"></script>
+<script src="human.js"></script>
+<script>
+(() => {
+"use strict";

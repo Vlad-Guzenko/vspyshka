@@ -1,0 +1,84 @@
+/* ---------- сохранение и загрузка партии ---------- */
+const SAVE_SLOTS = 3;
+const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
+const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
+// ссылки на объекты превращаем в индексы и обратно
+const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt"];
+const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp"]);
+function serializeGame() {
+  const bi = new Map(buildings.map((b, i) => [b, i]));
+  const agentsS = agents.filter(a => !a.player || !fps.on).map(a => {
+    const o = {}; for (const k in a) if (!A_SKIP.has(k)) o[k] = a[k];
+    if (a.hideB) o.hideB = bi.get(a.hideB); if (a.player) o.player = false;
+    return o;
+  });
+  const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => { const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar"].includes(k)) o[k] = c[k]; if (c.lane) o.lane = lanes.indexOf(c.lane); return o; });
+  return {
+    v: 1, date: Date.now(), layoutKey, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId,
+    grid: b64(grid), bhp: b64(Uint8Array.from(bhp, v => clamp(Math.round(v), 0, 255))), wall: b64(wallMask),
+    buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
+    streets, lanes: lanes.map(l => ({ s: streets.indexOf(l.s), dir: l.dir, c: l.c, a0: l.a0, a1: l.a1 })), blocks: blocks.map(b => ({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, kind: b.kind, d: b.d, lot: b.lot })),
+    trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), lamps, fountains, fences, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
+    special: Object.fromEntries(Object.entries(special).map(([k, v]) => [k, { x: v.x, y: v.y, b: bi.get(v.b) }])),
+    agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
+    fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
+    world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
+    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog,
+    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { zombieT: firsts.zombieT, titan: firsts.titan, titanDead: firsts.titanDead, topple: firsts.topple, nuke: firsts.nuke, reunion: firsts.reunion, metroSeen: firsts.metroSeen },
+  };
+}
+function loadGame(S) {
+  if (fps.on) stopFps();
+  layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
+  grid.set(unb64(S.grid, Uint8Array)); bhp.set(unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
+  streets = S.streets; for (const s of streets) { if (s.a0 === undefined) { s.a0 = 0; s.a1 = s.v ? H : W; } }
+  lanes = S.lanes.map(l => ({ s: streets[l.s], dir: l.dir, c: l.c, a0: l.a0 ?? 0, a1: l.a1 ?? (streets[l.s].v ? H : W) })); blocks = S.blocks;
+  buildings = S.buildings.map(b => ({ ...b, h: b.floors * (b.kind === "house" ? 11 : 12), occ: [] }));
+  trees = S.trees; lamps = S.lamps; fountains = S.fountains; fences = S.fences; waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
+  special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));
+  agents = S.agents.map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
+  cars = S.cars.map(o => { const c = { ...o }; if (o.lane >= 0) c.lane = lanes[o.lane]; else { c.moving = false; c.lane = null; } return c; });
+  tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
+  fires = S.fires; tents = S.tents; research = S.research; scientists = S.scientists; vaccineReady = S.vaccineReady; armyWaves = S.armyWaves; gangsSpawned = S.gangsSpawned;
+  simT = S.simT; bites = S.bites; deaths = S.deaths; zkills = S.zkills; saved = S.saved; cured = S.cured; nextId = S.nextId;
+  Object.assign(settings, S.settings); Object.assign(world, S.world); syncDayButton(); $("weather").value = world.weather;
+  editRoads = S.editRoads || [];
+  buildCrossings(); evac = null; strikes = []; noises = []; machines = []; nuke = null; radZones = []; timers = []; reports = []; wallJobs = []; interests = []; stats = []; events = []; firsts = { zombie: true, ...(S.firstsX || {}) };
+  resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;
+  heroes = (S.heroes || []).map(agentById).filter(Boolean); metros = S.metros || []; depots = S.depots || []; strain = S.strain || { lvl: 1, t: 0 }; chDone = S.chDone || 0; chFail = S.chFail || 0;
+  resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout || null; settings.dark = !!blackout;
+  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {};
+  for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) a.detained = cps[0] || null; if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
+  for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
+  for (const a of agents) if (!a.name) nameFor(a);
+  const T = S.terrain || {}; terrainSeed = T.seed || 1; hasHills = !!T.hasHills; ridgeSides = T.ridgeSides || []; ridgeSides.intrude = !!T.intrude; rocks = T.rocks || [];
+  river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || [];
+  TH.fill(0); if (T.th) { const u = unb64(T.th, Uint8Array); for (let i = 0; i < TH.length && i < u.length; i++) TH[i] = u[i] * 2 - 10; }
+  scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = [];
+  logE("Партия загружена", "good");
+  clearDecals(); clearDebris(); for (const [t, o] of tankObjs) { scene.remove(o); tankObjs.delete(t); }
+  buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
+  $("layoutName").textContent = (LAYOUTS[layoutKey] || {}).n || ""; renderTools(); record();
+}
+function slotKey(i) { return "vspyshka-save-" + i; }
+function renderSaves() {
+  const rows = [];
+  for (let i = 1; i <= SAVE_SLOTS; i++) {
+    let meta = null; try { const raw = localStorage.getItem(slotKey(i)); if (raw) { const S = JSON.parse(raw); meta = S; } } catch (e) {}
+    const desc = meta ? `${(SCENARIOS[meta.scen] || {}).n || "Свободная игра"} · ${(LAYOUTS[meta.layoutKey] || {}).n || ""} · ${mmss(meta.simT)} игры · ${new Date(meta.date).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Пусто";
+    rows.push(`<li><div><b>Слот ${i}</b><small>${desc}</small></div><div class="slotbtns"><button class="btn" data-save="${i}">Сохранить</button><button class="btn" data-load="${i}"${meta ? "" : " disabled"}>Загрузить</button><button class="btn" data-del="${i}"${meta ? "" : " disabled"}>Удалить</button></div></li>`);
+  }
+  $("saveList").innerHTML = rows.join("");
+}
+$("saveList").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const i = b.dataset.save || b.dataset.load || b.dataset.del;
+  try {
+    if (b.dataset.save) { localStorage.setItem(slotKey(i), JSON.stringify(serializeGame(), (k, v) => typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 100) / 100 : v)); $("saveNote").textContent = `Сохранено в слот ${i}.`; }
+    if (b.dataset.load) { const S = JSON.parse(localStorage.getItem(slotKey(i))); loadGame(S); $("saves").hidden = true; paused = false; }
+    if (b.dataset.del) { localStorage.removeItem(slotKey(i)); $("saveNote").textContent = `Слот ${i} очищен.`; }
+  } catch (err) { $("saveNote").textContent = b.dataset.save ? "Не удалось сохранить: в браузере не хватает места или хранилище отключено." : "Не удалось загрузить это сохранение."; }
+  renderSaves();
+});
+$("openSaves").addEventListener("click", () => { renderSaves(); $("saveNote").textContent = "Сохранения лежат только в этом браузере."; $("saves").hidden = false; });
+$("savesClose").addEventListener("click", () => { $("saves").hidden = true; });
