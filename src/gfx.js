@@ -54,7 +54,7 @@ envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), new THREE.Sha
 let envRT = null, envT = 0, envKey = "";
 function updateEnv(dt) {
   envT -= dt; if (envT > 0) return; envT = 1.5;
-  const key = skyU.top.value.getHexString() + skyU.bot.value.getHexString();
+  const kq = c => Math.round(c.r * 24) * 625 + Math.round(c.g * 24) * 25 + Math.round(c.b * 24), key = kq(skyU.top.value) + ":" + kq(skyU.bot.value);
   if (key === envKey) return; envKey = key;
   envU.top.value.copy(skyU.top.value); envU.bot.value.copy(skyU.bot.value); envU.gnd.value.setRGB(.5, .49, .47).multiplyScalar(.3 + (1 - nightK) * .7);
   const rt = pmrem.fromScene(envScene, .02);
@@ -109,7 +109,7 @@ function paintContactShadows(g) {
 /* ---------- лужи: проступают, когда асфальт мокрый ---------- */
 const puddleTex = canvasTex(128, 128, g => { g.fillStyle = "#fff"; for (let i = 0; i < 9; i++) { g.beginPath(); g.ellipse(64 + rnd(-26, 26), 64 + rnd(-14, 14), rnd(14, 34), rnd(8, 18), rnd(0, 3), 0, TAU); g.fill(); } }, false);
 const puddles = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1c2228, roughness: .03, metalness: .5, alphaMap: puddleTex, transparent: true, opacity: 0, depthWrite: false, envMapIntensity: 1.4 }), 500);
-puddles.count = 0; puddles.renderOrder = 1; puddles.receiveShadow = true; scene.add(puddles);
+puddles.count = 0; puddles.renderOrder = 1; puddles.receiveShadow = true; puddles.frustumCulled = false; scene.add(puddles);
 function placePuddles() {
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0); let n = 0;
   for (let k = 0; k < 4000 && n < 500; k++) {

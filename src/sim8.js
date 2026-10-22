@@ -42,7 +42,7 @@ function stepMachines(dt) {
       const d = Math.hypot(t[0] - m.x, t[1] - m.y);
       m.far = d > 24 && m.v < 1 ? (m.far || 0) + dt : 0;
       if (d > 24 && m.far < 3) steerTo(m, t[0], t[1], 11, dt);
-      else { m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > 1.1) { m.workT = 0; for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) { const px = t[0] + ox * CS, py = t[1] + oy * CS, gx = Math.floor(px / CS), gy = Math.floor(py / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH || grid[gy * GW + gx] !== 8) continue; grid[gy * GW + gx] = b && px >= b.x0 && px < b.x1 && py >= b.y0 && py < b.y1 ? 7 : (cellAt(px + 12, py) === 1 || cellAt(px, py + 12) === 1 ? 1 : 0); } m.load++; fxDebris(t[0], t[1]); fieldT = 0; gridDirty = true; if (m.load % 8 === 0) sfx.crash({ x: m.x, y: m.y }); } }
+      else { m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > 1.1) { m.workT = 0; for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) { const px = t[0] + ox * CS, py = t[1] + oy * CS, gx = Math.floor(px / CS), gy = Math.floor(py / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH || grid[gy * GW + gx] !== 8) continue; { const gi2 = gy * GW + gx; grid[gi2] = b && insideFoot(b, px, py) ? 7 : (underRubble[gi2] || 1); underRubble[gi2] = 0; if (typeof onRubbleCleared === "function") onRubbleCleared(px, py); } } m.load++; fxDebris(t[0], t[1]); fieldT = 0; gridDirty = true; if (m.load % 8 === 0) sfx.crash({ x: m.x, y: m.y }); } }
     }
   }
   machines = machines.filter(m => !m.gone);

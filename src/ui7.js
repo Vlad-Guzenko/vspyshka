@@ -29,3 +29,7 @@ window.addEventListener("keydown", e => { if (e.target.tagName === "INPUT" || e.
 
 /* ---------- предупреждение: всплывает на пару секунд и звучит ---------- */
 function warn(html) { $("toast").innerHTML = `<small>Нельзя</small><b>${html.replace(/<\/?b>/g, "")}</b>`; $("toast").hidden = false; toastT = 2.6; sfx.deny(); }
+
+/* ---------- верхняя полоса может стать двухстрочной: панели сдвигаются под неё ---------- */
+function syncTopH() { const h = document.querySelector(".top").offsetHeight || 42; document.documentElement.style.setProperty("--topH", h + "px"); }
+window.addEventListener("resize", syncTopH); setTimeout(syncTopH, 0); setInterval(syncTopH, 1500);

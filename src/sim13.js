@@ -119,7 +119,7 @@ function addCheckpoint(x, y) {
     if (c === 3 || c === 9 || c === 5) continue; grid[i] = 6; bhp[i] = 120; wallMask[i] = 1; cells.push(i);
   }
   const cp = { x: cx, y: cy, v: s.v, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: s.v ? [cx + s.hw + 12, cy + 10] : [cx + 10, cy + s.hw + 12] };
-  for (let i = 0; i < 2; i++) { const [gx, gy] = freeNear(s.v ? cx + (i ? 10 : -10) : cx, s.v ? cy : cy + (i ? 10 : -10), 5); const g = newAgent("police", gx, gy); g.order = { x: gx, y: gy }; g.cp = cp; }
+  sendPosts("police", cx, cy, [0, 1].map(i => freeNear(s.v ? cx + (i ? 10 : -10) : cx, s.v ? cy : cy + (i ? 10 : -10), 5)), { cp });
   // будка справа от проезда, изолятор: клетки заняты
   const bx = s.v ? cx + 9.5 : cx + 3, by = s.v ? cy + 3 : cy - 9.5;
   cp.cells2 = blockFree(bx - 2, by - 2, bx + 2, by + 2).concat(blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7));
@@ -129,7 +129,7 @@ function addCheckpoint(x, y) {
 // КПП на воротах карантина: без своих клеток (стены вокруг уже есть), проход вдоль y, изолятор снаружи
 function addGateCheckpoint(x, y) {
   const cp = { x, y, v: true, cells: [], queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [x + 22, y + 14], gate: true };
-  for (let i = 0; i < 2; i++) { const [px, py] = freeNear(x + (i ? 9 : -9), y + 6, 5); const g = newAgent("police", px, py); g.order = { x: px, y: py }; g.cp = cp; }
+  sendPosts("police", x, y + 10, [0, 1].map(i => freeNear(x + (i ? 9 : -9), y + 6, 5)), { cp });
   blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7);
   cps.push(cp); return cp;
 }
@@ -160,11 +160,15 @@ function stepCheckpoints(dt) {
     }
   }
   // изолятор: укушенный обращается внутри — зомби выходит наружу
-  for (const a of agents) if (a.detained && a.hidden && a.role === "zombie") { a.hidden = false; a.detained = null; const [x, y] = freeNear(a.x, a.y, 8); a.x = x; a.y = y; logE("В изоляторе КПП кто-то обратился: зомби вырвался наружу", "bad"); }
+  for (const a of agents) {
+    if (!a.detained || !a.hidden) continue;
+    if (a.role === "zombie") { a.hidden = false; a.detained = null; const [x, y] = freeNear(a.x, a.y, 8); a.x = x; a.y = y; logE("В изоляторе КПП кто-то обратился: зомби вырвался наружу", "bad"); }
+    else if (!a.bitten || a.immune) { a.hidden = false; a.detained.detained--; a.detained = null; const [x, y] = freeNear(a.x, a.y, 8); a.x = x; a.y = y; logT("cprel", "Из изолятора выпустили здорового", "good", 20); }
+  }
 }
 
 /* ---------- фракции выживших: коммуна и банда ---------- */
-let factions = [], factionT = 0;
+let factions = [], factionT = 0, factionSeq = 0;
 const FKIND = { commune: { n: "Коммуна", col: "#f2b33d" }, gang: { n: "Банда", col: "#8a2a2a" } };
 function factionOf(a) { return a.faction ? factions.find(f => f.id === a.faction) : null; }
 function formCommune() {
@@ -173,7 +177,7 @@ function formCommune() {
   let hq = null, bd = 1e9;
   for (const b of buildings) { if (!b.door || b.state !== "ok" || (b.kind !== "warehouse" && b.kind !== "mall" && !(b.kind === "apt" && b.floors >= 5))) continue; const d = Math.hypot(b.door[0] - leader.x, b.door[1] - leader.y); if (d < bd) { bd = d; hq = b; } }
   if (!hq) return;
-  const f = { id: factions.length + 1, kind: "commune", leader: leader.id, members: [], hq: buildings.indexOf(hq), food: 120, raids: 0, rel: 0, born: simT };
+  const f = { id: ++factionSeq, kind: "commune", leader: leader.id, members: [], hq: buildings.indexOf(hq), food: 120, raids: 0, rel: 0, born: simT };
   factions.push(f); joinFaction(leader, f); leader.hero = leader.hero || "leader"; leader.name = leader.name;
   near(leader.x, leader.y, 130, a => { if (f.members.length < 12 && a.state === "alive" && a.role === "civ" && !a.hidden && !a.faction && !a.age) joinFaction(a, f); });
   hq.food = (hq.food || 0) + 120;
@@ -214,12 +218,14 @@ function stepFactions(dt) {
 // мародёры становятся бандой со штабом
 function registerGang(members) {
   let gang = factions.find(f => f.kind === "gang");
-  if (!gang) { const hq = buildings.filter(b => b.door && (b.kind === "warehouse" || b.kind === "house")).sort(() => Math.random() - .5)[0]; gang = { id: factions.length + 1, kind: "gang", leader: members[0].id, members: [], hq: hq ? buildings.indexOf(hq) : -1, food: 60, raids: 0, rel: -1, born: simT }; factions.push(gang); }
+  if (!gang) { const hq = buildings.filter(b => b.door && (b.kind === "warehouse" || b.kind === "house")).sort(() => Math.random() - .5)[0]; gang = { id: ++factionSeq, kind: "gang", leader: members[0].id, members: [], hq: hq ? buildings.indexOf(hq) : -1, food: 60, raids: 0, rel: -1, born: simT }; factions.push(gang); }
   for (const m of members) { m.faction = gang.id; gang.members.push(m.id); m.vest = FKIND.gang.col; }
 }
 // снабжение фракции: патроны и еда в штаб
 function supplyFaction(f) {
   const hq = buildings[f.hq]; if (!hq || !hq.door) return false;
+  if (simT - (f.supplyT || -1e9) < 120) { logT("supplycd", "Самолёт снабжения ещё не вернулся: следующий сброс через пару минут", "", 10); return false; }
+  f.supplyT = simT;
   hq.food = (hq.food || 0) + 150; let armed = 0;
   for (const id of f.members) { const m = agentById(id); if (!m) continue; if (!m.armed) { arm(m, 8, 24); armed++; } else m.ammo += 24; }
   f.rel = (f.rel || 0) + 1; hqRep(f.kind === "commune" ? 1 : -1, f.kind === "commune" ? "поддержка коммуны" : "сговор с бандой");
@@ -229,15 +235,28 @@ function supplyFaction(f) {
 /* ---------- штаб: доверие, директивы, награды и наказания ---------- */
 let hq = { rep: 0, withdrawnT: 0, nextWave: 0 };
 function hqRep(d, why) {
-  hq.rep = clamp(hq.rep + d, -5, 5);
+  const before = hq.rep; hq.rep = clamp(hq.rep + d, -5, 5);
   logE(`Доверие штаба ${d > 0 ? "выросло" : "упало"}: ${why}. Сейчас ${hq.rep > 0 ? "+" : ""}${hq.rep}`, d > 0 ? "good" : "bad");
-  if (hq.rep >= 2 && d > 0) { radio("Штаб: хорошая работа, высылаем подкрепление"); for (let i = 0; i < 2; i++) spawnService("army", W / 2 + rnd(-200, 200), H / 2 + rnd(-150, 150), null); }
+  if (hq.rep >= 2 && d > 0 && before < 2) { radio("Штаб: хорошая работа, высылаем подкрепление"); for (let i = 0; i < 2; i++) spawnService("army", W / 2 + rnd(-200, 200), H / 2 + rnd(-150, 150), null); }
   if (hq.rep >= 4 && d > 0 && !hq.tankGiven) { hq.tankGiven = true; radio("Штаб: передаём вам танк"); const e = edgeLanePoint(); addTank(e.l.s.v ? e.l.c : e.along, e.l.s.v ? e.along : e.l.c); }
-  if (hq.rep <= -2 && d < 0) { hq.withdrawnT = 180; radio("Штаб: ваши действия неприемлемы, армия отзывается на 3 минуты"); for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.post) { a.order = { x: a.x < W / 2 ? -40 : W + 40, y: a.y }; a.withdraw = true; } }
+  if (hq.rep <= -2 && d < 0) { hq.withdrawnT = 180; radio("Штаб: ваши действия неприемлемы, армия отзывается на 3 минуты"); for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.post) { a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; a.withdraw = true; a.unit = null; } }
+}
+// отбой: армия уходит к краю карты, полиция и медики — на базу, там исчезают
+function standDown() {
+  let n = 0;
+  for (const a of agents) {
+    if (a.state !== "alive" || a.hidden) continue;
+    if (a.role === "army" && !a.post && !a.withdraw && !camps.some(c => Math.abs(c.x - a.x) < c.r + 30 && Math.abs(c.y - a.y) < c.r + 30)) { a.withdraw = true; a.squad = 0; a.sweep = false; a.guardJob = null; a.unit = null; a.job = null; a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; n++; }
+    else if ((a.role === "police" || a.role === "medic") && !a.unit && !a.tent && !a.post) { const base = a.role === "police" ? special.police : special.hospital; if (!base) continue; a.standDown = true; a.standT = simT; a.cp = null; a.guardB = null; a.order = { x: base.x, y: base.y }; n++; }
+  }
+  for (const c of cars) if (c.service === "army" && !c.gone && c.deployed) { c.crew = []; releaseUnit(c); }
+  if (n) { logE(`Отбой: ${n} силовиков и медиков возвращаются на базы`, "good"); radio("Штаб: отбой, всем подразделениям вернуться в расположение"); }
 }
 function stepHQ(dt) {
+  for (const a of agents) if (a.standDown && a.state === "alive") { const o = a.order; if (!o || Math.hypot(o.x - a.x, o.y - a.y) < 16 || simT - a.standT > 300) { a.state = "saved"; a.leftCity = true; a.standDown = false; } }
+  for (const a of agents) if (a.withdraw && a.state === "alive" && !(hq.withdrawnT > 0) && (a.x < 30 || a.x > W - 30)) { a.state = "saved"; a.leftCity = true; }
   if (hq.withdrawnT > 0) { hq.withdrawnT -= dt; if (hq.withdrawnT <= 0) { radio("Штаб: армия возвращается"); for (const a of agents) if (a.withdraw) { a.withdraw = false; a.order = null; } } }
-  for (const a of agents) if (a.withdraw && a.state === "alive" && (a.x < 10 || a.x > W - 10)) a.state = "saved";
+  for (const a of agents) if (a.withdraw && a.state === "alive" && (a.x < 30 || a.x > W - 30)) { a.state = "saved"; a.leftCity = true; }
 }
 function repStars() { const r = hq.rep; return r > 0 ? "★".repeat(r) + "☆".repeat(5 - r) : r < 0 ? "▼".repeat(-r) + "☆".repeat(5 + r) + ` (${r})` : "☆☆☆☆☆ (0)"; }
 
@@ -261,4 +280,4 @@ function stepBodies(dt) {
 let dayN = 1;
 
 function stepWorld2(dt) { stepTraps(dt); stepInfra(dt); stepDangers(dt); stepCheckpoints(dt); stepFactions(dt); stepHQ(dt); stepBodies(dt); }
-function resetWorld2() { traps = []; gens = []; elecMask.fill(0); dangers = []; cps = []; factions = []; factionT = 30; hq = { rep: 0, withdrawnT: 0, nextWave: 0 }; dayN = 1; settings.noWater = false; settings.noRadio = false; }
+function resetWorld2() { traps = []; gens = []; elecMask.fill(0); dangers = []; cps = []; factions = []; factionSeq = 0; factionT = 30; hq = { rep: 0, withdrawnT: 0, nextWave: 0 }; dayN = 1; settings.noWater = false; settings.noRadio = false; }

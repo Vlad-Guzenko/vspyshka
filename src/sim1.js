@@ -188,6 +188,7 @@ function los(x0, y0, x1, y1) {
 /* ---------- поля расстояний по улицам (алгоритм Дейкстры с корзинами) ---------- */
 // баррикада проходима «дорого»: зомби идут к ней и ломают, а не теряют след
 const FAR = 32000;
+const underRubble = new Uint8Array(GW * GH);
 const fZ = new Int16Array(GW * GH), fH = new Int16Array(GW * GH), fE = new Int16Array(GW * GH), fInf = new Int16Array(GW * GH), fC = new Int16Array(GW * GH);
 const RING = 16, ring = Array.from({ length: RING }, () => []);
 const NB4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];

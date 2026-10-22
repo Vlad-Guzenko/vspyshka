@@ -45,19 +45,19 @@ function turnToward(c, g) {
 function spawnTraffic(n) {
   for (let i = 0; i < n; i++) {
     const lane = pick(lanes);
-    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, blend: 0, offx: 0, offy: 0, _i: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
+    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, blend: 0, offx: 0, offy: 0, _i: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, exitSkip: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
     const r = Math.random();
     if (r < .04) { c.tanker = true; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
     else if (r < .09) { c.bus = true; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
     if (curves.length && Math.random() < .4) { const cv = pick(curves); c.lane = lane; placeOnCurve(c, cv, rnd(10, cv.len - 10), Math.random() < .5 ? 1 : -1); if (blocked(c.x, c.y)) continue; c.v = c.spd * rnd(.5, 1); cars.push(c); continue; }
     placeOnLane(c, lane, rnd(lane.a0 + 30, lane.a1 - 30));
-    if (blocked(c.x, c.y) || laneBusy(lane, lane.s.v ? c.y : c.x, c)) continue;
+    if (blocked(c.x, c.y) || cellAt(c.x, c.y) === 7 || laneBusy(lane, lane.s.v ? c.y : c.x, c)) continue;
     c.ang = Math.atan2(DY[c.dir], DX[c.dir]); c.v = c.spd * rnd(.5, 1);
     cars.push(c);
   }
 }
 function abandonCar(c, why) {
-  c.moving = false; c.stopped = true; c.v = 0;
+  c.moving = false; c.stopped = true; c.v = 0; c.stopT = simT;
   const hw = Math.abs(Math.cos(c.ang)) > .5 ? 9 : 4, hh = hw === 9 ? 4 : 9;
   fillCells(c.x - hw, c.y - hh, c.x + hw, c.y + hh, 5); evictRect(c.x - hw - 4, c.y - hh - 4, c.x + hw + 4, c.y + hh + 4); fieldT = 0;
   if (!c.wreck && why !== "crash") {
@@ -71,8 +71,11 @@ function abandonCar(c, why) {
   }
   if (why && why !== "crash") logT("abandon", why, "bad", 15);
 }
+let carsCompactT = 20;
 function stepTraffic(dt) {
+  carsCompactT -= dt; if (carsCompactT <= 0) { carsCompactT = 20; if (cars.some(c => c.gone)) cars = cars.filter(c => !c.gone); }
   for (const c of cars) {
+    if (c.gone) { c.moving = false; continue; }
     if (c.alarm > 0) c.alarm -= dt;
     // машина в полёте после взрыва
     if (c.z > 0 || c.vz) {
@@ -152,9 +155,9 @@ function stepTraffic(dt) {
     const ox = c.x, oy = c.y;
     c.x += dx * c.v * dt; c.y += dy * c.v * dt;
     if (c.offx || c.offy) { const k = Math.min(1, dt * 2.5); c.x -= c.offx * k; c.y -= c.offy * k; c.offx *= 1 - k; c.offy *= 1 - k; if (Math.abs(c.offx) + Math.abs(c.offy) < .05) c.offx = c.offy = 0; }
-    if (c.service && (c.x < 4 || c.y < 4 || c.x > W - 4 || c.y > H - 4)) { if (c.leaving) { c.gone = true; continue; } const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (opp) placeOnLane(c, opp, clamp(c.lane.s.v ? c.y : c.x, 6, (c.lane.s.v ? H : W) - 6)); continue; }
+    if (c.service && (c.x < 4 || c.y < 4 || c.x > W - 4 || c.y > H - 4)) { if (c.leaving) { c.gone = true; c.moving = false; continue; } const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (opp) placeOnLane(c, opp, clamp(c.lane.s.v ? c.y : c.x, 6, (c.lane.s.v ? H : W) - 6)); continue; }
     if (c.x < 4 || c.y < 4 || c.x > W - 4 || c.y > H - 4) {
-      if (c.fleeTo) { c.gone = true; fled++; logT("fled", "Машины бегут из города по шоссе", "", 40); continue; } // спасся
+      if (c.fleeTo) { c.gone = true; c.moving = false; fled++; logT("fled", "Машины бегут из города по шоссе", "", 40); continue; } // спасся
       const lane = pick(lanes), at = rnd(lane.a0 + 40, lane.a1 - 40); if (laneBusy(lane, at, c)) continue; placeOnLane(c, lane, at); c.ang = Math.atan2(DY[c.dir], DX[c.dir]); c.v = 0; c.planAt = undefined; c.plan = -1; continue;
     }
     // пересекли ось поперечной улицы: выполняем запланированный поворот
@@ -167,7 +170,7 @@ function stepTraffic(dt) {
       const l = nd >= 0 ? cands.find(l => l.dir === nd) : null;
       if (l) {
         if (laneBusy(l, lat, c)) { if (ending) { c.x = ox; c.y = oy; c.v = 0; c.wait += dt; } } // занято — ждём или едем прямо
-        else { placeOnLane(c, l, lat); c.turnT = .9; if (blocked(c.x, c.y)) { c.x = ox; c.y = oy; } }
+        else { const tx = l.s.v ? l.c : lat, ty = l.s.v ? lat : l.c; if (!blocked(tx, ty)) { placeOnLane(c, l, lat); c.turnT = .9; } }
       }
       c.plan = -1;
     }
@@ -184,6 +187,13 @@ function damageBuilding(b, dmg, sx, sy) {
   if (b.hp < b.maxHp * .55 && Math.random() < .6) b.fire = Math.max(b.fire, rnd(30, 70));
   if (b.hp <= 0) collapse(b);
 }
+// клетка внутри дома, с учётом поворота
+function insideFoot(b, x, y) {
+  if (b.rot === undefined) return x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1;
+  const c = Math.cos(b.rot), s = Math.sin(b.rot), dx = x - b.cx, dy = y - b.cy, lx = dx * c + dy * s, lz = -dx * s + dy * c;
+  return Math.abs(lx) <= b.w / 2 && Math.abs(lz) <= b.d / 2;
+}
+function setRubble(i) { if (grid[i] !== 8) underRubble[i] = grid[i]; grid[i] = 8; }
 function collapse(b) {
   b.state = "collapsing"; b.cT = 0;
   // высокий дом после удара сбоку валится в сторону от взрыва
@@ -205,12 +215,12 @@ function collapse(b) {
     if (Math.random() < .75) { if (a.role === "zombie") destroyZombie(a, false); else { kill(a, false); a.reanimate = false; } a.crushed = true; }
   });
   for (let y = b.y0 - m; y < b.y1 + m; y += CS) for (let x = b.x0 - m; x < b.x1 + m; x += CS) {
-    const inside = x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1, c = cellAt(x, y);
+    const inside = insideFoot(b, x, y), c = cellAt(x, y);
     if (inside || (c !== 3 && c !== 5 && Math.random() < .8 - Math.max(Math.max(b.x0 - x, x - b.x1, 0), Math.max(b.y0 - y, y - b.y1, 0)) / m * .7)) {
-      const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) grid[gy * GW + gx] = 8;
+      const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) setRubble(gy * GW + gx);
     }
   }
-  for (const c of cars) if (!c.moving && c.x > b.x0 - m && c.x < b.x1 + m && c.y > b.y0 - m && c.y < b.y1 + m) { c.wreck = true; c.crushed = true; }
+  for (const c of cars) if (!c.moving && !c.gone && c.x > b.x0 - m && c.x < b.x1 + m && c.y > b.y0 - m && c.y < b.y1 + m) { c.wreck = true; c.crushed = true; c.stopped = true; c.stopT = simT; }
   for (const l of lamps) if (l.x > b.x0 - m && l.x < b.x1 + m && l.y > b.y0 - m && l.y < b.y1 + m) l.down = l.down || rnd(1.2, 1.5) * (Math.random() < .5 ? 1 : -1);
   fieldT = 0; gridDirty = true; barrDirty = true;
   addDanger(cx, cy, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, 300);
@@ -229,7 +239,7 @@ function toppleImpact(b) {
   for (let k = 0; k < L; k += CS / 2) for (let l = -half; l <= half; l += CS / 2) {
     const x = px + ca * k - sa * l, y = py + sa * k + ca * l; if (!inZone(x, y)) continue;
     const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
-    const i = gy * GW + gx; if (grid[i] !== 3 && grid[i] !== 9 && Math.random() < .85) grid[i] = 8;
+    const i = gy * GW + gx; if (grid[i] !== 3 && grid[i] !== 9 && Math.random() < .85) setRubble(i);
   }
   near(px + ca * L / 2, py + sa * L / 2, L / 2 + half, a => { if (a.state === "alive" && inZone(a.x, a.y) && Math.random() < .85) { if (a.role === "zombie") destroyZombie(a, false); else { kill(a, false); a.reanimate = false; } a.crushed = true; } });
   for (const c of cars) if (!c.gone && inZone(c.x, c.y)) { c.wreck = true; c.crushed = true; c.moving = false; c.stopped = true; }
@@ -282,8 +292,8 @@ function blastWorld(x, y, R, big) {
       const k = 1 - d / (R * 1.2), ang = Math.atan2(c.y - y, c.x - x);
       if (!c.wreck) c.boomT = rnd(.6, 3);
       c.wreck = true;
-      if (c.moving) { c.moving = false; c.stopped = true; }
-      fillCells(c.x - 9, c.y - 9, c.x + 9, c.y + 9, 0);
+      if (c.moving) { c.moving = false; c.stopped = true; c.stopT = simT; }
+      clearCarCells(c);
       c.vx = Math.cos(ang) * 50 * k; c.vy = Math.sin(ang) * 50 * k; c.vz = 20 + 50 * k * (big ? 1 : .6); c.z = .1;
       c.sr = rnd(-6, 6) * k; c.sy = rnd(-3, 3) * k; c.roll = c.roll || 0;
     } else if (d < R * 3 && !c.wreck) c.alarm = rnd(15, 40);
@@ -336,8 +346,9 @@ function stepTanks(dt) {
         const px = t.x + Math.cos(t.ang) * k * 9 - Math.sin(t.ang) * j * 5, py = t.y + Math.sin(t.ang) * k * 9 + Math.cos(t.ang) * j * 5, gi = Math.floor(py / CS) * GW + Math.floor(px / CS);
         if (grid[gi] === 6) { grid[gi] = 0; barrDirty = true; fieldT = 0; fxDebris(px, py); }
       }
-      for (const c of cars) if (!c.gone && !c.crushed && Math.hypot(c.x - t.x, c.y - t.y) < 13) { c.crushed = true; c.wreck = true; c.moving = false; fillCells(c.x - 9, c.y - 9, c.x + 9, c.y + 9, 0); fieldT = 0; sfx.crash(c); logT("crush", "Танк смял машину", "good", 20); }
-      near(t.x, t.y, 9, a => { if (a.state === "alive") { if (a.role === "zombie") destroyZombie(a, false); else kill(a, false); a.crushed = true; fxBlood(a.x, a.y, 1, 10); } });
+      for (const c of cars) if (!c.gone && !c.crushed && Math.hypot(c.x - t.x, c.y - t.y) < 13) { c.crushed = true; c.wreck = true; c.moving = false; c.stopped = true; c.stopT = simT; clearCarCells(c); sfx.crash(c); logT("crush", "Танк смял машину", "good", 20); }
+      const ca = Math.cos(t.ang), sa = Math.sin(t.ang), reach = 13 + t.v * dt;
+      near(t.x, t.y, 16, a => { if (a.state !== "alive" || a.hidden || a.z > .5) return; const dx = a.x - t.x, dy = a.y - t.y, al = dx * ca + dy * sa, lt = Math.abs(-dx * sa + dy * ca); if (al < -12 || al > reach || lt > 7) return; if (a.role === "zombie") destroyZombie(a, false); else kill(a, false); a.crushed = true; fxBlood(a.x, a.y, 1, 10); });
     }
   }
 }

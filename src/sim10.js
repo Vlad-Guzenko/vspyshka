@@ -40,7 +40,7 @@ function stepRoutine(dt) {
   }
   // машин на улицах столько, сколько нужно в этот час
   const moving = cars.filter(c => c.moving && !c.service), target = Math.round(trafficN() * act);
-  if (moving.length > target + 4) { const c = moving.find(c => typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500); if (c) c.gone = true; }
+  if (moving.length > target + 4) { const c = moving.find(c => typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500); if (c) { c.gone = true; c.moving = false; } }
   else if (moving.length < target - 4 && !outbreak) spawnTraffic(2);
 }
 

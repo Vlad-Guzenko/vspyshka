@@ -3,6 +3,7 @@ let nukeFx = null;
 const nukeBallMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, toneMapped: false, depthWrite: false });
 const nukeRingMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffe0b0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
 function fxNuke(x, y) {
+  if (nukeFx) { for (const o of [nukeFx.ball, nukeFx.glow, nukeFx.wave, nukeFx.cond, nukeFx.light]) scene.remove(o); nukeFx = null; }
   const cx = X(x), cz = Z(y);
   const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), nukeBallMat.clone()); ball.position.set(cx, 20 + gY(x, y), cz); scene.add(ball);
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffc070, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); glow.position.copy(ball.position); scene.add(glow);
@@ -66,7 +67,7 @@ function makeScaffold(b) {
   }
   const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), scafMat, items.length);
   items.forEach(([x, y, z, sx, sy, sz], i) => { m.makeScale(sx, sy, sz).setPosition(x, y, z); inst.setMatrixAt(i, m); });
-  inst.castShadow = true; g.add(inst);
+  inst.castShadow = true; inst.frustumCulled = false; g.add(inst);
   // кран рядом с домом
   const mastH = h + 50, mast = new THREE.Mesh(new THREE.BoxGeometry(3, mastH, 3), craneMat); mast.position.set(w / 2 + 10, mastH / 2, 0); mast.castShadow = true; g.add(mast);
   const jib = new THREE.Mesh(new THREE.BoxGeometry(70, 2.2, 2.2), craneMat); jib.position.set(w / 2 + 10 - 20, mastH, 0); jib.castShadow = true; g.add(jib);
@@ -78,15 +79,21 @@ function makeScaffold(b) {
   const trolley = new THREE.Group(); trolley.position.set(-30, -1.5, 0); arm.add(trolley);
   const cable = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 1, 4).translate(0, -.5, 0), new THREE.MeshBasicMaterial({ color: 0x222 })); trolley.add(cable);
   const load = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 4), slabMat); load.castShadow = true; trolley.add(load);
-  g.position.copy(b.obj.position); g.rotation.y = b.obj.rotation.y; g.userData.jib = jib; g.userData.arm = arm; g.userData.trolley = trolley; g.userData.cable = cable; g.userData.load = load; g.userData.mastH = mastH;
+  g.position.set(b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2), b.baseY || 0, b.rot !== undefined ? Z(b.cy) : Z((b.y0 + b.y1) / 2)); g.rotation.y = b.rot !== undefined ? -b.rot : 0; g.userData.jib = jib; g.userData.arm = arm; g.userData.trolley = trolley; g.userData.cable = cable; g.userData.load = load; g.userData.mastH = mastH;
   return g;
 }
 function updateConstruction() {
   for (const b of buildings) {
     if (!b.obj) continue;
     if (b.state === "construct" || (b.state === "ok" && b.scaf)) {
-      if (!b.scaf) { b.scaf = makeScaffold(b); scene.add(b.scaf); if (b.mesh.userData.orig) { b.mesh.material = b.mesh.userData.orig; b.scorched = false; } for (const o of b.obj.children.slice()) { if (o.userData.shell) b.obj.remove(o); else o.visible = true; } }
-      if (b.topple) { b.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rot !== undefined ? -b.rot : 0); b.obj.position.set(b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2), 0, b.rot !== undefined ? Z(b.cy) : Z((b.y0 + b.y1) / 2)); b.topple = false; b.ruinH = 0; }
+      if (b.topple || b.mound) { b.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rot !== undefined ? -b.rot : 0); b.obj.position.set(b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2), b.baseY || 0, b.rot !== undefined ? Z(b.cy) : Z((b.y0 + b.y1) / 2)); b.obj.scale.set(1, 1, 1); b.obj.visible = true; b.obj.traverse(o => { if (o.isMesh) o.scale.y = 1; }); if (b.mound) { cityGroup.remove(b.mound); b.mound = null; } b.topple = b.broke = b.moundDone = b.impacted = false; b.ruinH = 0; }
+      if (!b.scaf) {
+        b.scaf = makeScaffold(b); cityGroup.add(b.scaf); b.obj.visible = true;
+        if (b.mesh.userData.orig) { b.mesh.material = b.mesh.userData.orig; b.scorched = false; b.scorchK = 0; }
+        for (const o of b.obj.children.slice()) { if (o.userData.shell) b.obj.remove(o); else o.visible = true; }
+        if (b.roofIdx && b.roofBox && roofStuff) { const mm = new THREE.Matrix4(); b.roofIdx.forEach((ri, k) => { const [x, y, z, sx, sy, sz] = b.roofBox[k]; mm.makeScale(sx, sy, sz).setPosition(x, y, z); roofStuff.setMatrixAt(ri, mm); }); roofStuff.instanceMatrix.needsUpdate = true; }
+        if (b.sign) b.sign.visible = true;
+      }
       // этажи появляются по одному: высота растёт ступенями, на верхнем этаже пыль и искры сварки
       const fl = Math.max(1, b.floors), stepP = Math.floor((b.prog || 0) * fl) / fl, drop = (b.h - b.ruinH) * (1 - stepP);
       if (b.state === "construct" && (b.lastStep || 0) !== stepP) { b.lastStep = stepP; const top = (b.baseY || 0) + b.ruinH + (b.h - b.ruinH) * stepP; for (let i = 0; i < 14; i++) smokeParticle(X(rnd(b.x0, b.x1)), top + 1, Z(rnd(b.y0, b.y1)), 1.4); }
@@ -96,7 +103,7 @@ function updateConstruction() {
       const u = b.scaf.userData, ph = (simT * .12 + (b.x0 % 7)) % 1, rise = (b.h - b.ruinH) * (b.prog || 0) + b.ruinH;
       u.arm.rotation.y = Math.sin(simT * .25 + b.y0) * .9 - .4; u.trolley.position.x = -14 - 22 * (.5 + .5 * Math.sin(simT * .4));
       const drop2 = ph < .5 ? ph * 2 : 2 - ph * 2, hang = 4 + (u.mastH - rise - 8) * drop2; u.cable.scale.y = hang; u.load.position.y = -hang - 1.2; u.load.visible = ph < .5 || b.prog < 1;
-      if (b.state === "ok") { scene.remove(b.scaf); b.scaf = null; b.obj.position.y = 0; b.obj.rotation.x = b.obj.rotation.z = 0; b.ruinDone = false; b.hid = false; }
+      if (b.state === "ok") { cityGroup.remove(b.scaf); b.scaf = null; b.obj.position.y = b.baseY || 0; b.obj.rotation.x = b.obj.rotation.z = 0; b.ruinDone = false; b.hid = false; b.lastStep = -1; }
     }
   }
 }

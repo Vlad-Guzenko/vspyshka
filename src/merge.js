@@ -42,7 +42,9 @@ function mergeBuildings() {
   for (const k of keys) rebuildChunk(k);
 }
 // дом, который горит или рушится, отделяется от блока и анимируется сам
+const dirtyChunks = new Set();
 function detachBuilding(b) {
   if (b.detached || !b.obj) return;
-  b.detached = true; cityGroup.add(b.obj); rebuildChunk(b.chunk);
+  b.detached = true; cityGroup.add(b.obj); dirtyChunks.add(b.chunk);
 }
+function flushChunks() { if (!dirtyChunks.size) return; for (const k of dirtyChunks) rebuildChunk(k); dirtyChunks.clear(); }

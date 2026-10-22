@@ -7,8 +7,8 @@ function paintMiniBase() {
   g.fillStyle = "#3c4044"; g.fillRect(0, 0, mini.width, mini.height);
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
     const c = grid[y * GW + x];
-    g.fillStyle = c === 3 ? "#9b958a" : c === 1 || c === 7 ? "#5d6064" : c === 2 || c === 4 ? "#3f5f34" : c === 9 ? "#1f4057" : c === 8 ? "#6b5f50" : c === 10 ? "#7a7268" : null;
-    if (g.fillStyle && c !== 0 && c !== 5 && c !== 6) g.fillRect(x * CS * MS, y * CS * MS, CS * MS + .5, CS * MS + .5);
+    g.fillStyle = c === 3 ? "#9b958a" : c === 1 || c === 7 ? "#5d6064" : c === 2 || c === 4 ? "#3f5f34" : c === 9 ? "#1f4057" : c === 8 ? "#6b5f50" : c === 10 ? "#7a7268" : c === 6 ? (wallMask[y * GW + x] ? "#c9c2b4" : "#b89a3c") : null;
+    if (g.fillStyle && c !== 0 && c !== 5) g.fillRect(x * CS * MS, y * CS * MS, CS * MS + .5, CS * MS + .5);
   }
 }
 let miniDirtyT = 0;

@@ -23,7 +23,7 @@ function newAgent(role, x, y) {
     quietT: 0, rad: 0, hostile: 0, loot: null, lootT: 0, muzzle: null, onRoof: false, hideB: null, hideT: 0, roofZ: 0, rx: 0, ry: 0, crushed: false, vapor: false, zero: false, seen: 0,
     depotDone: false, ambAssigned: false, tent: null, buildB: null, workT: 0, tool: 0, spray: 0, sprayAt: null, axe: 0, far: 0, onRoofT: 0,
     order: null, post: null, campGoal: null, inCamp: null, forage: null, carry: 0,
-    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null, dz: null, dzT: 0,
+    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null, dz: null, dzT: 0, seenT: -99, body: null, collected: 0, depotT: 0, standDown: false, standT: 0, leftCity: false, stopT: 0,
   };
   if (role === "civ") {
     const r = Math.random();
@@ -127,6 +127,7 @@ function turn(a) {
   a.ztype = a.ztype || rollZType(); a.bag = null; a.glasses = false; if (a.hat === "cap" || a.hat === "beanie") a.hat = null;
   if (a.hero && a.role !== "zombie") logE(`${a.name}, ${HERO_KINDS[a.hero].n}, обратил${a.sex === "f" ? "ась" : "ся"}`, "bad");
   a.role = "zombie"; a.state = "alive"; a.hp = 100; a.zhp = 4 + (Math.random() * 3 | 0); a.bitten = false; a.armed = false; a.panic = 0; a.homeGoal = false; a.dest = null; a.hideGoal = null;
+  a.unit = null; a.job = null; a.squad = 0; a.order = null; a.post = null; a.guardB = null; a.guardJob = null; a.cp = null; a.standDown = false;
   a.riseT = 1.4; a.bleed = 0; a.feedT = 0; a.shriek = 0;
   if (a.ztype === "brute") a.zhp = 14; if (a.ztype === "crawler") a.zhp = 2; if (a.ztype === "runner") a.zhp = 3; if (a.ztype === "titan") a.zhp = 90; interest(a.x, a.y, 3);
   if (!firsts.zombie) firsts.zombieT = simT;
@@ -140,7 +141,7 @@ function clearShot(s, t) {
   const dx = t.x - s.x, dy = t.y - s.y, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
   let ok = true;
   near((s.x + t.x) / 2, (s.y + t.y) / 2, L / 2 + 8, b => {
-    if (!ok || b === s || b === t || b.state !== "alive" || b.role === "zombie") return;
+    if (!ok || b === s || b === t || b.state !== "alive" || b.role === "zombie" || b.hidden) return;
     const px = b.x - s.x, py = b.y - s.y, al = px * ux + py * uy, pe = Math.abs(px * uy - py * ux);
     if (al > 3 && al < L + 8 && pe < 3.5) ok = false;
   });
@@ -172,7 +173,7 @@ function shoot(s, t) {
     const ux = Math.cos(a2), uy = Math.sin(a2);
     let victim = null;
     near((s.x + hx) / 2, (s.y + hy) / 2, L / 2 + 10, b => {
-      if (victim || b === s || b.state !== "alive" || b.role === "zombie") return;
+      if (victim || b === s || b.state !== "alive" || b.role === "zombie" || b.hidden) return;
       const px = b.x - s.x, py = b.y - s.y, al = px * ux + py * uy, pe = Math.abs(px * uy - py * ux);
       if (al > 5 && al < L && pe < 2.5 && Math.random() < .35) victim = b;
     });
@@ -240,11 +241,12 @@ function thinkZombie(a, dt) {
   // зомби идут на звук выстрелов
   let nz = null, nd = 1e9;
   for (const n of noises) { const d = Math.hypot(n.x - a.x, n.y - a.y); if (d < n.r && d < nd) { nd = d; nz = n; } }
-  if (nz && nd > 15) return [nz.x - a.x, nz.y - a.y, base];
+  const toward = (tx, ty, sp) => { const d = Math.hypot(tx - a.x, ty - a.y) || 1, ux = (tx - a.x) / d, uy = (ty - a.y) / d; if (a.stuck < .6 && !blocked(a.x + ux * 7, a.y + uy * 7)) return [ux, uy, sp]; const f = fieldDir(fH, a.x, a.y, false); if (f) return [f[0], f[1], sp]; const w = wander(a, dt); return [w[0], w[1], sp * .6]; };
+  if (nz && nd > 15) return toward(nz.x, nz.y, base);
   // ночью зомби тянутся к свету прожекторов
-  if (settings.night) { const f = nearestFlood(a.x, a.y, 260); if (f && Math.hypot(f.x - a.x, f.y - a.y) > 30) return [f.x - a.x, f.y - a.y, base * .8]; }
+  if (settings.night) { const f = nearestFlood(a.x, a.y, 260); if (f && Math.hypot(f.x - a.x, f.y - a.y) > 30) return toward(f.x, f.y, base * .8); }
   const sb = zombieShelterTarget(a);
-  if (sb) { const d = Math.hypot(sb.door[0] - a.x, sb.door[1] - a.y); if (d < 7) { bashDoor(a, sb, dt); return [sb.door[0] - a.x, sb.door[1] - a.y, .2]; } return [sb.door[0] - a.x, sb.door[1] - a.y, base * .9]; }
+  if (sb) { const d = Math.hypot(sb.door[0] - a.x, sb.door[1] - a.y); if (d < 7) { bashDoor(a, sb, dt); return [sb.door[0] - a.x, sb.door[1] - a.y, .2]; } return toward(sb.door[0], sb.door[1], base * .9); }
   const fv = fieldVal(fH, a.x, a.y);
   if (fv < 45) { const d = fieldDir(fH, a.x, a.y, false); if (d) return [d[0], d[1], base * .9]; }
   const w = wander(a, dt); return [w[0], w[1], base * .45 * w[2]];
@@ -253,7 +255,9 @@ function thinkHuman(a, dt) {
   const sight = sightR(a);
   if (a.grabT > 0) { a.grabT -= dt; return [0, 0, 0]; }
   if (a.cpWait > 0) { a.cpWait -= dt; if (a.cpWait <= 0) a.cpWait = -1; return [0, 0, 0]; } // стоит на проверке
+  if (a.cpWait < 0 && (!a.cpAt || Math.hypot(a.cpAt.x - a.x, a.cpAt.y - a.y) > 20)) a.cpWait = 0;
   if (a.bcastT > 0) a.bcastT -= dt;
+  if (a.standDown && a.order && a.role !== "army" && a.role !== "police") return goTo(a, a.order.x, a.order.y, 9); // отбой: медики едут на базу
   if (a.onFire > 0) { if (a.wanderT > .6) a.wanderT = .6; const w = wander(a, dt); a.idleT = 0; return [w[0] + rnd(-.5, .5), w[1] + rnd(-.5, .5), 15]; } // горящий мечется
   let zd = 1e9, zn = null, fx = 0, fy = 0;
   // спокойный прохожий принимает бредущего зомби за пьяного, пока тот не подойдёт вплотную
@@ -266,10 +270,13 @@ function thinkHuman(a, dt) {
     const behind = aware < sight && d > 6 && (Math.cos(a.dir) * (b.x - a.x) + Math.sin(a.dir) * (b.y - a.y)) < -.2 * d; // спокойный не смотрит назад
     if (d < aware && !behind && (d < 12 || a.post || los(a.x, a.y, b.x, b.y))) { fx -= (b.x - a.x) / (d * d + 1); fy -= (b.y - a.y) / (d * d + 1); if (d < zd) { zd = d; zn = b; } }
   });
-  if (zn && a.panic < 1) {
+  if (zn) {
     a.panic = 1;
-    if (a.role === "civ" && Math.random() < .35) report(zn.x, zn.y, "attack"); // звонок в 112
-    if (a.role === "civ") { sfx.scream(a); near(a.x, a.y, 60, b => { if (b.role === "civ" && b.state === "alive") b.panic = Math.max(b.panic, .8); }); alertFamily(a); }
+    if (simT - a.seenT > 20) {
+      a.seenT = simT;
+      if (a.role === "civ" && Math.random() < .35) report(zn.x, zn.y, "attack"); // звонок в 112
+      if (a.role === "civ") { sfx.scream(a); near(a.x, a.y, 60, b => { if (b.role === "civ" && b.state === "alive" && !b.hidden) b.panic = Math.max(b.panic, .8); }); alertFamily(a); }
+    }
   }
   // перезарядка
   if (a.reload > 0) { a.reload -= dt; if (a.reload <= 0) { const n = Math.min(a.magMax, a.ammo); a.mag = n; a.ammo -= n; } }
@@ -281,6 +288,7 @@ function thinkHuman(a, dt) {
     if (a.cd <= 0 && clearShot(a, zn)) shoot(a, zn);
   }
   const hurt = clamp(a.hp / 100, .45, 1) * (1 - (a.burn || 0) * .4) * (a.bitten && a.incT < 4 ? .5 : 1);
+  const flee = () => { const d = fieldDir(fZ, a.x, a.y, true); const l = Math.hypot(fx, fy) || 1; return [fx / l * 1.5 + (d ? d[0] : 0), fy / l * 1.5 + (d ? d[1] : 0), 17 * hurt]; };
   if (a.role === "fire" || a.role === "worker" || a.role === "sanitar" || a.role === "builder") { const r = a.unit ? thinkCrew(a, dt, zn, zd) : null; if (r) return r; }
   if (a.role === "bandit") { if (zn && zd < 25 && !(a.mag + a.ammo > 0)) return flee(); const r = thinkBandit(a, dt, zn, zd); if (!(zn && a.mag > 0 && zd < 110)) return r; }
   // в панике — в ближайший дом, пока дверь цела; за лидером — в его укрытие
@@ -299,7 +307,6 @@ function thinkHuman(a, dt) {
   }
   const fighter = (a.role === "army" || a.role === "police") && (a.mag + a.ammo) > 0;
   if (fighter && !zn && a.mag > 0 && a.reload <= 0) { let bd = 150, bt = null; near(a.x, a.y, 150, b => { if (b.state === "alive" && b.role === "bandit" && b.hostile > 0 && !b.hidden) { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < bd && los(a.x, a.y, b.x, b.y)) { bd = d; bt = b; } } }); if (bt) { a.aim = Math.atan2(bt.y - a.y, bt.x - a.x); a.aimT = .8; if (a.cd <= 0) shootHuman(a, bt); return [0, 0, 0]; } }
-  const flee = () => { const d = fieldDir(fZ, a.x, a.y, true); const l = Math.hypot(fx, fy) || 1; return [fx / l * 1.5 + (d ? d[0] : 0), fy / l * 1.5 + (d ? d[1] : 0), 17 * hurt]; };
   if (fighter) {
     if (a.post) return [0, 0, 0];
     // приказ: идти на позицию (стреляя на ходу) и держать её
@@ -323,12 +330,12 @@ function thinkHuman(a, dt) {
   }
   // слух об опасности: уходим из зоны
   let dz = null; if (a.role === "civ") { a.dzT -= dt; if (a.dzT <= 0) { a.dzT = .5; a.dz = dangers.length ? inDanger(a) : null; } dz = a.dz; }
-  if (dz && !a.dest && !a.homeGoal && !a.campGoal && !a.hideGoal && !a.forage && !a.bcastT && !(evac && evac.landed)) { const dd = Math.hypot(a.x - dz.x, a.y - dz.y) || 1; return [(a.x - dz.x) / dd, (a.y - dz.y) / dd, 12 * hurt]; }
+  if (dz && !a.dest && !a.homeGoal && !a.campGoal && !a.hideGoal && !a.forage && !(a.bcastT > 0) && !(evac && evac.landed)) { const dd = Math.hypot(a.x - dz.x, a.y - dz.y) || 1; return [(a.x - dz.x) / dd, (a.y - dz.y) / dd, 12 * hurt]; }
   if (a.armed && a.role === "civ" && a.ammo < a.magMax && depots.length) { const d = nearestDepot(a, 200); if (d) return goTo(a, d.x, d.y, 7); }
   if (a.role === "medic") {
     let tgt = null, td = 1e9;
-    near(a.x, a.y, 30, b => { if (b.state === "alive" && b.bitten && b !== a) { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < td) { td = d; tgt = b; } } });
-    let hurtP = null; near(a.x, a.y, 60, b => { if (!hurtP && b !== a && b.state === "alive" && b.role === "civ" && !b.bitten && (b.hp < 60 || b.burn > .15)) hurtP = b; });
+    near(a.x, a.y, 30, b => { if (b.state === "alive" && b.bitten && b !== a && !b.hidden) { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < td) { td = d; tgt = b; } } });
+    let hurtP = null; near(a.x, a.y, 60, b => { if (!hurtP && b !== a && b.state === "alive" && !b.hidden && b.role === "civ" && !b.bitten && (b.hp < 60 || b.burn > .15)) hurtP = b; });
     if (!tgt && hurtP) { if (Math.hypot(hurtP.x - a.x, hurtP.y - a.y) < 6) { hurtP.grabT = .3; if (a.cd <= 0) { a.cd = 2; hurtP.hp = Math.min(100, hurtP.hp + 25); hurtP.burn = Math.max(0, (hurtP.burn || 0) - .15); hurtP.bleed = 0; logT("treat", "Медики оказали помощь раненому", "good", 20); } return [0, 0, 0]; } return goTo(a, hurtP.x, hurtP.y, 10); }
     if (tgt && td < 7) {
       tgt.grabT = Math.max(tgt.grabT, .3);
@@ -384,7 +391,7 @@ function move(a, mx, my, sp, dt) {
   if (l > 1e-3 && sp > 0) { tx = mx / l * sp; ty = my / l * sp; }
   // личное пространство: расталкивание соседей
   near(a.x, a.y, 5, b => {
-    if (b === a || b.state !== "alive") return;
+    if (b === a || b.state !== "alive" || b.hidden) return;
     const dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
     if (d > 0 && d < 4) { tx += dx / d * 10; ty += dy / d * 10; }
   });
@@ -434,6 +441,8 @@ function step(dt) {
     }
     a.cd -= dt; a.aimT -= dt; a.panic = Math.max(0, a.panic - dt * .05);
     if (a.hidden) {
+      if (a.role === "bandit" && a.lootT > 0) { a.lootT -= dt; if (a.lootT <= 0) { a.hidden = false; a.loot = null; a.bag = pick(["#3a2a1e", "#1e1e22", "#8a6a2a"]); logT("loot", "Мародёры вынесли добычу", "bad", 25); } }
+      if (!a.hideB && !a.detained && !(a.role === "bandit" && a.lootT > 0)) { a.hidden = false; a.onRoof = false; } // никто не остаётся невидимым без укрытия
       if (a.bitten && a.role !== "zombie") { a.incT -= dt; if (a.incT <= 0) { turn(a); a.riseT = 0; if (a.detained) a.detained.detained--; } }
       if (a.onRoof && a.hideB) { a.x = a.rx; a.y = a.ry; a.dir += dt * .3; }
       a.speed = 0; continue;
@@ -496,7 +505,7 @@ function boom(x, y, R, big) {
   if (R >= 30) addDanger(x, y, R * 2.2, big ? 240 : 120);
   fxBoom(x, y, R); sfx.boom(x, y, big);
   for (const a of agents) {
-    if (a.state === "saved") continue;
+    if (a.state === "saved" || (a.hidden && !a.onRoof) || a.post) continue;
     const d = Math.hypot(a.x - x, a.y - y);
     if (d > R) continue;
     const k = 1 - d / R;
@@ -531,7 +540,7 @@ function stepEvac(dt) {
     else { e.alt = Math.max(0, e.alt - dt * 18); if (e.alt === 0) { e.landed = true; logE("Вертолёт эвакуации приземлился", "good"); } }
   } else {
     e.t -= dt;
-    let threat = false; near(e.x, e.y, 40, b => { if (b.state === "alive" && b.role === "zombie") threat = true; });
+    let threat = false; near(e.x, e.y, 40, b => { if (b.state === "alive" && b.role === "zombie" && !b.hidden && !(b.riseT > 0) && Math.hypot(b.x - e.x, b.y - e.y) < 40) threat = true; });
     if (e.t <= 0 || e.cap <= 0 || threat) {
       logE(threat ? `Зомби у вертолёта, взлёт. Спасено ${e.capMax - e.cap}` : `Вертолёт улетел, спасено ${e.capMax - e.cap}`, "good");
       e.leaving = true; e.lt = 9; const a = rnd(0, TAU); e.lx = Math.cos(a); e.ly = Math.sin(a); e.yaw = a;
@@ -573,10 +582,11 @@ function newCitySim(n) {
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
+  for (const k in lastLog) delete lastLog[k];
   resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); resetSquads(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
-  assignHomes(); pickHeroes();
-  const p0 = pickPatientZero(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
+  assignHomes();
+  const p0 = pickPatientZero(); pickHeroes(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
   logE("Нулевой пациент где-то в городе. Он ещё не знает, что заражён", "bad");
   fieldT = 0; record(); logDirty = true;
   return p0;

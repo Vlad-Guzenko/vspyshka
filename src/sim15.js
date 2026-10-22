@@ -1,5 +1,5 @@
 /* ---------- службы действуют сами: зачистка домов, посты у укрытий, медпункт, комендантский час ---------- */
-let medpoints = [], guardT = 0, medT = 0;
+let medpoints = [], guardT = 0, medT = 0, autoT = 0;
 // военный на зачистке: если зомби не видно, идёт к дому, где кто-то обратился, и выбивает дверь
 function armyClear(a, dt) {
   let b = a.clearB;
@@ -26,13 +26,14 @@ function armyClear(a, dt) {
 function stepGuards(dt, cl) {
   guardT -= dt; if (guardT > 0) return; guardT = 30;
   if (alert < 2) { if (alert === 0) for (const a of agents) if (a.guardB) { a.guardB = null; a.order = null; } return; }
-  let posts = 0; for (const a of agents) if (a.state === "alive" && a.guardB) posts++;
+  let posts = 0; for (const a of agents) if (a.state === "alive" && a.guardB) { const gb = a.guardB; if (!gb.occ || gb.occ.length === 0 || gb.state !== "ok") { a.guardB = null; a.order = null; continue; } posts++; }
+  for (const c of cars) if (c.service === "police" && !c.gone && c.guardB) posts += 2;
   if (posts >= 16 || !cl) return;
   let best = null, bs = 0;
   for (const b of buildings) { if (!b.occ || b.occ.length < 3 || b.state !== "ok" || !b.door || (b.guardedT && simT - b.guardedT < 400)) continue; const d = Math.hypot(b.door[0] - cl.x, b.door[1] - cl.y); if (d > 420) continue; const s = b.occ.length / (1 + d / 100); if (s > bs) { bs = s; best = b; } }
   if (!best) return;
   best.guardedT = simT;
-  for (let i = 0; i < 2; i++) { const [x, y] = freeNear(best.door[0] + (i ? 5 : -5), best.door[1] + 4, 6); const g = newAgent("police", x, y); g.order = { x, y }; g.guardB = best; }
+  sendPosts("police", best.door[0], best.door[1] + 8, [0, 1].map(i => freeNear(best.door[0] + (i ? 5 : -5), best.door[1] + 4, 6)), { guardB: best });
   logT("guard", `Полиция выставила пост у укрытия ${placeName(best.door[0], best.door[1])}`, "good", 20);
 }
 // медпункт: палатка, скорая и медики недалеко от очага
@@ -45,8 +46,8 @@ function stepMedpoints(dt, cl) {
   const [x, y] = freeNear(clamp(cl.x + Math.cos(ang) * d, 60, W - 60), clamp(cl.y + Math.sin(ang) * d, 60, H - 60), 30);
   if (blocked(x, y)) return;
   medpoints.push({ x, y, t: simT, cells: blockFree(x - 9, y - 6, x + 9, y + 6) });
-  for (let i = 0; i < 4; i++) { const [mx, my] = freeNear(x, y, 12); newAgent("medic", mx, my); }
-  spawnService("ambulance", x, y, special.hospital); hasMedics = true;
+  for (let k = 0; k < 2; k++) sendPosts("ambulance", x + k * 14, y + 12, [[x - 6, y + 10], [x + 6, y + 10]], {});
+  hasMedics = true;
   logE(`Медики развернули сортировочный пункт ${placeName(x, y)}`, "good"); radio("Штаб: раненых и укушенных направлять в медпункт");
 }
 // комендантский час: при оцеплении всех по домам, утром никто не выходит
@@ -60,7 +61,8 @@ function stepCurfew() {
 }
 function stepAuto(dt) {
   if (!settings.services) { if (settings.curfew) settings.curfew = false; return; }
+  autoT = (autoT || 0) - dt; if (autoT > 0) return; autoT = 2;
   const cl = alert >= 2 ? zCluster() : null;
-  stepGuards(dt, cl); stepMedpoints(dt, cl); stepCurfew();
+  stepGuards(2, cl); stepMedpoints(2, cl); stepCurfew();
 }
 function resetAuto() { medpoints = []; guardT = 20; medT = 15; settings.curfew = false; }

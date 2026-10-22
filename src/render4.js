@@ -27,6 +27,11 @@ function stepDebris(dt) {
   if (debDirty && debMesh.instanceColor) { debMesh.instanceColor.needsUpdate = true; debDirty = false; }
 }
 function clearDebris() { debris = []; debN = 0; debMesh.count = 0; }
+// экскаватор убрал клетку завала: лежащие на ней обломки убираем
+function onRubbleCleared(x, y) {
+  const wx = X(Math.floor(x / CS) * CS + CS / 2), wz = Z(Math.floor(y / CS) * CS + CS / 2);
+  for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || !d.rest || d.sx === 0) continue; if (Math.abs(d.x - wx) <= CS * .75 && Math.abs(d.z - wz) <= CS * .75) { d.sx = d.sy = d.sz = 0; d.y = -50; debDirty = true; } }
+}
 
 /* ---------- обрушение: пыль, обломки, завал ---------- */
 function facadeColor(b) { const st = STYLES[b.style] || STYLES[0]; return st.wall; }

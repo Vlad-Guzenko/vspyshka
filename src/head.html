@@ -160,7 +160,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .nticker span{display:inline-block;padding-left:100%;animation:ticker 28s linear infinite;font-size:13px;color:#e3e7e5;font-family:var(--f-mono)}
 @keyframes ticker{to{transform:translateX(-100%)}}
 .nclock{flex:none;background:#f2b33d;color:#1a1405;font-family:var(--f-mono);font-weight:600;padding:0 12px;height:100%;display:flex;align-items:center;font-size:13px}
-.rec{position:absolute;left:10px;top:48px;z-index:7;display:flex;align-items:center;gap:6px;background:rgba(14,17,18,.8);border-radius:4px;padding:3px 8px;font-family:var(--f-mono);font-size:12px;color:#ff5a4a;pointer-events:none}
+.rec{position:absolute;left:224px;top:calc(var(--topH) + 8px);z-index:7;display:flex;align-items:center;gap:6px;background:rgba(14,17,18,.8);border-radius:4px;padding:3px 8px;font-family:var(--f-mono);font-size:12px;color:#ff5a4a;pointer-events:none}
 .rec i{width:9px;height:9px;border-radius:50%;background:#ff3a2a;animation:blink 1s steps(2) infinite}
 .squad{position:absolute;right:10px;top:48px;background:rgba(14,17,18,.88);border:1px solid #4fe0ff;border-radius:4px;padding:6px 10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;max-width:260px;pointer-events:none}
 .squad b{color:#4fe0ff;font-family:var(--f-display);letter-spacing:.05em;text-transform:uppercase}.squad small{color:var(--muted);font-size:11px}
@@ -179,12 +179,18 @@ body{padding:0}
 .app{max-width:none;height:100%;display:block}
 .lab{display:block}.play{display:block}
 .stage{position:fixed;inset:0;border:0;border-radius:0;z-index:0;background:#1b1f20}
-.top{position:fixed;left:0;right:0;top:0;z-index:30;height:42px;padding:0 10px;flex-wrap:nowrap;gap:12px;background:rgba(14,17,18,.82);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
-.top::-webkit-scrollbar{display:none}
-.brand{flex:none;align-items:center;gap:10px}
-.brand h1{font-size:20px;margin:0}
-.brand .clock{font-size:11.5px;white-space:nowrap}
-.acts{flex:none;flex-wrap:nowrap;gap:4px}
+.top{position:fixed;left:0;right:0;top:0;z-index:30;min-height:42px;padding:4px 10px;flex-wrap:wrap;gap:4px 12px;background:rgba(14,17,18,.82);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.brand{flex:1 1 320px;min-width:0;align-items:center;gap:10px;flex-wrap:nowrap}
+.brand h1{font-size:20px;margin:0;flex:none}
+.brand .clock{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.acts{flex:0 1 auto;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+:root{--topH:42px}
+.tools,.panel{top:calc(var(--topH) + 8px)}
+.cams,.objective{top:calc(var(--topH) + 8px)}
+.squad{top:calc(var(--topH) + 46px)}
+.banner{top:calc(var(--topH) + 16px)}
+.radio{top:calc(var(--topH) + 58px)}
+.help{inset:calc(var(--topH) + 8px) 344px auto auto}
 .acts .btn{padding:4px 8px;font-size:11.5px;white-space:nowrap}
 .tools{position:fixed;left:8px;top:50px;bottom:44px;width:208px;z-index:20;display:flex;flex-direction:column;flex-wrap:nowrap;gap:4px;overflow-y:auto;overflow-x:hidden;background:rgba(14,17,18,.84);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:6px;padding:6px;scrollbar-width:thin}
 .tgroup{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:0;border:0;border-radius:4px}
@@ -322,6 +328,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
   <header class="top">
     <div class="brand"><h1>Вспыш<span>ка</span></h1><span class="clock" id="clock">00:00</span></div>
     <div class="acts">
+      <button class="btn primary" id="newCity">Новая игра</button>
       <button class="btn day" id="dayNight" aria-pressed="false" title="Клавиша N"><i></i><span>Ночь</span></button>
       <button class="btn" id="pause" aria-pressed="false">Пауза</button>
       <button class="btn" id="speed">Скорость ×1</button>
@@ -332,7 +339,6 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
       <button class="btn" id="openChron">Хроника</button>
       <button class="btn" id="openSaves">Сохранения</button>
       <button class="btn" id="openSettings">Настройки</button>
-      <button class="btn primary" id="newCity">Новая игра</button>
     </div>
   </header>
   <button class="edge" id="toolsToggle" title="Инструменты (клавиша [)" aria-label="Показать или скрыть инструменты">‹</button><button class="edge" id="panelToggle" title="Сводка (клавиша ])" aria-label="Показать или скрыть сводку">›</button>

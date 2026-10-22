@@ -85,5 +85,5 @@ function stepScenario(dt) {
     if (scenT > 30 && atMall() < 40) endScenario(false, "У торгового центра почти никого не осталось");
     else if (scenT >= scen.time) endScenario(true, "Рубеж удержан");
   }
-  if (scenKey === "purge") { if (c.Z === 0 && !agents.some(a => a.state === "alive" && a.bitten)) endScenario(true, "Город зачищен"); else if (deaths > 400) endScenario(false, "Слишком много погибших мирных"); }
+  if (scenKey === "purge") { if (c.Z === 0 && !agents.some(a => (a.state === "alive" && a.bitten) || (a.state === "dead" && a.reanimate && !a.burnt))) endScenario(true, "Город зачищен"); else if (deaths > 400) endScenario(false, "Слишком много погибших мирных"); }
 }

@@ -67,13 +67,13 @@ function stepNuke(dt) {
     if (c.gone || c.z > 0) continue;
     const d = Math.hypot(c.x - x, c.y - y); if (!ring(d)) continue;
     const k = 1 - d / NUKE.RMAX, ang = Math.atan2(c.y - y, c.x - x);
-    if (d < NUKE.R2) { c.wreck = true; c.moving = false; c.stopped = true; fillCells(c.x - 9, c.y - 9, c.x + 9, c.y + 9, 0); c.vx = Math.cos(ang) * 120 * k; c.vy = Math.sin(ang) * 120 * k; c.vz = 20 + 60 * k; c.z = .1; c.sr = rnd(-8, 8) * k; c.sy = rnd(-4, 4) * k; c.roll = c.roll || 0; if (Math.random() < k) c.burnT = rnd(30, 90); }
+    if (d < NUKE.R2) { c.wreck = true; c.moving = false; c.stopped = true; clearCarCells(c); c.vx = Math.cos(ang) * 120 * k; c.vy = Math.sin(ang) * 120 * k; c.vz = 20 + 60 * k; c.z = .1; c.sr = rnd(-8, 8) * k; c.sy = rnd(-4, 4) * k; c.roll = c.roll || 0; if (Math.random() < k) c.burnT = rnd(30, 90); }
     else c.alarm = rnd(20, 60);
   }
   for (const l of lamps) if (!l.down && ring(Math.hypot(l.x - x, l.y - y)) && Math.hypot(l.x - x, l.y - y) < NUKE.R2) l.down = rnd(1.2, 1.55) * (Math.random() < .5 ? 1 : -1);
   for (const t of trees) if (ring(Math.hypot(t.x - x, t.y - y)) && Math.hypot(t.x - x, t.y - y) < NUKE.R2 * 1.1) t.burnt = true;
-  for (let gy = Math.max(0, Math.floor((y - R) / CS)); gy <= Math.min(GH - 1, Math.floor((y + R) / CS)); gy++) for (let gx = Math.max(0, Math.floor((x - R) / CS)); gx <= Math.min(GW - 1, Math.floor((x + R) / CS)); gx++) { const i = gy * GW + gx; if (grid[i] === 6 && ring(Math.hypot(gx * CS - x, gy * CS - y)) && Math.hypot(gx * CS - x, gy * CS - y) < NUKE.R1) { grid[i] = 0; barrDirty = true; } }
-  gridDirty = true; fieldT = 0;
+  if (prev < NUKE.RMAX) for (let gy = Math.max(0, Math.floor((y - R) / CS)); gy <= Math.min(GH - 1, Math.floor((y + R) / CS)); gy++) for (let gx = Math.max(0, Math.floor((x - R) / CS)); gx <= Math.min(GW - 1, Math.floor((x + R) / CS)); gx++) { const i = gy * GW + gx; if (grid[i] === 6 && ring(Math.hypot(gx * CS - x, gy * CS - y)) && Math.hypot(gx * CS - x, gy * CS - y) < NUKE.R1) { grid[i] = 0; barrDirty = true; } }
+  if (prev < NUKE.RMAX) { gridDirty = true; fieldT = 0; }
   if (R >= NUKE.RMAX && nuke.age > 40) nuke.over = true;
 }
 
@@ -86,7 +86,7 @@ function stepConstruction(dt) {
     if (n) b.lastWork = simT;
     b.prog = Math.min(1, b.prog + dt * Math.min(n, 6) / (500 + b.floors * 70)); // три рабочих: дом за три-четыре минуты, башня за десять
     if (b.prog >= 1) {
-      b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false; b.gutted = false; b.gutT = 0;
+      b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false; b.gutted = false; b.gutT = 0; b.doorHp = b.doorMax || b.doorHp; b.cT = 0;
       if (b.gutDoor) { b.gutDoor = false; const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; for (const [x, y] of b.rot !== undefined ? (b.doorPref ? [b.doorPref] : []) : [[cx, b.y1 + 5], [cx, b.y0 - 5], [b.x0 - 5, cy], [b.x1 + 5, cy]]) { const c = cellAt(x, y); if (c === 0 || c === 1 || c === 2 || c === 7) { b.door = [x, y]; break; } } }
       logT("rebuilt", b.kind === "tower" ? "Небоскрёб отстроен заново" : "Дом отстроен заново", "good", 10);
       for (const a of agents) if (a.buildB === b) { a.buildB = null; a.done = true; }

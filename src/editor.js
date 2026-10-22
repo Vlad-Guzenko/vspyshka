@@ -13,7 +13,7 @@ let edFloors = 8;
 function toggleEditor(on) {
   editMode = on; tool = on ? "ed_road" : "watch"; renderTools();
   $("editBtn").setAttribute("aria-pressed", on); $("editBtn").textContent = on ? "Закончить редактирование" : "Редактор города";
-  if (on) { paused = true; $("pause").setAttribute("aria-pressed", true); $("pause").textContent = "Продолжить"; logE("Редактор: симуляция на паузе"); }
+  if (on) { setPaused(true); logE("Редактор: симуляция на паузе"); }
 }
 function freeRect(x0, y0, x1, y1) {
   for (let y = y0; y < y1; y += CS / 2) for (let x = x0; x < x1; x += CS / 2) { const c = cellAt(x, y); if (c === 3 || c === 9 || c === 5 || c === 10) return false; }

@@ -3,19 +3,21 @@ const SAVE_SLOTS = 3;
 const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
-const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT"];
+const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT"];
 const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
 function serializeGame() {
   const bi = new Map(buildings.map((b, i) => [b, i]));
-  const agentsS = agents.filter(a => !a.player || !fps.on).map(a => {
+  const inCar = new Set(); for (const c of cars) if (c.service && !c.gone) for (const a of c.crew || []) if (a.unit === c) inCar.add(a);
+  const agentsS = agents.map(a => {
     const o = {}; for (const k in a) if (!A_SKIP.has(k)) o[k] = a[k];
-    if (a.hideB) o.hideB = bi.get(a.hideB); if (a.player) o.player = false;
+    if (a.hideB) o.hideB = bi.get(a.hideB); if (a.player) o.player = false; if (inCar.has(a)) o.inCar = true; o.squad = 0;
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => { const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar"].includes(k)) o[k] = c[k]; if (c.lane) o.lane = lanes.indexOf(c.lane); if (c.curve) o.curve = curves.indexOf(c.curve); o.jAt = null; o.over = 0; o.latOff = 0; o.latTgt = 0; return o; });
   return {
-    v: 1, date: Date.now(), layoutKey, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId,
-    grid: b64(grid), bhp: b64(Uint8Array.from(bhp, v => clamp(Math.round(v), 0, 255))), wall: b64(wallMask),
+    v: 2, date: Date.now(), layoutKey, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
+    wallJobs: wallJobs.map(j => ({ cells: j.cells, i: j.i, x0: j.x0, y0: j.y0, x1: j.x1, y1: j.y1, t0: j.t0, work: j.work, gate: j.gate, doneLogged: j.doneLogged, cp: cps.indexOf(j.cp) })),
+    grid: b64(grid), bhp16: b64(Uint16Array.from(bhp, v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask),
     buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
     curves: curves.map(c => ({ pts: c.closed ? c.pts.slice(0, -1) : c.pts, hw: c.hw, closed: c.closed })), streets, lanes: lanes.map(l => ({ s: streets.indexOf(l.s), dir: l.dir, c: l.c, a0: l.a0, a1: l.a1 })), blocks: blocks.map(b => ({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, kind: b.kind, d: b.d, lot: b.lot })),
     trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), lamps, fountains, fences, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
@@ -24,19 +26,19 @@ function serializeGame() {
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
-    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { zombieT: firsts.zombieT, titan: firsts.titan, titanDead: firsts.titanDead, topple: firsts.topple, nuke: firsts.nuke, reunion: firsts.reunion, metroSeen: firsts.metroSeen },
+    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
 function loadGame(S) {
   if (fps.on) stopFps();
   layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
-  grid.set(unb64(S.grid, Uint8Array)); bhp.set(unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
+  grid.set(unb64(S.grid, Uint8Array)); bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
   curves = (S.curves || []).map(c => curveBuild(c.pts, c.hw, c.closed)); streets = S.streets; for (const s of streets) { if (s.a0 === undefined) { s.a0 = 0; s.a1 = s.v ? H : W; } }
   lanes = S.lanes.map(l => ({ s: streets[l.s], dir: l.dir, c: l.c, a0: l.a0 ?? 0, a1: l.a1 ?? (streets[l.s].v ? H : W) })); blocks = S.blocks; buildJunctions();
   buildings = S.buildings.map(b => ({ ...b, h: b.floors * (b.kind === "house" ? 11 : 12), occ: [] }));
   trees = S.trees; lamps = S.lamps; fountains = S.fountains; fences = S.fences; waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
   special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));
-  agents = S.agents.map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
+  agents = S.agents.filter(o => !o.inCar || ["army", "police", "medic"].includes(o.role)).map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; a.squad = 0; a.unit = null; a.job = null; if (o.inCar) { delete a.inCar; if (a.role !== "army") { a.standDown = true; a.standT = 0; a.order = a.role === "police" ? { x: special.police.x, y: special.police.y } : { x: special.hospital.x, y: special.hospital.y }; } } if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
   cars = S.cars.map(o => { const c = { ...o }; if (o.lane >= 0) c.lane = lanes[o.lane]; else { c.moving = false; c.lane = null; } c.curve = typeof o.curve === "number" && curves[o.curve] ? curves[o.curve] : null; c.jAt = null; return c; });
   tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
   fires = S.fires; tents = S.tents; research = S.research; scientists = S.scientists; vaccineReady = S.vaccineReady; armyWaves = S.armyWaves; gangsSpawned = S.gangsSpawned;
@@ -48,13 +50,16 @@ function loadGame(S) {
   heroes = (S.heroes || []).map(agentById).filter(Boolean); metros = S.metros || []; depots = S.depots || []; strain = S.strain || { lvl: 1, t: 0 }; chDone = S.chDone || 0; chFail = S.chFail || 0;
   resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout || null; settings.dark = !!blackout;
   resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); quarMask.fill(0); if (S.quarMask) quarMask.set(S.quarMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) { m.cells = []; for (let gy = Math.floor((m.y - 6) / CS); gy <= Math.floor((m.y + 6) / CS); gy++) for (let gx = Math.floor((m.x - 9) / CS); gx <= Math.floor((m.x + 9) / CS); gx++) { const i = gy * GW + gx; if (grid[i] === 5) m.cells.push([i, 1]); } } settings.curfew = !!S.curfew;
-  for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) a.detained = cps[0] || null; if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
+  wallJobs = (S.wallJobs || []).map(j => ({ ...j, cp: cps[j.cp] || null })); for (const j of wallJobs) for (const a of agents) if (a.role === "army" && a.order && Math.abs(a.order.x - (j.x0 + j.x1) / 2) < (j.x1 - j.x0) / 2 + 20 && Math.abs(a.order.y - (j.y0 + j.y1) / 2) < (j.y1 - j.y0) / 2 + 20) a.guardJob = j;
+  for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) { let best = null, bd = 1e9; for (const c of cps) { const d = Math.hypot(c.x - a.x, c.y - a.y); if (d < bd) { bd = d; best = c; } } a.detained = best; } if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
+  resetSquads(); fires.forEach(f => { f.assigned = false; });
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
   for (const a of agents) if (!a.name) nameFor(a);
   const T = S.terrain || {}; terrainSeed = T.seed || 1; hasHills = !!T.hasHills; ridgeSides = T.ridgeSides || []; ridgeSides.intrude = !!T.intrude; rocks = T.rocks || [];
   river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || [];
   TH.fill(0); if (T.th) { const u = unb64(T.th, Uint8Array); for (let i = 0; i < TH.length && i < u.length; i++) TH[i] = u[i] * 2 - 10; }
-  scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = [];
+  scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = []; wave = S.wave || 0; waveT = S.waveT ?? 40;
+  patientZero = S.pz != null ? agentById(S.pz) || null : null;
   logE("Партия загружена", "good");
   clearDecals(); clearDebris(); for (const [t, o] of tankObjs) { scene.remove(o); tankObjs.delete(t); }
   buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
@@ -75,7 +80,7 @@ $("saveList").addEventListener("click", e => {
   const i = b.dataset.save || b.dataset.load || b.dataset.del;
   try {
     if (b.dataset.save) { localStorage.setItem(slotKey(i), JSON.stringify(serializeGame(), (k, v) => typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 100) / 100 : v)); $("saveNote").textContent = `Сохранено в слот ${i}.`; }
-    if (b.dataset.load) { const S = JSON.parse(localStorage.getItem(slotKey(i))); loadGame(S); $("saves").hidden = true; paused = false; }
+    if (b.dataset.load) { const S = JSON.parse(localStorage.getItem(slotKey(i))); loadGame(S); $("saves").hidden = true; setPaused(false); }
     if (b.dataset.del) { localStorage.removeItem(slotKey(i)); $("saveNote").textContent = `Слот ${i} очищен.`; }
   } catch (err) { $("saveNote").textContent = b.dataset.save ? "Не удалось сохранить: в браузере не хватает места или хранилище отключено." : "Не удалось загрузить это сохранение."; }
   renderSaves();

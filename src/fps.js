@@ -46,7 +46,7 @@ function stopFps() {
 }
 function lockPointer() { try { const p = cv.requestPointerLock && cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
 function fpsMsg(t) { $("fpsMsg").textContent = t; $("fpsMsg").hidden = false; fps.msgT = 5; }
-document.addEventListener("pointerlockchange", () => { if (fps.on && document.pointerLockElement !== cv) { $("fpsPause").hidden = false; paused = true; } else if (fps.on) { $("fpsPause").hidden = true; paused = false; } });
+document.addEventListener("pointerlockchange", () => { if (fps.on && document.pointerLockElement !== cv) { $("fpsPause").hidden = false; setPaused(true); } else if (fps.on) { $("fpsPause").hidden = true; setPaused(false); } });
 document.addEventListener("mousemove", e => {
   if (!fps.on) return;
   const locked = document.pointerLockElement === cv;
@@ -156,8 +156,8 @@ function fpsCamera(dt) {
   // сердцебиение живых рядом с зомби
   if (fps.mode === "zombie") { fps.hb = (fps.hb || 0) - dt; let nd = 1e9, nb = null; near(a.x, a.y, 60, b => { if (b.state === "alive" && b.role !== "zombie") { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < nd) { nd = d; nb = b; } } }); if (nb && fps.hb <= 0) { fps.hb = .5 + nd / 80; play("heart", nb.x, nb.y, .9); } }
 }
-$("fpsResume").addEventListener("click", () => { lockPointer(); $("fpsPause").hidden = true; paused = false; });
-$("fpsExit").addEventListener("click", () => { stopFps(); paused = false; });
+$("fpsResume").addEventListener("click", () => { lockPointer(); $("fpsPause").hidden = true; setPaused(false); });
+$("fpsExit").addEventListener("click", () => { stopFps(); setPaused(false); });
 $("playSelf").addEventListener("click", () => { $("fpsChoose").hidden = false; });
 $("fpsChooseClose").addEventListener("click", () => { $("fpsChoose").hidden = true; });
 $("fpsAsHuman").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("human"); });

@@ -7,7 +7,7 @@ function nameFor(a, last) {
   const f = a.sex === "f";
   a.first = pick(f ? FIRST_F : FIRST_M); a.last = (last || pick(LAST)) + (f ? "а" : "");
   a.name = a.first + " " + a.last;
-  if (a.years === undefined) a.years = a.age === "kid" ? 5 + Math.floor(Math.random() * 10) : a.age === "old" ? 63 + Math.floor(Math.random() * 22) : 18 + Math.floor(Math.random() * 45);
+  if (!a.years) a.years = a.age === "kid" ? 5 + Math.floor(Math.random() * 10) : a.age === "old" ? 63 + Math.floor(Math.random() * 22) : 18 + Math.floor(Math.random() * 45);
 }
 const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", builder: "строитель", sanitar: "санитар", bandit: "мародёр", zombie: "зомби" };
 // семьи: 1–4 человека, общий дом; половина сейчас дома, остальные в городе
@@ -33,7 +33,8 @@ function assignHomes() {
   }
   for (const a of agents) if (!a.name) nameFor(a);
 }
-function agentById(id) { for (const a of agents) if (a.id === id) return a; return null; }
+const agentMap = new Map(); let agentMapN = -1;
+function agentById(id) { if (agentMapN !== agents.length) { agentMap.clear(); for (const a of agents) agentMap.set(a.id, a); agentMapN = agents.length; } return agentMap.get(id) || null; }
 function famLabel(f) { const l = f.last; return l.endsWith("ий") ? l.slice(0, -2) + "их" : l + "ых"; }
 // увидев зомби, человек звонит родным: те узнают о вспышке и бегут домой
 function alertFamily(a) {
@@ -169,7 +170,7 @@ function stepMetro(dt) {
   if (c.Z >= 15 && Math.random() < .3) {
     const m = pick(metros), n = 8 + Math.floor(Math.random() * 8);
     for (let i = 0; i < n; i++) setTimeout0(i * .7, () => { const z = spawnZombieAt(m.x, m.y); z.riseT = 0; });
-    logE("Из метро на поверхность выходят зомби", "bad"); radio("Диспетчер: нападения в метро, станции закрываются. Зомби выходят на улицу"); sfx.radio(); interest(m.x, m.y, 6);
+    firsts.metroSeen = true; logE("Из метро на поверхность выходят зомби", "bad"); radio("Диспетчер: нападения в метро, станции закрываются. Зомби выходят на улицу"); sfx.radio(); interest(m.x, m.y, 6);
     metroT = rnd(180, 320);
   }
 }
@@ -187,7 +188,7 @@ function stepDepots(dt) {
     if (d.ammo <= 0) continue;
     near(d.x, d.y, 9, a => {
       if (a.state !== "alive" || !a.armed || a.role === "zombie" || d.ammo <= 0) return;
-      if (a.role === "bandit") { const take = Math.min(d.ammo, 150); d.ammo -= take; a.ammo += take; a.lootT = 2; logT("depotloot", "Мародёры разграбили склад боеприпасов", "bad", 20); return; }
+      if (a.role === "bandit") { const take = Math.min(d.ammo, 150); d.ammo -= take; a.ammo += take; a.depotT = 2; logT("depotloot", "Мародёры разграбили склад боеприпасов", "bad", 20); return; }
       if (a.ammo >= a.magMax * 3) return;
       const take = Math.min(d.ammo, a.magMax * 3 - a.ammo); a.ammo += take; d.ammo -= take; a.dry = false;
       logT("resupply", `${a.name || "Боец"} пополнил боезапас на складе`, "good", 15);
@@ -294,7 +295,8 @@ function causeText(a) {
 }
 function fateLine(a) {
   const who = `${a.name || ROLE_NAME[a.role] || "человек"}${a.years ? `, ${a.years}` : ""}`;
-  if (a.removed) return `${who}: ${a.cause ? causeText(a) + ", " : ""}тело увезла санитарная служба`;
+  if (a.removed) return `${who}: ${causeText(a)}, тело увезла санитарная служба`;
+  if (a.state === "saved" && a.leftCity) return `${who}: вернул${a.sex === "f" ? "ась" : "ся"} на базу после отбоя`;
   if (a.state === "saved" && a.withdraw) return `${who}: отозван${a.sex === "f" ? "а" : ""} штабом`;
   if (a.state === "saved" && !a.vapor) return `${who}: эвакуирован${a.sex === "f" ? "а" : ""} вертолётом`;
   if (a.state === "dead" && a.role === "zombie" && !a.reanimate) return `${who}: обратил${a.sex === "f" ? "ась" : "ся"}, упокоен${a.sex === "f" ? "а" : ""} ${a.deathWhere || ""} на ${mmss(a.diedT || 0)}`;

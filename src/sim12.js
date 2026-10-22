@@ -16,7 +16,7 @@ function orderMove(x, y) {
   return true;
 }
 function clearOrders() { for (const a of selected) a.order = null; selected = []; }
-function stepSquads(dt) { if (selected.length && selected.some(a => !isFighter(a))) selected = selected.filter(isFighter); }
+function stepSelection() { if (selected.length && selected.some(a => !isFighter(a))) selected = selected.filter(isFighter); }
 
 /* ---------- стройка: вышка, прожектор, лагерь ---------- */
 let towers = [], floods = [], camps = [], drops = [];
@@ -48,7 +48,7 @@ function addCamp(x, y) {
   for (const sx of [-1, 1]) blockFree(x + sx * 17 - 4, y + R - 5, x + sx * 17 + 4, y + R - 2); // мешки у ворот
   camps.push(c); barrDirty = true; fieldT = 0;
   floods.push({ x, y: y - 10, on: true }); depots.push({ x: x + 22, y: y - 22, ammo: 300, max: 300 });
-  for (let i = 0; i < 4; i++) { const [ax, ay] = freeNear(x + (i % 2 ? 26 : -26), y + (i < 2 ? 26 : -26), 6); const a = newAgent("army", ax, ay); a.order = { x: ax, y: ay }; a.ammo = 240; }
+  sendPosts("army", x, y + R + 16, [0, 1, 2, 3].map(i => freeNear(x + (i % 2 ? 26 : -26), y + (i < 2 ? 26 : -26), 6)), { crewN: 4 });
   logE("Развёрнут лагерь выживших: стены, ворота, палатки, прожектор, склад и четверо солдат", "good"); radio("Штаб: лагерь готов, собирайте людей внутрь"); sfx.radio();
   return true;
 }
@@ -117,5 +117,5 @@ function stepBlackout(dt) {
   blackout.t -= dt * (1 + Math.min(3, workers) * .5);
   if (blackout.t <= 0) { blackout = null; settings.dark = false; logE("Электроснабжение восстановлено", "good"); radio("Диспетчер: свет дали"); }
 }
-function stepBuild(dt) { stepSquads(dt); stepCamps(dt); stepFood(dt); stepDrops(dt); stepBlackout(dt); }
+function stepBuild(dt) { stepSelection(); stepCamps(dt); stepFood(dt); stepDrops(dt); stepBlackout(dt); }
 function resetBuild() { selected = []; orderMark = null; towers = []; floods = []; camps = []; drops = []; blackout = null; settings.dark = false; }

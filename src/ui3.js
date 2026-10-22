@@ -18,7 +18,7 @@ function renderWizard() {
   $("wBack").hidden = wiz.step === 0;
   $("wNext").textContent = wiz.step === 2 ? "Начать" : "Далее";
 }
-function openWizard() { paused = true; wiz.step = 0; renderWizard(); $("wizard").hidden = false; }
+function openWizard() { setPaused(true); wiz.step = 0; renderWizard(); $("wizard").hidden = false; }
 $("wizard").addEventListener("change", e => {
   const t = e.target;
   if (t.name === "wScen") { wiz.scen = t.value; renderWizard(); }
@@ -34,7 +34,7 @@ $("wizard").addEventListener("change", e => {
 $("wizard").addEventListener("input", e => { const t = e.target; if (t.id === "wPop") $("wPopO").textContent = t.value; if (t.id === "wInc") $("wIncO").textContent = t.value + " с"; if (t.id === "wArm") $("wArmO").textContent = t.value + "%"; });
 $("wBack").addEventListener("click", () => { wiz.step = Math.max(0, wiz.step - 1); renderWizard(); });
 $("wNext").addEventListener("click", () => { if (wiz.step < 2) { wiz.step++; renderWizard(); } else startGame(); });
-$("wClose").addEventListener("click", () => { $("wizard").hidden = true; paused = false; });
+$("wClose").addEventListener("click", () => { $("wizard").hidden = true; setPaused(false); });
 function startGame() {
   if (fps.on) stopFps();
   $("wizard").hidden = true; $("result").hidden = true;
@@ -45,7 +45,7 @@ function startGame() {
   world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);
-  paused = false; $("pause").setAttribute("aria-pressed", false); $("pause").textContent = "Пауза";
+  setPaused(false);
   audio(); maybeTutorial();
 }
 
@@ -87,7 +87,7 @@ function updateObjective() {
 }
 function onRadio(text) { const r = $("radio"); r.textContent = text; r.hidden = false; clearTimeout(onRadio.t); onRadio.t = setTimeout(() => r.hidden = true, 6000); if (/^(Штаб|Диспетчер|Лаборатория|Разведка|Выжившие)/.test(text)) speakRadio(text); }
 function onResult(win, text) {
-  paused = true;
+  setPaused(true);
   $("resTitle").textContent = win ? "Победа" : "Поражение"; $("resTitle").className = win ? "good" : "bad";
   $("resText").textContent = text;
   const c = counts();
@@ -96,4 +96,4 @@ function onResult(win, text) {
 }
 $("resAgain").addEventListener("click", () => startGame());
 $("resNew").addEventListener("click", () => { $("result").hidden = true; openWizard(); });
-$("resStay").addEventListener("click", () => { $("result").hidden = true; paused = false; });
+$("resStay").addEventListener("click", () => { $("result").hidden = true; setPaused(false); });

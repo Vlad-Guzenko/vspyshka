@@ -140,7 +140,7 @@ function paintBarricade(x, y, erase, wall) {
   if (erase) {
     for (let gy = Math.floor((y - 5) / CS); gy <= Math.floor((y + 5) / CS); gy++) for (let gx = Math.floor((x - 5) / CS); gx <= Math.floor((x + 5) / CS); gx++) {
       if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
-      const i = gy * GW + gx; if (grid[i] === 6) { grid[i] = 0; wallMask[i] = 0; elecMask[i] = 0; quarMask[i] = 0; barrDirty = true; }
+      const i = gy * GW + gx; if (grid[i] === 6) { grid[i] = 0; wallMask[i] = 0; elecMask[i] = 0; quarMask[i] = 0; barrDirty = true; gridDirtyMini = true; }
     }
     fieldT = 0; return;
   }
@@ -151,13 +151,13 @@ function paintBarricade(x, y, erase, wall) {
   for (const [cx, cy] of cells) {
     if (cx < 0 || cy < 0 || cx >= GW || cy >= GH) continue;
     const i = cy * GW + cx, c = grid[i];
-    if (c === 0 || c === 1 || c === 2 || c === 7) { grid[i] = 6; bhp[i] = wall === 1 ? 300 : wall === 2 ? 60 : 35; wallMask[i] = wall === 1 ? 1 : 0; elecMask[i] = wall === 2 ? 1 : 0; barrDirty = true; }
+    if (c === 0 || c === 1 || c === 2 || c === 7) { grid[i] = 6; bhp[i] = wall === 1 ? 300 : wall === 2 ? 60 : 35; wallMask[i] = wall === 1 ? 1 : 0; elecMask[i] = wall === 2 ? 1 : 0; barrDirty = true; gridDirtyMini = true; }
   }
   fieldT = 0;
 }
 const BARR_KIND = { barricade: 0, wall: 1, efence: 2 };
 function useTool(e, x, y) {
-  if (["army", "tank", "strike", "evac", "nuke"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } spendLimit(tool); setTimeout(renderTools, 0); }
+  if (["army", "tank", "strike", "evac", "nuke"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } if (tool === "evac" && blocked(x, y)) { warn("<b>Здесь вертолёту не сесть.</b>"); return; } spendLimit(tool); setTimeout(renderTools, 0); }
   if (tool === "watch") { const a = agentAt(e); if (a) { followA = a; camS.dist = Math.min(camS.dist, 160); camS.pitch = Math.min(camS.pitch, .55); } return; }
   if (tool === "infect") { const a = agentAt(e, a => a.state === "alive" && a.role !== "zombie" && !a.bitten); if (a) { a.bitten = true; a.incT = settings.inc * rnd(.7, 1.3); bites++; logE("Заражён ещё один человек", "bad"); } return; }
   if (tool === "zombie") { if (!blocked(x, y)) { const a = newAgent("zombie", x, y); turn(a); a.riseT = 0; } return; }
@@ -277,8 +277,9 @@ const endPtr = e => {
 cv.addEventListener("pointerup", endPtr); cv.addEventListener("pointercancel", endPtr);
 cv.addEventListener("pointerleave", () => { $("hover").hidden = true; hoverA = null; });
 window.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT" || fps.on) return;
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) || e.target.isContentEditable || fps.on) return;
   keys[e.code] = true;
+  if (editMode && e.key !== "Escape" && e.key !== " ") return;
   const n = e.key === "0" ? 9 : e.key === "-" ? 10 : +e.key - 1;
   if (n >= 0 && n < TOOLS.length && /^[0-9-]$/.test(e.key)) { tool = TOOLS[n].k; renderTools(); }
   if (e.key === " ") { togglePause(); e.preventDefault(); }
@@ -368,7 +369,8 @@ function onBanner(t) { const b = $("banner"); b.textContent = t; b.hidden = fals
 
 /* ---------- запуск ---------- */
 let paused = false, speed = 1, patientZero = null;
-function togglePause() { paused = !paused; $("pause").setAttribute("aria-pressed", paused); $("pause").textContent = paused ? "Продолжить" : "Пауза"; }
+function setPaused(v) { paused = !!v; $("pause").setAttribute("aria-pressed", paused); $("pause").textContent = paused ? "Продолжить" : "Пауза"; }
+function togglePause() { setPaused(!paused); }
 function followPatientZero() { followA = patientZero; camS.dist = 130; camS.pitch = .5; }
 function newCity(scenarioKey = "sandbox") {
   const _g = genCity; genCity = () => _g($("layout").value); patientZero = newCitySim(+$("pop").value); genCity = _g;

@@ -28,7 +28,7 @@ function enterShelter(a, b) {
 }
 function leaveShelter(a, panic) {
   const b = a.hideB; if (!b) return;
-  b.occ = b.occ.filter(o => o !== a); a.hidden = false; a.onRoof = false; a.hideB = null;
+  b.occ = b.occ.filter(o => o !== a); a.hidden = false; a.onRoof = false; a.hideB = null; a.homeTrip = false;
   const [x, y] = freeNear(b.door[0], b.door[1], 8); a.x = x; a.y = y; a.panic = panic ? 1 : 0;
 }
 function stepShelters(dt) {
@@ -40,7 +40,7 @@ function stepShelters(dt) {
     // кто-то обратился внутри — внутри начинается резня
     const z = b.occ.find(o => o.role === "zombie");
     if (z) {
-      if (Math.random() < dt * .8) { const v = pick(b.occ.filter(o => o.role !== "zombie")); if (v) { v.hp -= 40; if (!v.bitten) { v.bitten = true; v.incT = settings.inc * rnd(.5, 1); bites++; } if (v.hp <= 0) kill(v, true); } }
+      if (Math.random() < dt * .8) { const v = pick(b.occ.filter(o => o.role !== "zombie")); if (v) { v.hp -= 40; if (!v.bitten) { v.bitten = true; v.incT = settings.inc * rnd(.5, 1); bites++; } if (v.hp <= 0) { leaveShelter(v, true); kill(v, true); } } }
       if (!b.insideLogged) { b.insideLogged = true; logT("inside", "В укрытии кто-то обратился", "bad", 20); }
       if (Math.random() < dt * .25) { for (const o of b.occ.slice()) if (o.role !== "zombie" && Math.random() < .3) leaveShelter(o, true); }
       if (!b.occ.some(o => o.role !== "zombie") && Math.random() < dt * .08) { leaveShelter(z, false); b.insideLogged = false; }
@@ -48,7 +48,8 @@ function stepShelters(dt) {
     }
     // снаружи спокойно — выходят
     let zn = 0; nearZ(b.door[0], b.door[1], 110, () => zn++);
-    for (const o of b.occ.slice()) { o.hideT += dt; if (!zn && !o.homeTrip && o.hideT > 25 && Math.random() < dt * .3) leaveShelter(o, false); }
+    if (b.doorHp <= 0) { if (zn) b.doorFixT = 0; else { b.doorFixT = (b.doorFixT || 0) + dt; if (b.doorFixT > 90) { b.doorHp = b.doorMax * .6; b.doorFixT = 0; logT("doorfix", "Жильцы заколотили выломанную дверь", "good", 60); } } }
+    for (const o of b.occ.slice()) { o.hideT += dt; if (!zn && !o.homeTrip && !settings.curfew && o.hideT > 25 && Math.random() < dt * .3) leaveShelter(o, false); }
     // вертолёт рядом — снимает людей с крыши
     if (evac && evac.landed && !evac.leaving && evac.cap > 0 && Math.hypot(evac.x - (b.x0 + b.x1) / 2, evac.y - (b.y0 + b.y1) / 2) < 140) {
       b.roofT = (b.roofT || 0) - dt;
@@ -105,6 +106,7 @@ const wallMask = new Uint8Array(GW * GH), quarMask = new Uint8Array(GW * GH);
 let wallJobs = [];
 function planQuarantine(x0, y0, x1, y1) {
   if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0];
+  x0 = clamp(x0, CS * 2, W - CS * 2); x1 = clamp(x1, CS * 2, W - CS * 2); y0 = clamp(y0, CS * 2, H - CS * 2); y1 = clamp(y1, CS * 2, H - CS * 2);
   if (x1 - x0 < 60 || y1 - y0 < 60) return false;
   const cells = [];
   const add = (x, y) => { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return; const c = grid[gy * GW + gx]; if (c === 0 || c === 1 || c === 2 || c === 7 || c === 8) cells.push(gy * GW + gx); };
@@ -118,7 +120,8 @@ function planQuarantine(x0, y0, x1, y1) {
   wallJobs.push(j);
   j.cp = addGateCheckpoint(gx, y1);
   // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
-  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [gx - 12, y1], [gx + 12, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
+  const posts = [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [gx - 12, y1], [gx + 12, y1], [x0, (y0 + y1) / 2]].map(([cx, cy]) => freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10));
+  sendPosts("army", gx, y1 + 20, posts, { guardJob: j });
   const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j }; j.lastSent = simT;
   logE("Карантин: военные оцепили район, строители едут ставить забор; выход через КПП с проверкой", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
   return true;
@@ -126,7 +129,7 @@ function planQuarantine(x0, y0, x1, y1) {
 function stepWalls(dt) {
   for (const j of wallJobs) {
     // сетку ставят строители у фронта работ; если их нет долго, военные достраивают сами, медленно
-    const rate = j.work > 0 ? 0 : 0; j.work = j.work || 0;
+    j.work = j.work || 0;
     let builders = 0; const gi0 = j.cells[j.i], fx = (gi0 % GW) * CS + 4, fy = ((gi0 / GW) | 0) * CS + 4;
     near(fx, fy, 16, a => { if (a.state === "alive" && a.role === "builder" && !a.done) builders++; });
     const speed = builders ? .9 * Math.min(builders, 4) : simT - j.t0 > 150 ? .8 : 0;
@@ -161,7 +164,7 @@ function thinkBandit(a, dt, zn, zd) {
   if (a.lootT > 0) { a.lootT -= dt; if (a.lootT <= 0) { a.hidden = false; a.bag = pick(["#3a2a1e", "#1e1e22", "#8a6a2a"]); logT("loot", "Мародёры вынесли добычу из магазина", "bad", 25); a.loot = null; } return [0, 0, 0]; }
   // полиция или военные рядом — перестрелка
   let cop = null, cd = 130;
-  near(a.x, a.y, 130, b => { if (b.state === "alive" && (b.role === "police" || b.role === "army" || (b.faction && b.armed && b.role === "civ"))) { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < cd && los(a.x, a.y, b.x, b.y)) { cd = d; cop = b; } } });
+  near(a.x, a.y, 130, b => { if (b.state === "alive" && !b.hidden && (b.role === "police" || b.role === "army" || (b.faction && b.armed && b.role === "civ"))) { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < cd && los(a.x, a.y, b.x, b.y)) { cd = d; cop = b; } } });
   if (cop && a.mag > 0 && a.reload <= 0 && (!zn || cd < zd)) { a.aim = Math.atan2(cop.y - a.y, cop.x - a.x); a.aimT = .8; a.hostile = 30; if (a.cd <= 0) { shootHuman(a, cop); logT("gunfight", "Перестрелка мародёров с силовиками", "bad", 20); } return [0, 0, 0]; }
   const dp = nearestDepot(a, 400);
   if (dp && !a.depotDone) { const d = Math.hypot(dp.x - a.x, dp.y - a.y); if (d < 8) a.depotDone = true; else return goTo(a, dp.x, dp.y, 10); }

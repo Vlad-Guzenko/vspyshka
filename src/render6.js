@@ -41,7 +41,7 @@ function updateMachines() {
     if (o.userData.drum) { o.userData.drum.rotation.x += .05; o.userData.stripe.rotation.x = o.userData.drum.rotation.x; }
     if (o.userData.bed) o.userData.bed.rotation.z = c.deployed ? Math.min(.6, (o.userData.bed.rotation.z || 0) + .004) : Math.max(0, o.userData.bed.rotation.z - .02);
   }
-  for (const [c, o] of carExtras) if (c.gone) { scene.remove(o); carExtras.delete(c); }
+  if (carExtras.size) { const live = new Set(cars); for (const [c, o] of carExtras) if (c.gone || !live.has(c)) { scene.remove(o); carExtras.delete(c); } }
 }
 const carExtras = new Map();
 // палатки вакцинации

@@ -152,6 +152,8 @@ function paintGround(g) {
     else { const sd = shoreD(x, y), wd = waterD(x, y); if (sd < 14) { g.fillStyle = "#c9b98f"; g.fillRect(gx * CS, gy * CS, CS + .5, CS + .5); } else if (wd < 10 && c === 2) { g.fillStyle = wd < 4 ? "#8a7a52" : "#6a7a44"; g.fillRect(gx * CS, gy * CS, CS + .5, CS + .5); } }
   }
   for (const b of bridges) { g.fillStyle = "#3d4042"; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); g.strokeStyle = "rgba(235,235,230,.75)"; g.lineWidth = .7; g.setLineDash([10, 10]); g.beginPath(); if (b.v) { g.moveTo((b.x0 + b.x1) / 2, b.y0); g.lineTo((b.x0 + b.x1) / 2, b.y1); } else { g.moveTo(b.x0, (b.y0 + b.y1) / 2); g.lineTo(b.x1, (b.y0 + b.y1) / 2); } g.stroke(); g.setLineDash([]); }
+  // круглая площадь в центре: плитка кольцами, под ней не видно разметки осевых улиц
+  if (plazaC) { g.fillStyle = "#a8a092"; g.beginPath(); g.arc(plazaC[0], plazaC[1], plazaR + 2, 0, TAU); g.fill(); g.strokeStyle = "rgba(90,80,70,.35)"; g.lineWidth = .3; for (let r = 4; r < plazaR; r += 4) { g.beginPath(); g.arc(plazaC[0], plazaC[1], r, 0, TAU); g.stroke(); } }
   // изогнутые и диагональные дороги: тротуар, асфальт, разметка
   for (const cv of curves) {
     const path = () => { g.beginPath(); cv.pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
@@ -311,7 +313,10 @@ function boxUV(geo, w, d, floors, uOff) {
 }
 const instBoxes = []; // мелочи на крышах собираются в один InstancedMesh
 function buildCity() {
-  while (cityGroup.children.length) { const c = cityGroup.children.pop(); c.geometry?.dispose(); }
+  while (cityGroup.children.length) { const c = cityGroup.children.pop(); c.traverse?.(o => { if (o.geometry) o.geometry.dispose(); }); }
+  for (const b of buildings) { if (b.scaf) { scene.remove(b.scaf); cityGroup.remove(b.scaf); } b.scaf = null; b.mound = null; b.sign = null; b.hid = b.ruinDone = b.detached = b.moundDone = b.broke = b.scorched = false; b.scorchK = 0; b.lastStep = -1; }
+  for (const t of trees) t.shownBurnt = false;
+  dirtyChunks.clear();
   paintGround(groundCv.getContext("2d")); groundTex.needsUpdate = true;
   buildTerrainMesh(); buildRocks();
   instBoxes.length = 0;
@@ -382,11 +387,12 @@ function buildCity() {
   const box = new THREE.BoxGeometry(1, 1, 1);
   roofStuff = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ roughness: .85 }), Math.max(1, instBoxes.length));
   const m = new THREE.Matrix4(), col = new THREE.Color();
-  for (const b of buildings) b.roofIdx = [];
-  instBoxes.forEach(([x, y, z, sx, sy, sz, c, b], i) => { m.makeScale(sx, sy, sz).setPosition(x, y, z); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); });
+  for (const b of buildings) { b.roofIdx = []; b.roofBox = []; }
+  instBoxes.forEach(([x, y, z, sx, sy, sz, c, b], i) => { m.makeScale(sx, sy, sz).setPosition(x, y, z); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); (b.roofBox = b.roofBox || []).push([x, y, z, sx, sy, sz]); });
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
   buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); makeCarMeshes(cars.length + 300);
+  cityGroup.traverse(o => { if (o.isInstancedMesh) o.frustumCulled = false; });
 }
 let roofStuff = null;
 
@@ -593,9 +599,10 @@ function updateCars() {
 /* ---------- обрушение зданий ---------- */
 const _zero = new THREE.Matrix4().makeScale(0, 0, 0);
 function updateCity(dt) {
+  flushChunks();
   if (gridDirty) { gridDirty = false; placeLamps(); refreshTrees(); }
   for (const b of buildings) {
-    if (!b.obj || b.ruinDone || b.state === "ok") continue;
+    if (!b.obj || b.ruinDone || b.state === "ok" || b.state === "construct") continue;
     if (!b.hid) { detachBuilding(b); if (!b.topple) { b.obj.children.forEach(o => o.visible = false); const sh = makeRuinShell(b); sh.userData.shell = true; b.obj.add(sh); } b.hid = true; for (const i of b.roofIdx || []) roofStuff.setMatrixAt(i, _zero); roofStuff.instanceMatrix.needsUpdate = true; if (b.sign) b.sign.visible = false; }
     if (b.topple) { animateTopple(b); if (b.state === "ruin") b.ruinDone = true; continue; }
     // дом оседает, качаясь, и уходит в завал

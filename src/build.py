@@ -16,7 +16,7 @@ PARTS = ['sim1.js', 'layout.js', 'curves.js', 'terrain.js', 'sim2.js', 'sim3.js'
 DEBUG = ('window.__v = { camS, camC, camera, R3, scene, settings, world, get agents() { return agents; }, get cars() { return cars; }, '
          'get buildings() { return buildings; }, get blocks() { return blocks; }, gY, waterD, waterAt, riverD, TH, grid, get streets() { return streets; }, get bridges() { return bridges; }, get hasHills() { return hasHills; }, perfStats, get camps() { return camps; }, get towers() { return towers; }, get selected() { return selected; }, get tanks() { return tanks; }, get waters() { return waters; }, get research() { return research; }, '
          'stepN: n => { for (let i = 0; i < n; i++) step(.05); }, useToolAt: (k, x, y) => { tool = k; useTool({}, x, y); }, get traps() { return traps; }, get gens() { return gens; }, get cps() { return cps; }, get factions() { return factions; }, get hq() { return hq; }, paintBarricade, addWire, elecMask, '
-         'addTank, collapse, damageBuilding, launchNuke, planQuarantine, serializeGame, loadGame, layout: () => layoutKey };\n')
+         'addTank, collapse, damageBuilding, launchNuke, planQuarantine, serializeGame, loadGame, layout: () => layoutKey, get paused() { return paused; }, get speed() { return speed; }, get slowMoT() { return slowMoT; }, get simT() { return simT; }, get alert() { return alert; }, get wallJobs() { return wallJobs; }, get machines() { return machines; }, get squads() { return squads; }, setPaused, standDown, frame, stepN2: n => { for (let i = 0; i < n; i++) step(.05); } };\n')
 
 def read(name):
     with open(os.path.join(HERE, name), encoding='utf8') as f:

@@ -1,5 +1,5 @@
 /* ---------- изогнутые и диагональные дороги поверх осевой сетки: кольца, лучи, извилины ---------- */
-let curves = [], junctions = [], clearedCells = new Set();
+let curves = [], junctions = [], clearedCells = new Set(), plazaR = 0, plazaC = null;
 const urbanMask = new Uint8Array(GW * GH);
 function buildUrbanMask() {
   urbanMask.fill(0);
@@ -47,6 +47,7 @@ function rasterCurve(cv) {
   buildings = buildings.filter(b => { if (!inCorridor(b.x0, b.y0, b.x1, b.y1) || isSpecial(b)) return true; fillCells(b.x0, b.y0, b.x1, b.y1, 2); for (let gy = Math.floor(b.y0 / CS); gy <= Math.floor((b.y1 - 1) / CS); gy++) for (let gx = Math.floor(b.x0 / CS); gx <= Math.floor((b.x1 - 1) / CS); gx++) clearedCells.add(gy * GW + gx); return false; });
   trees = trees.filter(t => { if (curveNearest(cv, t.x, t.y).d > R + 3) return true; fillCells(t.x - 3, t.y - 3, t.x + 3, t.y + 3, 2); return false; });
   lamps = lamps.filter(l => curveNearest(cv, l.x, l.y).d > R);
+  cars = cars.filter(c => c.moving || curveNearest(cv, c.x, c.y).d > R + 6);
   fences = fences.filter(f => curveNearest(cv, (f[0] + f[2]) / 2, (f[1] + f[3]) / 2).d > R + 6 && curveNearest(cv, f[0], f[1]).d > R && curveNearest(cv, f[2], f[3]).d > R);
   fountains = fountains.filter(f => curveNearest(cv, f.x, f.y).d > R + f.r);
   for (const i of side) { const c = grid[i]; if (!urbanMask[i]) { if (c === 3 || c === 4) grid[i] = 2; continue; } if (c === 2 || c === 7 || c === 8 || c === 3 || c === 4) grid[i] = 1; }
@@ -62,7 +63,7 @@ function nearestStreetPt(x, y, maxD) {
 function addCurve(pts, hw, closed) {
   pts = pts.filter(p => p[0] > 4 && p[1] > 4 && p[0] < W - 4 && p[1] < H - 4);
   if (pts.length < 2) return null;
-  if (!closed) for (const k of [0, pts.length - 1]) { const q = nearestStreetPt(pts[k][0], pts[k][1], 200); if (q && Math.hypot(q[0] - pts[k][0], q[1] - pts[k][1]) > 6) { if (k === 0) pts.unshift(q); else pts.push(q); } }
+  if (!closed) for (const k of [0, pts.length - 1]) { if (plazaC && Math.hypot(pts[k][0] - plazaC[0], pts[k][1] - plazaC[1]) < plazaR + 70) continue; const q = nearestStreetPt(pts[k][0], pts[k][1], 200); if (q && Math.hypot(q[0] - pts[k][0], q[1] - pts[k][1]) > 6) { if (k === 0) pts.unshift(q); else pts.push(q); } }
   const cv = curveBuild(pts, hw, closed);
   if (cv.len < 60 || !curveClear(cv)) return null;
   rasterCurve(cv); curves.push(cv); return cv;
@@ -76,7 +77,35 @@ function nearestLaneTo(x, y, maxD) {
 }
 function buildJunctions() {
   junctions = [];
-  for (const cv of curves) { if (cv.closed) continue; for (const t of [0, cv.len]) { const p = curvePos(cv, t); if (nearestLaneTo(p.x, p.y, 45)) junctions.push({ cv, t, x: p.x, y: p.y }); } }
+  for (const cv of curves) { cv.endTo = {}; cv.exits = []; }
+  for (const cv of curves) {
+    if (cv.closed) continue;
+    for (const t of [0, cv.len]) {
+      const p = curvePos(cv, t);
+      let hit = false;
+      for (const l of lanes) { if (l.s.edge) continue; const along = clamp(l.s.v ? p.y : p.x, l.a0, l.a1), px = l.s.v ? l.c : along, py = l.s.v ? along : l.c; if (Math.hypot(px - p.x, py - p.y) < 34) { junctions.push({ cv, t, x: px, y: py }); hit = true; } }
+      if (hit) continue;
+      // конец упирается в другую дорогу (например, луч в кольцо): съезд туда и обратно
+      for (const o of curves) { if (o === cv) continue; const n = curveNearest(o, p.x, p.y); if (n.d < o.hw + 8) { cv.endTo[t] = { o, t: n.t }; o.exits.push({ t: n.t, x: p.x, y: p.y, cv, cvT: t, lane: null }); break; } }
+    }
+  }
+  // осевые улицы, идущие через центр, въезжают на кольцо и съезжают с него
+  if (plazaC) for (const ring of curves) {
+    if (!ring.closed || Math.hypot(ring.pts[0][0] - plazaC[0], ring.pts[0][1] - plazaC[1]) > plazaR + 40) continue;
+    const R = Math.hypot(ring.pts[0][0] - plazaC[0], ring.pts[0][1] - plazaC[1]);
+    for (const l of lanes) {
+      if (l.s.edge) continue;
+      const lat = l.c, axis = l.s.v ? plazaC[0] : plazaC[1], along0 = l.s.v ? plazaC[1] : plazaC[0];
+      if (Math.abs(lat - axis) > 24 || l.a0 > along0 - R || l.a1 < along0 + R) continue;
+      for (const side of [-1, 1]) {
+        const along = along0 + side * R, x = l.s.v ? lat : along, y = l.s.v ? along : lat;
+        const towardC = (l.dir === 0 && side < 0) || (l.dir === 2 && side > 0) || (l.dir === 1 && side < 0) || (l.dir === 3 && side > 0);
+        const n = curveNearest(ring, x, y);
+        if (towardC) junctions.push({ cv: ring, t: n.t, x, y, must: true, enterT: n.t }); // въезд: полоса ведёт к центру
+        else ring.exits.push({ t: n.t, x, y, lane: l, along: clamp(along + side * 10, l.a0 + 20, l.a1 - 20) }); // съезд: полоса ведёт от центра
+      }
+    }
+  }
 }
 function ringPts(cx, cy, r, n, wob) { const pts = []; for (let i = 0; i < n; i++) { const a = i / n * TAU, rr = r + rnd(-wob, wob); pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]); } return pts; }
 function spokePts(cx, cy, a, r0, r1) { return [[cx + Math.cos(a) * r0, cy + Math.sin(a) * r0], [cx + Math.cos(a) * r1, cy + Math.sin(a) * r1]]; }
@@ -114,19 +143,22 @@ function buildAlongCurves() {
   }
 }
 function genCurves() {
-  curves = []; junctions = []; clearedCells = new Set();
+  curves = []; junctions = []; clearedCells = new Set(); plazaR = 0; plazaC = null;
   const kind = L.curves; if (!kind) return;
   buildUrbanMask();
   const cx = W / 2, cy = H / 2;
   if (kind === "ring" || kind === "radial") {
     const rings = kind === "ring" ? [250, 520] : [200, 400, 620], spokes = kind === "ring" ? 8 : 12;
     for (const r of rings) for (let k = 0; k < 4; k++) if (addCurve(ringPts(cx, cy, r + k * 14, Math.round(r / 18), r * .03), r > 450 ? 22 : 18, true)) break;
-    for (let i = 0; i < spokes; i++) for (let k = 0; k < 3; k++) { const a = i / spokes * TAU + rnd(-.06, .06) + k * .08; const r1 = Math.min(W / 2 - 40, H / 2 - 40) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)) * H / W) * .98; if (addCurve(spokePts(cx, cy, a, 70, Math.min(r1, kind === "ring" ? 760 : 700)), 16, false)) break; }
-    fillCells(cx - 56, cy - 56, cx + 56, cy + 56, 7); fountains.push({ x: cx, y: cy, r: 14 }); fillCells(cx - 12, cy - 12, cx + 12, cy + 12, 3);
+    plazaR = 56; plazaC = [cx, cy]; fillDisc(cx, cy, plazaR, plazaR, 7); fountains.push({ x: cx, y: cy, r: 14 }); fillCells(cx - 12, cy - 12, cx + 12, cy + 12, 3);
+    addCurve(ringPts(cx, cy, plazaR + 13, 28, 0), 12, true);
+    for (let i = 0; i < spokes; i++) for (let k = 0; k < 3; k++) { const a = i / spokes * TAU + rnd(-.06, .06) + k * .08; const r1 = Math.min(W / 2 - 40, H / 2 - 40) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)) * H / W) * .98; if (addCurve(spokePts(cx, cy, a, plazaR + 22, Math.min(r1, kind === "ring" ? 760 : 700)), 16, false)) break; }
   } else if (kind === "diag") {
-    for (const [sx, sy] of [[1, 1], [1, -1]]) { const k = Math.min(W / 2, H / 2) - 30; addCurve([[cx - k * sx, cy - k * sy], [cx + k * sx, cy + k * sy]], 20, false); }
-    for (const a of [Math.PI / 6, Math.PI * 5 / 6, -Math.PI / 6, -Math.PI * 5 / 6]) addCurve(spokePts(cx, cy, a, 60, 560), 14, false);
-    fillCells(cx - 64, cy - 64, cx + 64, cy + 64, 7); fountains.push({ x: cx, y: cy, r: 16 }); fillCells(cx - 14, cy - 14, cx + 14, cy + 14, 3);
+    plazaR = 60; plazaC = [cx, cy];
+    for (const [sx, sy] of [[1, 1], [1, -1]]) { const k = Math.min(W / 2, H / 2) - 30, r0 = (plazaR + 22) / Math.SQRT2; addCurve([[cx - k * sx, cy - k * sy], [cx - r0 * sx, cy - r0 * sy]], 20, false); addCurve([[cx + r0 * sx, cy + r0 * sy], [cx + k * sx, cy + k * sy]], 20, false); }
+    plazaR = 60; plazaC = [cx, cy]; fillDisc(cx, cy, plazaR, plazaR, 7); fountains.push({ x: cx, y: cy, r: 16 }); fillCells(cx - 14, cy - 14, cx + 14, cy + 14, 3);
+    addCurve(ringPts(cx, cy, plazaR + 13, 28, 0), 12, true);
+    for (const a of [Math.PI / 6, Math.PI * 5 / 6, -Math.PI / 6, -Math.PI * 5 / 6]) addCurve(spokePts(cx, cy, a, plazaR + 22, 560), 14, false);
   } else if (kind === "winding") {
     for (let i = 0; i < 4; i++) for (let k = 0; k < 4; k++) { const y = H * (.2 + .2 * i) + rnd(-40, 40); if (addCurve(windingPts(20, y, W - 20, y + rnd(-200, 200), rnd(90, 160), rnd(1.5, 3)), 16, false)) break; }
     for (let i = 0; i < 3; i++) for (let k = 0; k < 4; k++) { const x = W * (.25 + .25 * i) + rnd(-60, 60); if (addCurve(windingPts(x, 20, x + rnd(-250, 250), H - 20, rnd(80, 140), rnd(1.5, 2.5)), 14, false)) break; }
@@ -155,13 +187,16 @@ function stepCurveCar(c, dt) {
   c.v += clamp(target - c.v, -70 * dt, 22 * dt);
   if (c.v < 1) c.wait += dt; else c.wait = 0;
   if (people && c.wait > 1.5 && Math.random() < dt * .6) sfx.horn(c);
+  if (c.wait > 12) { c.cdir = -c.cdir; c.wait = 0; c.v = 0; c.jAt = null; } // глухо — разворачиваемся
   carHitPeople(c, tx, ty, dt);
   c.ct += c.v * dt * c.cdir;
+  if (cv.exits && cv.exits.length && tryExitCurve(c, dt)) return;
   if (c.ct < 0 || c.ct > cv.len) {
     if (cv.closed) { c.ct = (c.ct + cv.len) % cv.len; }
     else {
-      const e = curvePos(cv, c.ct < 0 ? 0 : cv.len), l = nearestLaneTo(e.x, e.y, 45);
-      if (l && Math.random() < .8) { const ox = c.x, oy = c.y; c.curve = null; placeOnLane(c, l.l, l.along); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.plan = -1; c.planAt = null; return; }
+      const endT = c.ct < 0 ? 0 : cv.len, e = curvePos(cv, endT), to = cv.endTo && cv.endTo[endT], l = to ? null : nearestLaneTo(e.x, e.y, 45);
+      if (to) { const p = curvePos(to.o, to.t), hx = Math.cos(c.ang), hy = Math.sin(c.ang), rx = -hy, ry = hx; placeOnCurve(c, to.o, to.t, (p.tx * rx + p.ty * ry) >= 0 ? 1 : -1, true); c.jAt = null; c.exitSkip = 1; return; }
+      if (l && Math.random() < .8) { const ox = c.x, oy = c.y; c.curve = null; placeOnLane(c, l.l, l.along); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.plan = -1; c.planAt = null; c.jAt = junctions.find(j => j.cv === cv && j.t === endT) || null; return; }
       c.cdir = -c.cdir; c.ct = clamp(c.ct, 0, cv.len); c.v = 0;
     }
   }
@@ -173,12 +208,31 @@ function stepCurveCar(c, dt) {
 }
 // машина на осевой полосе у стыка сворачивает на изогнутую дорогу
 function tryEnterCurve(c) {
-  if (!junctions.length || c.goal || c.tank) return false;
+  if (!junctions.length || c.tank) return false;
   for (const j of junctions) {
     if (c.jAt === j) continue;
     if (Math.abs(j.x - c.x) > 9 || Math.abs(j.y - c.y) > 9) continue;
-    c.jAt = j; if (Math.random() > .6) return false;
+    c.jAt = j; if (!j.must && (c.goal || Math.random() > .6)) return false;
+    if (j.cv.closed) { const p = curvePos(j.cv, j.enterT), hx = DX[c.dir], hy = DY[c.dir], rx = -hy, ry = hx; placeOnCurve(c, j.cv, j.enterT, (p.tx * rx + p.ty * ry) >= 0 ? 1 : -1, true); c.jAt = null; c.exitSkip = 1; return true; }
     placeOnCurve(c, j.cv, j.t === 0 ? 0 : j.cv.len, j.t === 0 ? 1 : -1, true); return true;
+  }
+  return false;
+}
+// на кольце: проезжая съезд, иногда сворачиваем на него (к цели — если он ближе к ней)
+function tryExitCurve(c, dt) {
+  const cv = c.curve; if (!cv.exits || !cv.exits.length) return false;
+  for (const e of cv.exits) {
+    let d = Math.abs(c.ct - e.t); if (cv.closed) d = Math.min(d, cv.len - d);
+    if (d > 5) { if (c.jAt === e && d > 12) c.jAt = null; continue; }
+    if (c.jAt === e) return false;
+    c.jAt = e;
+    if (c.exitSkip > 0) { c.exitSkip--; return false; } // только что въехал — хотя бы один съезд проезжаем
+    const want = c.goal ? (Math.hypot(e.x - c.goal.x, e.y - c.goal.y) < Math.hypot(c.x - c.goal.x, c.y - c.goal.y) + 20) : Math.random() < .4;
+    if (!want) return false;
+    const ox = c.x, oy = c.y;
+    if (e.lane) { c.curve = null; placeOnLane(c, e.lane, e.along); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.plan = -1; c.planAt = undefined; c.ang = Math.atan2(DY[c.dir], DX[c.dir]); }
+    else { placeOnCurve(c, e.cv, e.cvT === 0 ? 0 : e.cv.len, e.cvT === 0 ? 1 : -1, true); }
+    return true;
   }
   return false;
 }
