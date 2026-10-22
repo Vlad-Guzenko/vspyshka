@@ -259,7 +259,8 @@ function stepBuildings(dt) {
     if (b.fire > 0) {
       b.fire -= dt;
       if (b.state === "ok") {
-        b.hp -= dt * (b.kind === "house" ? 1.2 : b.floors > 8 ? .45 : .7); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
+        // каменный дом огонь выжигает до остова, но не роняет: ниже 8% прочности пожар уже ничего не отнимает
+        if (b.kind === "house" || b.hp > b.maxHp * .08) b.hp -= dt * (b.kind === "house" ? 1.2 : b.floors > 8 ? .45 : .7); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
         if (b.hp <= 0) collapse(b);
         else if (b.fire <= 0 && b.hp < b.maxHp * .45 && !b.gutted) gutBuilding(b);
       }

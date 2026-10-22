@@ -51,7 +51,7 @@ function stepMedpoints(dt, cl) {
 }
 // комендантский час: при оцеплении всех по домам, утром никто не выходит
 function stepCurfew() {
-  if (alert >= 3 && !settings.curfew) {
+  if (alert >= 3 && !settings.curfew && !(scen && scen.limits)) {
     settings.curfew = true; let n = 0;
     for (const a of agents) if (a.state === "alive" && a.role === "civ" && !a.hidden && !a.forage && !a.faction && a.home >= 0) { a.homeGoal = true; a.dest = null; n++; }
     logE(`Объявлен комендантский час: полиция гонит всех по домам, ${n} человек пошли домой`, "good"); radio("Штаб: комендантский час, гражданским не выходить на улицу");

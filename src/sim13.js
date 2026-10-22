@@ -185,7 +185,7 @@ function stepFactions(dt) {
     if (f.kind !== "commune") continue;
     const hq = buildings[f.hq], L = agentById(f.leader);
     if (!L || L.state !== "alive" || L.role === "zombie") { logE("Лидер коммуны погиб: группа распалась", "bad"); for (const id of f.members) { const m = agentById(id); if (m) { m.faction = 0; m.vest = null; } } f.dead = true; continue; }
-    if (!hq || hq.state !== "ok") { logE("Штаб коммуны разрушен: группа уходит", "bad"); for (const id of f.members) { const m = agentById(id); if (m) { m.faction = 0; m.vest = null; } } f.dead = true; continue; }
+    if (!hq || hq.state !== "ok" || !hq.door) { logE("Штаб коммуны разрушен: группа уходит", "bad"); for (const id of f.members) { const m = agentById(id); if (m) { m.faction = 0; m.vest = null; } } f.dead = true; continue; }
     // вербовка спокойных людей рядом со штабом
     if (f.members.length < 40) near(hq.door[0], hq.door[1], 110, a => { if (f.members.length < 40 && a.state === "alive" && a.role === "civ" && !a.hidden && !a.faction && !a.age && Math.random() < .25) joinFaction(a, f); });
     // еда: едят из штаба, при нехватке ходят за припасами
@@ -212,7 +212,7 @@ function registerGang(members) {
 }
 // снабжение фракции: патроны и еда в штаб
 function supplyFaction(f) {
-  const hq = buildings[f.hq]; if (!hq) return false;
+  const hq = buildings[f.hq]; if (!hq || !hq.door) return false;
   hq.food = (hq.food || 0) + 150; let armed = 0;
   for (const id of f.members) { const m = agentById(id); if (!m) continue; if (!m.armed) { arm(m, 8, 24); armed++; } else m.ammo += 24; }
   f.rel = (f.rel || 0) + 1; hqRep(f.kind === "commune" ? 1 : -1, f.kind === "commune" ? "поддержка коммуны" : "сговор с бандой");

@@ -193,8 +193,10 @@ function thinkCrew(a, dt, zn, zd) {
     if (a.done) return goTo(a, a.unit.x, a.unit.y, 9);
     if (!j || j.i >= j.cells.length) { a.done = true; for (const m of a.unit.crew) m.done = true; return goTo(a, a.unit.x, a.unit.y, 9); }
     // идём к фронту работ: следующая клетка забора, чуть снаружи периметра
-    const gi = j.cells[Math.min(j.cells.length - 1, j.i + (a.unit.crew.indexOf(a) % 2))], gx = gi % GW, gy = (gi / GW) | 0, fx = gx * CS + 4, fy = gy * CS + 4;
-    const d = Math.hypot(fx - a.x, fy - a.y);
+    const gi = j.cells[Math.min(j.cells.length - 1, j.i + (a.unit.crew.indexOf(a) % 2))], gx = gi % GW, gy = (gi / GW) | 0, cx = gx * CS + 4, cy = gy * CS + 4;
+    // подходим с внешней стороны периметра
+    const ox = cx <= j.x0 + CS ? -10 : cx >= j.x1 - CS ? 10 : 0, oy = cy <= j.y0 + CS ? -10 : cy >= j.y1 - CS ? 10 : 0;
+    const fx = clamp(cx + ox, 6, W - 6), fy = clamp(cy + oy, 6, H - 6), d = Math.hypot(fx - a.x, fy - a.y);
     if (d < 11) { a.tool = .3; a.aim = Math.atan2(fy - a.y, fx - a.x); a.aimT = .3; j.work = (j.work || 0) + dt; return [0, 0, 0]; }
     return goTo(a, fx, fy, 9);
   }

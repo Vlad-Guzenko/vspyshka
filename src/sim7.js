@@ -61,7 +61,7 @@ function stepNuke(dt) {
     const dmg = d < NUKE.R1 ? b.maxHp * 1.2 : d < NUKE.R2 ? b.maxHp * (b.floors > 8 ? .55 + .5 * k : .8 + .6 * k) : b.maxHp * .45 * k * k;
     damageBuilding(b, dmg, x, y);
     if (b.state === "ok" && d < NUKE.R2 * 1.15 && Math.random() < .3 + k) b.fire = Math.max(b.fire, rnd(80, 200));
-    if (b.state === "ok") b.scorch = Math.max(b.scorch, clamp(k * 1.3));
+    if (b.state === "ok") { b.scorch = Math.max(b.scorch, clamp(k * 1.3)); if (b.hp < b.maxHp * .45 && !b.gutted && !(b.fire > 0)) gutBuilding(b); }
   }
   for (const c of cars) {
     if (c.gone || c.z > 0) continue;
