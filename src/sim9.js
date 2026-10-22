@@ -117,7 +117,7 @@ function planQuarantine(x0, y0, x1, y1) {
   wallJobs.push(j);
   // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
   for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
-  const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j };
+  const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j }; j.lastSent = simT;
   logE("Карантин: военные оцепили район, строители едут ставить забор", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
   return true;
 }

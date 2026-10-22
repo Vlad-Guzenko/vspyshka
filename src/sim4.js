@@ -68,8 +68,10 @@ function deployCrew(c) {
   logT("svc" + c.service, `${S.name} на месте`, "good", 10);
 }
 function releaseUnit(c) {
-  // экипаж садится, машина уезжает
+  // экипаж садится, машина уезжает; недоделанная работа снова доступна диспетчеру
   if (c.leaving) return;
+  if (c.job && c.job.ruin && c.job.ruin.state === "ruin") c.job.ruin.clearAssigned = false;
+  if (c.job && c.job.gut && c.job.gut.gutted) c.job.gut.clearAssigned = false;
   c.leaving = true; c.moving = true; c.deployed = false; c.v = 0;
   const e = edgeLanePoint(); c.goal = { x: e.l.s.v ? e.l.c : e.along, y: e.l.s.v ? e.along : e.l.c };
 }
@@ -85,7 +87,7 @@ function stepServiceCar(c, dt) {
   if (c.deployed) {
     // ждём экипаж: если все погибли или вернулись — уезжаем
     const alive = c.crew.filter(a => a.state === "alive");
-    if (!alive.length) { c.stopped = true; c.deployed = false; c.abandonedSvc = true; return; }
+    if (!alive.length) { c.stopped = true; c.deployed = false; c.abandonedSvc = true; if (c.job && c.job.ruin && c.job.ruin.state === "ruin") c.job.ruin.clearAssigned = false; if (c.job && c.job.gut) c.job.gut.clearAssigned = false; return; }
     if (alive.every(a => a.done && Math.hypot(a.x - c.x, a.y - c.y) < 10)) { for (const a of alive) a.state = "saved"; releaseUnit(c); }
     return;
   }
@@ -108,6 +110,7 @@ function serviceTarget(type) {
 
     for (const b of buildings) if (b.state === "construct" && simT - (b.lastWork || 0) > 30 && simT - (b.assignedT || -99) > 60 && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.assignedT = simT; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { ruin: b } }; }
     for (const b of buildings) if (b.state === "ruin" && !b.clearAssigned && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.clearAssigned = true; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { ruin: b } }; }
+    for (const b of buildings) if (b.gutted && b.state === "ok" && !b.clearAssigned && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.clearAssigned = true; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { gut: b } }; }
     for (const l of lamps) if (l.down && !l.fixAssigned && quiet(l.x, l.y)) { l.fixAssigned = true; return { x: l.x, y: l.y, job: { lamp: l } }; }
   }
   return null;
@@ -120,6 +123,8 @@ function stepServices(dt) {
   if (!settings.services || dispatchT > 0) return;
   dispatchT = 3;
   if (settings.noRadio) { if (Math.random() < .05) logT("noradio2", "Диспетчер не слышит вызовы: радиовышка разрушена", "bad", 60); return; }
+  // забор карантина недостроен, а строителей нет — высылаем новую бригаду
+  for (const j of wallJobs) if (j.i < j.cells.length && activeUnits("builder") === 0 && simT - (j.lastSent || 0) > 45) { j.lastSent = simT; const t = spawnService("builder", (j.x0 + j.x1) / 2, j.y1 + 14, null); t.job = { wall: j }; logT("builders2", "К карантину выехала новая бригада строителей", "", 30); }
   // санитары: вывозят тела из спокойных районов
   if (activeUnits("sanit") < 3) { const b = bodyTarget(); if (b) { b.sanitAssigned = simT + 1; const c = spawnService("sanit", b.x, b.y, special.hospital); c.job = { body: b }; logT("disp_sanit", "Санитарная служба выехала за телами", "", 30); } }
   // полиция: чем больше вызовов, тем больше патрулей
@@ -198,6 +203,11 @@ function thinkCrew(a, dt, zn, zd) {
     const fin = () => { a.workT = 0; a.done = !job; for (const m of a.unit.crew) { m.job = null; m.done = true; } };
     if (job && job.tow) { const c = job.tow; if (c.gone) fin(); else if (Math.hypot(c.x - a.x, c.y - a.y) < 14) { a.workT = (a.workT || 0) + dt; a.tool = .3; if (a.workT > 8) { c.gone = true; fillCells(c.x - 9, c.y - 9, c.x + 9, c.y + 9, cellAt(c.x, c.y) === 5 ? 0 : cellAt(c.x, c.y)); fieldT = 0; logT("tow", "Ремонтники убрали разбитую машину", "good", 20); fin(); } return [0, 0, 0]; } else return goTo(a, c.x, c.y, 8); }
     if (job && job.lamp) { const l = job.lamp; if (!l.down) fin(); else if (Math.hypot(l.x - a.x, l.y - a.y) < 8) { a.workT = (a.workT || 0) + dt; a.tool = .3; if (a.workT > 6) { l.down = 0; gridDirty = true; fin(); } return [0, 0, 0]; } else return goTo(a, l.x, l.y, 8); }
+    if (job && job.gut) {
+      const b = job.gut;
+      if (b.gutted && b.state === "ok") { if (Math.hypot(clamp(a.x, b.x0, b.x1) - a.x, clamp(a.y, b.y0, b.y1) - a.y) > 14) return goTo(a, (b.x0 + b.x1) / 2, b.y1 + 8, 8); b.gutted = false; b.clearAssigned = false; startConstruct(b); b.prog = .3; spawnService("mixer", (b.x0 + b.x1) / 2, b.y1 + 10, null).job = { build: b }; logE(b.kind === "tower" ? "Ремонтники взялись за выгоревший небоскрёб" : "Ремонтники восстанавливают выгоревший дом", "good"); for (const m of a.unit.crew) { m.buildB = b; m.job = null; } }
+      else { a.job = null; if (b.state === "construct") a.buildB = b; else fin(); }
+    }
     if (job && job.ruin) {
       const b = job.ruin; a.tool = .3;
       // разбираем завал клетка за клеткой

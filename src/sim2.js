@@ -197,6 +197,8 @@ function wander(a, dt) {
   if (a.wanderT <= 0 || ahead || (a.wx === 0 && a.wy === 0)) {
     if (!ahead && a.wanderT <= 0 && Math.random() < .18 && a.role === "civ") { a.idleT = rnd(2, 7); a.wanderT = rnd(3, 8); return [0, 0, 0]; }
     let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9);
+    // мирные не лезут на завалы и пепелища, если стоят не на них
+    if (a.role === "civ" && cellAt(a.x, a.y) !== 8) { const safe = opts.filter(([dx, dy]) => cellAt(a.x + dx * 12, a.y + dy * 12) !== 8 && cellAt(a.x + dx * 24, a.y + dy * 24) !== 8); if (safe.length) opts = safe; }
     // спокойный пешеход идёт по тротуару и редко переходит дорогу
     if (a.panic < .3 && a.role !== "zombie") { const walk = opts.filter(([dx, dy]) => cellAt(a.x + dx * 14, a.y + dy * 14) !== 0); if (walk.length && Math.random() < .88) opts = walk; }
     const fwd = opts.find(([dx, dy]) => dx === Math.sign(Math.round(a.wx)) && dy === Math.sign(Math.round(a.wy)));
@@ -491,6 +493,7 @@ function step(dt) {
 }
 function boom(x, y, R, big) {
   interest(x, y, big ? 9 : 5);
+  if (R >= 30) dangers.push({ x, y, r: R * 2.2, t: big ? 240 : 120 });
   fxBoom(x, y, R); sfx.boom(x, y, big);
   for (const a of agents) {
     if (a.state === "saved") continue;

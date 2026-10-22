@@ -72,7 +72,13 @@ function makeScaffold(b) {
   const jib = new THREE.Mesh(new THREE.BoxGeometry(70, 2.2, 2.2), craneMat); jib.position.set(w / 2 + 10 - 20, mastH, 0); jib.castShadow = true; g.add(jib);
   const cw = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 5), parapetMat); cw.position.set(w / 2 + 10 + 13, mastH - 3, 0); g.add(cw);
   const cab = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), craneMat); cab.position.set(w / 2 + 10, mastH - 4, 3); g.add(cab);
-  g.position.copy(b.obj.position); g.rotation.y = b.obj.rotation.y; g.userData.jib = jib;
+  // стрела поворачивается вокруг мачты, по ней ездит тележка с крюком и грузом
+  const arm = new THREE.Group(); arm.position.set(w / 2 + 10, mastH, 0); g.add(arm);
+  jib.position.set(-20, 0, 0); arm.add(jib); cw.position.set(13, -3, 0); arm.add(cw);
+  const trolley = new THREE.Group(); trolley.position.set(-30, -1.5, 0); arm.add(trolley);
+  const cable = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 1, 4).translate(0, -.5, 0), new THREE.MeshBasicMaterial({ color: 0x222 })); trolley.add(cable);
+  const load = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 4), slabMat); load.castShadow = true; trolley.add(load);
+  g.position.copy(b.obj.position); g.rotation.y = b.obj.rotation.y; g.userData.jib = jib; g.userData.arm = arm; g.userData.trolley = trolley; g.userData.cable = cable; g.userData.load = load; g.userData.mastH = mastH;
   return g;
 }
 function updateConstruction() {
@@ -83,7 +89,10 @@ function updateConstruction() {
       if (b.topple) { b.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rot !== undefined ? -b.rot : 0); b.obj.position.set(b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2), 0, b.rot !== undefined ? Z(b.cy) : Z((b.y0 + b.y1) / 2)); b.topple = false; b.ruinH = 0; }
       const drop = (b.h - b.ruinH) * (1 - (b.prog || 0));
       b.obj.position.y = (b.baseY || 0) - drop; b.obj.rotation.x *= .9; b.obj.rotation.z *= .9; b.obj.position.x = b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2);
-      b.scaf.rotation.y = b.obj.rotation.y + Math.sin(simT * .2) * .0; b.scaf.children[1] && (b.scaf.userData.jib.rotation.y = Math.sin(simT * .3) * .8);
+      // кран работает: поворот стрелы, тележка ездит, груз опускается на стройку и поднимается
+      const u = b.scaf.userData, ph = (simT * .12 + (b.x0 % 7)) % 1, rise = (b.h - b.ruinH) * (b.prog || 0) + b.ruinH;
+      u.arm.rotation.y = Math.sin(simT * .25 + b.y0) * .9 - .4; u.trolley.position.x = -14 - 22 * (.5 + .5 * Math.sin(simT * .4));
+      const drop2 = ph < .5 ? ph * 2 : 2 - ph * 2, hang = 4 + (u.mastH - rise - 8) * drop2; u.cable.scale.y = hang; u.load.position.y = -hang - 1.2; u.load.visible = ph < .5 || b.prog < 1;
       if (b.state === "ok") { scene.remove(b.scaf); b.scaf = null; b.obj.position.y = 0; b.obj.rotation.x = b.obj.rotation.z = 0; b.ruinDone = false; b.hid = false; }
     }
   }

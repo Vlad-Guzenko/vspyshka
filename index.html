@@ -1003,7 +1003,7 @@ function buildAlongCurves() {
         if (!ok || cleared < total * .35) continue;
         // не слишком близко к другой кривой дороге
         let nearRoad = false; for (const o of curves) if (o !== cv && curveNearest(o, cx, cy).d < o.hw + depth / 2 + 4) nearRoad = true; if (nearRoad) continue;
-        const b = addBuilding({ x0, y0, x1, y1, kind, floors, style: kind === "house" ? 11 + Math.floor(Math.random() * 4) : Math.floor(Math.random() * 5), rot: Math.atan2(p.ty, p.tx), cx, cy, w: lotW, d: depth, ridge: "x" });
+        const b = addRotBuilding(cx, cy, lotW, depth, Math.atan2(p.ty, p.tx), { kind, floors, style: kind === "house" ? 11 + Math.floor(Math.random() * 4) : Math.floor(Math.random() * 5), ridge: "x" });
         b.doorPref = [p.x + nx * side * (cv.hw + 4), p.y + ny * side * (cv.hw + 4)];
         lamps = lamps.filter(l => l.x < x0 - 2 || l.x > x1 + 2 || l.y < y0 - 2 || l.y > y1 + 2);
       }
@@ -1468,6 +1468,8 @@ function wander(a, dt) {
   if (a.wanderT <= 0 || ahead || (a.wx === 0 && a.wy === 0)) {
     if (!ahead && a.wanderT <= 0 && Math.random() < .18 && a.role === "civ") { a.idleT = rnd(2, 7); a.wanderT = rnd(3, 8); return [0, 0, 0]; }
     let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9);
+    // мирные не лезут на завалы и пепелища, если стоят не на них
+    if (a.role === "civ" && cellAt(a.x, a.y) !== 8) { const safe = opts.filter(([dx, dy]) => cellAt(a.x + dx * 12, a.y + dy * 12) !== 8 && cellAt(a.x + dx * 24, a.y + dy * 24) !== 8); if (safe.length) opts = safe; }
     // спокойный пешеход идёт по тротуару и редко переходит дорогу
     if (a.panic < .3 && a.role !== "zombie") { const walk = opts.filter(([dx, dy]) => cellAt(a.x + dx * 14, a.y + dy * 14) !== 0); if (walk.length && Math.random() < .88) opts = walk; }
     const fwd = opts.find(([dx, dy]) => dx === Math.sign(Math.round(a.wx)) && dy === Math.sign(Math.round(a.wy)));
@@ -1762,6 +1764,7 @@ function step(dt) {
 }
 function boom(x, y, R, big) {
   interest(x, y, big ? 9 : 5);
+  if (R >= 30) dangers.push({ x, y, r: R * 2.2, t: big ? 240 : 120 });
   fxBoom(x, y, R); sfx.boom(x, y, big);
   for (const a of agents) {
     if (a.state === "saved") continue;
@@ -2065,6 +2068,7 @@ function collapse(b) {
   for (const c of cars) if (!c.moving && c.x > b.x0 - m && c.x < b.x1 + m && c.y > b.y0 - m && c.y < b.y1 + m) { c.wreck = true; c.crushed = true; }
   for (const l of lamps) if (l.x > b.x0 - m && l.x < b.x1 + m && l.y > b.y0 - m && l.y < b.y1 + m) l.down = l.down || rnd(1.2, 1.5) * (Math.random() < .5 ? 1 : -1);
   fieldT = 0; gridDirty = true; barrDirty = true;
+  dangers.push({ x: cx, y: cy, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, t: 300 });
   logE(b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", "bad");
   fxCollapse(b); sfx.collapse(b); interest((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 10);
 }
@@ -2095,11 +2099,27 @@ function toppleImpact(b) {
   fieldT = 0; gridDirty = true; barrDirty = true; interest(px + ca * L / 2, py + sa * L / 2, 10);
   fxToppleImpact(b); sfx.boom(px + ca * L * .5, py + sa * L * .5, true);
 }
+// выгоревший остов: стоит, но жить и прятаться в нём нельзя, ремонтники восстановят
+function gutBuilding(b) {
+  b.gutted = true; b.gutT = 180; b.scorch = 1; b.fire = 0;
+  for (const o of (b.occ || []).slice()) leaveShelter(o, true);
+  b.door = null; b.gutDoor = true;
+  dangers.push({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 16, t: 200 });
+  logT("gutted", b.kind === "tower" ? "Небоскрёб выгорел дотла: остался остов" : "Дом выгорел дотла", "bad", 20);
+}
 function stepBuildings(dt) {
   for (const b of buildings) {
     if (b.topple && !b.impacted && b.state === "collapsing" && b.cT > b.fallT) toppleImpact(b);
     if (b.fire > 0 && b.state === "ok" && Math.random() < dt * .8) { const s = Math.random() < .5, x = s ? rnd(b.x0, b.x1) : (Math.random() < .5 ? b.x0 - 4 : b.x1 + 4), y = s ? (Math.random() < .5 ? b.y0 - 4 : b.y1 + 4) : rnd(b.y0, b.y1); fires.push({ x, y, r: rnd(5, 9), l: rnd(4, 8) }); } // горящие обломки падают у стен
-    if (b.fire > 0) { b.fire -= dt; if (b.state === "ok") { b.hp -= dt * (b.kind === "house" ? 1.2 : .25); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp)); if (b.hp <= 0) collapse(b); } }
+    if (b.fire > 0) {
+      b.fire -= dt;
+      if (b.state === "ok") {
+        b.hp -= dt * (b.kind === "house" ? 1.2 : b.floors > 8 ? .45 : .7); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
+        if (b.hp <= 0) collapse(b);
+        else if (b.fire <= 0 && b.hp < b.maxHp * .45 && !b.gutted) gutBuilding(b);
+      }
+    }
+    if (b.gutT > 0) b.gutT -= dt;
     if (b.state === "collapsing") { b.cT += dt; if (b.cT > (b.topple ? b.fallT + 2 : 4.5)) b.state = "ruin"; }
   }
 }
@@ -2261,8 +2281,10 @@ function deployCrew(c) {
   logT("svc" + c.service, `${S.name} на месте`, "good", 10);
 }
 function releaseUnit(c) {
-  // экипаж садится, машина уезжает
+  // экипаж садится, машина уезжает; недоделанная работа снова доступна диспетчеру
   if (c.leaving) return;
+  if (c.job && c.job.ruin && c.job.ruin.state === "ruin") c.job.ruin.clearAssigned = false;
+  if (c.job && c.job.gut && c.job.gut.gutted) c.job.gut.clearAssigned = false;
   c.leaving = true; c.moving = true; c.deployed = false; c.v = 0;
   const e = edgeLanePoint(); c.goal = { x: e.l.s.v ? e.l.c : e.along, y: e.l.s.v ? e.along : e.l.c };
 }
@@ -2278,7 +2300,7 @@ function stepServiceCar(c, dt) {
   if (c.deployed) {
     // ждём экипаж: если все погибли или вернулись — уезжаем
     const alive = c.crew.filter(a => a.state === "alive");
-    if (!alive.length) { c.stopped = true; c.deployed = false; c.abandonedSvc = true; return; }
+    if (!alive.length) { c.stopped = true; c.deployed = false; c.abandonedSvc = true; if (c.job && c.job.ruin && c.job.ruin.state === "ruin") c.job.ruin.clearAssigned = false; if (c.job && c.job.gut) c.job.gut.clearAssigned = false; return; }
     if (alive.every(a => a.done && Math.hypot(a.x - c.x, a.y - c.y) < 10)) { for (const a of alive) a.state = "saved"; releaseUnit(c); }
     return;
   }
@@ -2301,6 +2323,7 @@ function serviceTarget(type) {
 
     for (const b of buildings) if (b.state === "construct" && simT - (b.lastWork || 0) > 30 && simT - (b.assignedT || -99) > 60 && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.assignedT = simT; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { ruin: b } }; }
     for (const b of buildings) if (b.state === "ruin" && !b.clearAssigned && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.clearAssigned = true; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { ruin: b } }; }
+    for (const b of buildings) if (b.gutted && b.state === "ok" && !b.clearAssigned && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.clearAssigned = true; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { gut: b } }; }
     for (const l of lamps) if (l.down && !l.fixAssigned && quiet(l.x, l.y)) { l.fixAssigned = true; return { x: l.x, y: l.y, job: { lamp: l } }; }
   }
   return null;
@@ -2313,6 +2336,8 @@ function stepServices(dt) {
   if (!settings.services || dispatchT > 0) return;
   dispatchT = 3;
   if (settings.noRadio) { if (Math.random() < .05) logT("noradio2", "Диспетчер не слышит вызовы: радиовышка разрушена", "bad", 60); return; }
+  // забор карантина недостроен, а строителей нет — высылаем новую бригаду
+  for (const j of wallJobs) if (j.i < j.cells.length && activeUnits("builder") === 0 && simT - (j.lastSent || 0) > 45) { j.lastSent = simT; const t = spawnService("builder", (j.x0 + j.x1) / 2, j.y1 + 14, null); t.job = { wall: j }; logT("builders2", "К карантину выехала новая бригада строителей", "", 30); }
   // санитары: вывозят тела из спокойных районов
   if (activeUnits("sanit") < 3) { const b = bodyTarget(); if (b) { b.sanitAssigned = simT + 1; const c = spawnService("sanit", b.x, b.y, special.hospital); c.job = { body: b }; logT("disp_sanit", "Санитарная служба выехала за телами", "", 30); } }
   // полиция: чем больше вызовов, тем больше патрулей
@@ -2391,6 +2416,11 @@ function thinkCrew(a, dt, zn, zd) {
     const fin = () => { a.workT = 0; a.done = !job; for (const m of a.unit.crew) { m.job = null; m.done = true; } };
     if (job && job.tow) { const c = job.tow; if (c.gone) fin(); else if (Math.hypot(c.x - a.x, c.y - a.y) < 14) { a.workT = (a.workT || 0) + dt; a.tool = .3; if (a.workT > 8) { c.gone = true; fillCells(c.x - 9, c.y - 9, c.x + 9, c.y + 9, cellAt(c.x, c.y) === 5 ? 0 : cellAt(c.x, c.y)); fieldT = 0; logT("tow", "Ремонтники убрали разбитую машину", "good", 20); fin(); } return [0, 0, 0]; } else return goTo(a, c.x, c.y, 8); }
     if (job && job.lamp) { const l = job.lamp; if (!l.down) fin(); else if (Math.hypot(l.x - a.x, l.y - a.y) < 8) { a.workT = (a.workT || 0) + dt; a.tool = .3; if (a.workT > 6) { l.down = 0; gridDirty = true; fin(); } return [0, 0, 0]; } else return goTo(a, l.x, l.y, 8); }
+    if (job && job.gut) {
+      const b = job.gut;
+      if (b.gutted && b.state === "ok") { if (Math.hypot(clamp(a.x, b.x0, b.x1) - a.x, clamp(a.y, b.y0, b.y1) - a.y) > 14) return goTo(a, (b.x0 + b.x1) / 2, b.y1 + 8, 8); b.gutted = false; b.clearAssigned = false; startConstruct(b); b.prog = .3; spawnService("mixer", (b.x0 + b.x1) / 2, b.y1 + 10, null).job = { build: b }; logE(b.kind === "tower" ? "Ремонтники взялись за выгоревший небоскрёб" : "Ремонтники восстанавливают выгоревший дом", "good"); for (const m of a.unit.crew) { m.buildB = b; m.job = null; } }
+      else { a.job = null; if (b.state === "construct") a.buildB = b; else fin(); }
+    }
     if (job && job.ruin) {
       const b = job.ruin; a.tool = .3;
       // разбираем завал клетка за клеткой
@@ -2719,6 +2749,8 @@ function detonate() {
   // электромагнитный импульс глушит машины
   for (const c of cars) if (c.moving && Math.hypot(c.x - x, c.y - y) < NUKE.RMAX * 1.6) { c.moving = false; c.stopped = true; c.v = 0; }
   radZones.push({ x, y, r: NUKE.R1 * 1.4, t: 240 });
+  dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
+  dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
   firsts.nuke = true;
   logE("Ядерный взрыв", "bad");
   fieldT = 0;
@@ -2750,9 +2782,11 @@ function stepNuke(dt) {
     if (b.state !== "ok") continue;
     const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1)); if (!ring(d)) continue;
     const k = 1 - d / NUKE.RMAX;
-    damageBuilding(b, (d < NUKE.R1 ? 900 : 520) * k * k, x, y);
-    if (d < NUKE.R2 && Math.random() < k * 1.2) b.fire = Math.max(b.fire, rnd(60, 160));
-    b.scorch = Math.max(b.scorch, k);
+    // до R1 всё рушится, до R2 дома падают, а башни выгорают до остова; дальше ожоги и пожары
+    const dmg = d < NUKE.R1 ? b.maxHp * 1.2 : d < NUKE.R2 ? b.maxHp * (b.floors > 8 ? .55 + .5 * k : .8 + .6 * k) : b.maxHp * .45 * k * k;
+    damageBuilding(b, dmg, x, y);
+    if (b.state === "ok" && d < NUKE.R2 * 1.15 && Math.random() < .3 + k) b.fire = Math.max(b.fire, rnd(80, 200));
+    if (b.state === "ok") b.scorch = Math.max(b.scorch, clamp(k * 1.3));
   }
   for (const c of cars) {
     if (c.gone || c.z > 0) continue;
@@ -2775,9 +2809,10 @@ function stepConstruction(dt) {
     // строят, пока рядом есть рабочие
     let n = 0; near((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 30, a => { if (a.state === "alive" && a.role === "worker" && a.buildB === b) n++; });
     if (n) b.lastWork = simT;
-    b.prog = Math.min(1, b.prog + dt * n / (50 + b.floors * 6));
+    b.prog = Math.min(1, b.prog + dt * Math.min(n, 6) / (200 + b.floors * 40)); // дом за полторы-две минуты, башня за пять-семь
     if (b.prog >= 1) {
-      b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false;
+      b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false; b.gutted = false; b.gutT = 0;
+      if (b.gutDoor) { b.gutDoor = false; const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; for (const [x, y] of b.rot !== undefined ? (b.doorPref ? [b.doorPref] : []) : [[cx, b.y1 + 5], [cx, b.y0 - 5], [b.x0 - 5, cy], [b.x1 + 5, cy]]) { const c = cellAt(x, y); if (c === 0 || c === 1 || c === 2 || c === 7) { b.door = [x, y]; break; } } }
       logT("rebuilt", b.kind === "tower" ? "Небоскрёб отстроен заново" : "Дом отстроен заново", "good", 10);
       for (const a of agents) if (a.buildB === b) { a.buildB = null; a.done = true; }
     }
@@ -2802,7 +2837,7 @@ function steerTo(m, tx, ty, sp, dt) {
   let dd = best - m.ang; dd -= Math.round(dd / TAU) * TAU; m.ang += clamp(dd, -dt * 1.8, dt * 1.8);
   m.v += (sp * (Math.abs(dd) > 1 ? .4 : 1) - m.v) * Math.min(1, dt * 2);
   const nx = m.x + Math.cos(m.ang) * m.v * dt, ny = m.y + Math.sin(m.ang) * m.v * dt;
-  if (!solidForMachine(nx + Math.cos(m.ang) * 6, ny + Math.sin(m.ang) * 6)) { m.x = nx; m.y = ny; } else m.v *= .3;
+  if (!solidForMachine(nx + Math.cos(m.ang) * 6, ny + Math.sin(m.ang) * 6)) { m.x = nx; m.y = ny; } else { m.v *= .3; m.stuck += dt; }
   if (m.stuck > 15) { const [fx, fy] = freeNear(tx, ty, 40); m.x = fx; m.y = fy; m.stuck = 0; } // застрял надолго — кран переставил
 }
 function nearestRubble(m, b) {
@@ -2824,7 +2859,7 @@ function stepMachines(dt) {
         if (b && b.state === "ruin") { startConstruct(b); logE(b.kind === "tower" ? "Завал разобран, начали восстанавливать небоскрёб" : "Завал разобран, начали восстанавливать дом", "good"); spawnService("mixer", (b.x0 + b.x1) / 2, b.y1 + 10, null).job = { build: b }; }
         m.leave = true;
       }
-      if (m.leave) { const e = m.exit || (m.exit = edgePointNear(m.x, m.y)); steerTo(m, e[0], e[1], 14, dt); if (Math.hypot(e[0] - m.x, e[1] - m.y) < 30) m.gone = true; continue; }
+      if (m.leave) { const e = m.exit || (m.exit = edgePointNear(m.x, m.y)); m.leaveT = (m.leaveT || 0) + dt; steerTo(m, e[0], e[1], 14, dt); if (Math.hypot(e[0] - m.x, e[1] - m.y) < 30 || m.leaveT > 90 || m.x < 12 || m.y < 12 || m.x > W - 12 || m.y > H - 12) m.gone = true; continue; }
       const d = Math.hypot(t[0] - m.x, t[1] - m.y);
       m.far = d > 24 && m.v < 1 ? (m.far || 0) + dt : 0;
       if (d > 24 && m.far < 3) steerTo(m, t[0], t[1], 11, dt);
@@ -2955,7 +2990,7 @@ function planQuarantine(x0, y0, x1, y1) {
   wallJobs.push(j);
   // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
   for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
-  const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j };
+  const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j }; j.lastSent = simT;
   logE("Карантин: военные оцепили район, строители едут ставить забор", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
   return true;
 }
@@ -5275,8 +5310,9 @@ function stepFires(dt) {
     for (let i = 0; i < dt * 14; i++) { const side = Math.floor(rnd(0, 4)), fl = by + Math.floor(rnd(0, b.floors)) * FLOOR + 6; const px = side < 2 ? rnd(b.x0, b.x1) : side === 2 ? b.x0 - 1 : b.x1 + 1, pz = side >= 2 ? rnd(b.y0, b.y1) : side === 0 ? b.y0 - 1 : b.y1 + 1; fireParticle(X(px), fl, Z(pz), .9); }
     for (let i = 0; i < dt * 14; i++) smokeParticle(X(rnd(b.x0, b.x1)), top + 4, Z(rnd(b.y0, b.y1)), 2.4);
     lit.push([X((b.x0 + b.x1) / 2), top + 10, Z((b.y0 + b.y1) / 2), 4]);
-    if (b.scorch > .35 && !b.scorched) { b.scorched = true; detachBuilding(b); b.mesh.userData.orig = b.mesh.userData.orig || b.mesh.material; const m = b.mesh.material.map(mm => { const c = mm.clone(); c.color = new THREE.Color(0x3a3532); c.emissive = new THREE.Color(0); return c; }); b.mesh.material = m; }
+    applyScorch(b);
   }
+  for (const b of buildings) { if (b.state !== "ok" || !(b.scorch > .2)) continue; applyScorch(b); if (b.gutted && b.gutT > 0 && dt && Math.random() < dt * 3) smokeParticle(X(rnd(b.x0, b.x1)), (b.baseY || 0) + b.h + 2, Z(rnd(b.y0, b.y1)), 1.6); }
   lit.sort((a, b) => b[3] - a[3]);
   for (let i = 0; i < Math.min(3, lit.length); i++) { const [x, y, z, k] = lit[i]; const p = lightPool[3 + i]; p.l.position.set(x, y, z); p.l.color.setHex(0xff7a2a); p.l.distance = 50 + k * 30; p.k = k * (.45 + Math.random() * .25); p.t = .2; p.m = .2; }
 }
@@ -5449,6 +5485,18 @@ function updateLighting(dt, simDt) {
   flashGlow.count = n; flashGlow.material.opacity = nightK * .55; flashGlow.instanceMatrix.needsUpdate = true;
 }
 function hourLabel() { const h = Math.floor(world.hour), m = Math.floor((world.hour % 1) * 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; }
+
+/* ---------- обгорание: фасад темнеет по степени, остов чёрный с потухшими окнами ---------- */
+const _scD = new THREE.Color(0x2a2522);
+function applyScorch(b) {
+  const want = b.gutted ? 1 : clamp((b.scorch - .2) / .6);
+  if (want < .05 || Math.abs((b.scorchK || 0) - want) < .15) return;
+  b.scorchK = want;
+  if (!b.scorched) { b.scorched = true; detachBuilding(b); b.mesh.userData.orig = b.mesh.userData.orig || b.mesh.material; b.mesh.material = (Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material]).map(mm => mm.clone()); }
+  const orig = Array.isArray(b.mesh.userData.orig) ? b.mesh.userData.orig : [b.mesh.userData.orig];
+  (Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material]).forEach((c, i) => { const o = orig[Math.min(i, orig.length - 1)]; c.color = (o.color ? o.color.clone() : new THREE.Color(0xffffff)).lerp(_scD, want); c.emissive = new THREE.Color(0); c.emissiveIntensity = 0; });
+  if (b.antenna) b.antenna.visible = want < .7; if (b.sign) b.sign.visible = want < .7;
+}
 
 /* ---------- обломки: летят, кувыркаются, остаются лежать ---------- */
 const DEB_MAX = 5000;
@@ -5715,7 +5763,13 @@ function makeScaffold(b) {
   const jib = new THREE.Mesh(new THREE.BoxGeometry(70, 2.2, 2.2), craneMat); jib.position.set(w / 2 + 10 - 20, mastH, 0); jib.castShadow = true; g.add(jib);
   const cw = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 5), parapetMat); cw.position.set(w / 2 + 10 + 13, mastH - 3, 0); g.add(cw);
   const cab = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), craneMat); cab.position.set(w / 2 + 10, mastH - 4, 3); g.add(cab);
-  g.position.copy(b.obj.position); g.rotation.y = b.obj.rotation.y; g.userData.jib = jib;
+  // стрела поворачивается вокруг мачты, по ней ездит тележка с крюком и грузом
+  const arm = new THREE.Group(); arm.position.set(w / 2 + 10, mastH, 0); g.add(arm);
+  jib.position.set(-20, 0, 0); arm.add(jib); cw.position.set(13, -3, 0); arm.add(cw);
+  const trolley = new THREE.Group(); trolley.position.set(-30, -1.5, 0); arm.add(trolley);
+  const cable = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 1, 4).translate(0, -.5, 0), new THREE.MeshBasicMaterial({ color: 0x222 })); trolley.add(cable);
+  const load = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 4), slabMat); load.castShadow = true; trolley.add(load);
+  g.position.copy(b.obj.position); g.rotation.y = b.obj.rotation.y; g.userData.jib = jib; g.userData.arm = arm; g.userData.trolley = trolley; g.userData.cable = cable; g.userData.load = load; g.userData.mastH = mastH;
   return g;
 }
 function updateConstruction() {
@@ -5726,7 +5780,10 @@ function updateConstruction() {
       if (b.topple) { b.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rot !== undefined ? -b.rot : 0); b.obj.position.set(b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2), 0, b.rot !== undefined ? Z(b.cy) : Z((b.y0 + b.y1) / 2)); b.topple = false; b.ruinH = 0; }
       const drop = (b.h - b.ruinH) * (1 - (b.prog || 0));
       b.obj.position.y = (b.baseY || 0) - drop; b.obj.rotation.x *= .9; b.obj.rotation.z *= .9; b.obj.position.x = b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2);
-      b.scaf.rotation.y = b.obj.rotation.y + Math.sin(simT * .2) * .0; b.scaf.children[1] && (b.scaf.userData.jib.rotation.y = Math.sin(simT * .3) * .8);
+      // кран работает: поворот стрелы, тележка ездит, груз опускается на стройку и поднимается
+      const u = b.scaf.userData, ph = (simT * .12 + (b.x0 % 7)) % 1, rise = (b.h - b.ruinH) * (b.prog || 0) + b.ruinH;
+      u.arm.rotation.y = Math.sin(simT * .25 + b.y0) * .9 - .4; u.trolley.position.x = -14 - 22 * (.5 + .5 * Math.sin(simT * .4));
+      const drop2 = ph < .5 ? ph * 2 : 2 - ph * 2, hang = 4 + (u.mastH - rise - 8) * drop2; u.cable.scale.y = hang; u.load.position.y = -hang - 1.2; u.load.visible = ph < .5 || b.prog < 1;
       if (b.state === "ok") { scene.remove(b.scaf); b.scaf = null; b.obj.position.y = 0; b.obj.rotation.x = b.obj.rotation.z = 0; b.ruinDone = false; b.hid = false; }
     }
   }
@@ -7824,7 +7881,7 @@ function updateCamera(dt) {
     const cx = camera.position.x + W / 2, cz = camera.position.z + H / 2;
     for (const b of buildings) if (cx > b.x0 - 6 && cx < b.x1 + 6 && cz > b.y0 - 6 && cz < b.y1 + 6 && camera.position.y < b.h + 8) camera.position.y = b.h + 8;
     // и не смотрит сквозь стену: если между точкой взгляда и камерой дом, камера придвигается
-    if (camC.dist < 420 && cellAt(camC.tx + W / 2, camC.tz + H / 2) !== 3) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
+    if (camC.dist < 420 && cellAt(camC.tx + W / 2, camC.tz + H / 2) !== 3) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1 && t > .72) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
   }
   camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
   camera.lookAt(camC.tx, lookY, camC.tz);

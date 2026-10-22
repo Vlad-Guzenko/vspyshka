@@ -25,7 +25,7 @@ function updateCamera(dt) {
     const cx = camera.position.x + W / 2, cz = camera.position.z + H / 2;
     for (const b of buildings) if (cx > b.x0 - 6 && cx < b.x1 + 6 && cz > b.y0 - 6 && cz < b.y1 + 6 && camera.position.y < b.h + 8) camera.position.y = b.h + 8;
     // и не смотрит сквозь стену: если между точкой взгляда и камерой дом, камера придвигается
-    if (camC.dist < 420 && cellAt(camC.tx + W / 2, camC.tz + H / 2) !== 3) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
+    if (camC.dist < 420 && cellAt(camC.tx + W / 2, camC.tz + H / 2) !== 3) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1 && t > .72) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
   }
   camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
   camera.lookAt(camC.tx, lookY, camC.tz);

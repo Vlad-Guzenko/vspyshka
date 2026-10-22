@@ -25,6 +25,8 @@ function detonate() {
   // электромагнитный импульс глушит машины
   for (const c of cars) if (c.moving && Math.hypot(c.x - x, c.y - y) < NUKE.RMAX * 1.6) { c.moving = false; c.stopped = true; c.v = 0; }
   radZones.push({ x, y, r: NUKE.R1 * 1.4, t: 240 });
+  dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
+  dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
   firsts.nuke = true;
   logE("Ядерный взрыв", "bad");
   fieldT = 0;
@@ -56,9 +58,11 @@ function stepNuke(dt) {
     if (b.state !== "ok") continue;
     const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1)); if (!ring(d)) continue;
     const k = 1 - d / NUKE.RMAX;
-    damageBuilding(b, (d < NUKE.R1 ? 900 : 520) * k * k, x, y);
-    if (d < NUKE.R2 && Math.random() < k * 1.2) b.fire = Math.max(b.fire, rnd(60, 160));
-    b.scorch = Math.max(b.scorch, k);
+    // до R1 всё рушится, до R2 дома падают, а башни выгорают до остова; дальше ожоги и пожары
+    const dmg = d < NUKE.R1 ? b.maxHp * 1.2 : d < NUKE.R2 ? b.maxHp * (b.floors > 8 ? .55 + .5 * k : .8 + .6 * k) : b.maxHp * .45 * k * k;
+    damageBuilding(b, dmg, x, y);
+    if (b.state === "ok" && d < NUKE.R2 * 1.15 && Math.random() < .3 + k) b.fire = Math.max(b.fire, rnd(80, 200));
+    if (b.state === "ok") b.scorch = Math.max(b.scorch, clamp(k * 1.3));
   }
   for (const c of cars) {
     if (c.gone || c.z > 0) continue;
@@ -81,9 +85,10 @@ function stepConstruction(dt) {
     // строят, пока рядом есть рабочие
     let n = 0; near((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 30, a => { if (a.state === "alive" && a.role === "worker" && a.buildB === b) n++; });
     if (n) b.lastWork = simT;
-    b.prog = Math.min(1, b.prog + dt * n / (50 + b.floors * 6));
+    b.prog = Math.min(1, b.prog + dt * Math.min(n, 6) / (200 + b.floors * 40)); // дом за полторы-две минуты, башня за пять-семь
     if (b.prog >= 1) {
-      b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false;
+      b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false; b.gutted = false; b.gutT = 0;
+      if (b.gutDoor) { b.gutDoor = false; const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; for (const [x, y] of b.rot !== undefined ? (b.doorPref ? [b.doorPref] : []) : [[cx, b.y1 + 5], [cx, b.y0 - 5], [b.x0 - 5, cy], [b.x1 + 5, cy]]) { const c = cellAt(x, y); if (c === 0 || c === 1 || c === 2 || c === 7) { b.door = [x, y]; break; } } }
       logT("rebuilt", b.kind === "tower" ? "Небоскрёб отстроен заново" : "Дом отстроен заново", "good", 10);
       for (const a of agents) if (a.buildB === b) { a.buildB = null; a.done = true; }
     }

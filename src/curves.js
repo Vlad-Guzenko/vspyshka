@@ -105,7 +105,7 @@ function buildAlongCurves() {
         if (!ok || cleared < total * .35) continue;
         // не слишком близко к другой кривой дороге
         let nearRoad = false; for (const o of curves) if (o !== cv && curveNearest(o, cx, cy).d < o.hw + depth / 2 + 4) nearRoad = true; if (nearRoad) continue;
-        const b = addBuilding({ x0, y0, x1, y1, kind, floors, style: kind === "house" ? 11 + Math.floor(Math.random() * 4) : Math.floor(Math.random() * 5), rot: Math.atan2(p.ty, p.tx), cx, cy, w: lotW, d: depth, ridge: "x" });
+        const b = addRotBuilding(cx, cy, lotW, depth, Math.atan2(p.ty, p.tx), { kind, floors, style: kind === "house" ? 11 + Math.floor(Math.random() * 4) : Math.floor(Math.random() * 5), ridge: "x" });
         b.doorPref = [p.x + nx * side * (cv.hw + 4), p.y + ny * side * (cv.hw + 4)];
         lamps = lamps.filter(l => l.x < x0 - 2 || l.x > x1 + 2 || l.y < y0 - 2 || l.y > y1 + 2);
       }

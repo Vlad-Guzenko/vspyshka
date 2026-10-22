@@ -213,6 +213,7 @@ function collapse(b) {
   for (const c of cars) if (!c.moving && c.x > b.x0 - m && c.x < b.x1 + m && c.y > b.y0 - m && c.y < b.y1 + m) { c.wreck = true; c.crushed = true; }
   for (const l of lamps) if (l.x > b.x0 - m && l.x < b.x1 + m && l.y > b.y0 - m && l.y < b.y1 + m) l.down = l.down || rnd(1.2, 1.5) * (Math.random() < .5 ? 1 : -1);
   fieldT = 0; gridDirty = true; barrDirty = true;
+  dangers.push({ x: cx, y: cy, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, t: 300 });
   logE(b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", "bad");
   fxCollapse(b); sfx.collapse(b); interest((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 10);
 }
@@ -243,11 +244,27 @@ function toppleImpact(b) {
   fieldT = 0; gridDirty = true; barrDirty = true; interest(px + ca * L / 2, py + sa * L / 2, 10);
   fxToppleImpact(b); sfx.boom(px + ca * L * .5, py + sa * L * .5, true);
 }
+// выгоревший остов: стоит, но жить и прятаться в нём нельзя, ремонтники восстановят
+function gutBuilding(b) {
+  b.gutted = true; b.gutT = 180; b.scorch = 1; b.fire = 0;
+  for (const o of (b.occ || []).slice()) leaveShelter(o, true);
+  b.door = null; b.gutDoor = true;
+  dangers.push({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 16, t: 200 });
+  logT("gutted", b.kind === "tower" ? "Небоскрёб выгорел дотла: остался остов" : "Дом выгорел дотла", "bad", 20);
+}
 function stepBuildings(dt) {
   for (const b of buildings) {
     if (b.topple && !b.impacted && b.state === "collapsing" && b.cT > b.fallT) toppleImpact(b);
     if (b.fire > 0 && b.state === "ok" && Math.random() < dt * .8) { const s = Math.random() < .5, x = s ? rnd(b.x0, b.x1) : (Math.random() < .5 ? b.x0 - 4 : b.x1 + 4), y = s ? (Math.random() < .5 ? b.y0 - 4 : b.y1 + 4) : rnd(b.y0, b.y1); fires.push({ x, y, r: rnd(5, 9), l: rnd(4, 8) }); } // горящие обломки падают у стен
-    if (b.fire > 0) { b.fire -= dt; if (b.state === "ok") { b.hp -= dt * (b.kind === "house" ? 1.2 : .25); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp)); if (b.hp <= 0) collapse(b); } }
+    if (b.fire > 0) {
+      b.fire -= dt;
+      if (b.state === "ok") {
+        b.hp -= dt * (b.kind === "house" ? 1.2 : b.floors > 8 ? .45 : .7); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
+        if (b.hp <= 0) collapse(b);
+        else if (b.fire <= 0 && b.hp < b.maxHp * .45 && !b.gutted) gutBuilding(b);
+      }
+    }
+    if (b.gutT > 0) b.gutT -= dt;
     if (b.state === "collapsing") { b.cT += dt; if (b.cT > (b.topple ? b.fallT + 2 : 4.5)) b.state = "ruin"; }
   }
 }

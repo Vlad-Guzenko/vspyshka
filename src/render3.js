@@ -145,8 +145,9 @@ function stepFires(dt) {
     for (let i = 0; i < dt * 14; i++) { const side = Math.floor(rnd(0, 4)), fl = by + Math.floor(rnd(0, b.floors)) * FLOOR + 6; const px = side < 2 ? rnd(b.x0, b.x1) : side === 2 ? b.x0 - 1 : b.x1 + 1, pz = side >= 2 ? rnd(b.y0, b.y1) : side === 0 ? b.y0 - 1 : b.y1 + 1; fireParticle(X(px), fl, Z(pz), .9); }
     for (let i = 0; i < dt * 14; i++) smokeParticle(X(rnd(b.x0, b.x1)), top + 4, Z(rnd(b.y0, b.y1)), 2.4);
     lit.push([X((b.x0 + b.x1) / 2), top + 10, Z((b.y0 + b.y1) / 2), 4]);
-    if (b.scorch > .35 && !b.scorched) { b.scorched = true; detachBuilding(b); b.mesh.userData.orig = b.mesh.userData.orig || b.mesh.material; const m = b.mesh.material.map(mm => { const c = mm.clone(); c.color = new THREE.Color(0x3a3532); c.emissive = new THREE.Color(0); return c; }); b.mesh.material = m; }
+    applyScorch(b);
   }
+  for (const b of buildings) { if (b.state !== "ok" || !(b.scorch > .2)) continue; applyScorch(b); if (b.gutted && b.gutT > 0 && dt && Math.random() < dt * 3) smokeParticle(X(rnd(b.x0, b.x1)), (b.baseY || 0) + b.h + 2, Z(rnd(b.y0, b.y1)), 1.6); }
   lit.sort((a, b) => b[3] - a[3]);
   for (let i = 0; i < Math.min(3, lit.length); i++) { const [x, y, z, k] = lit[i]; const p = lightPool[3 + i]; p.l.position.set(x, y, z); p.l.color.setHex(0xff7a2a); p.l.distance = 50 + k * 30; p.k = k * (.45 + Math.random() * .25); p.t = .2; p.m = .2; }
 }
@@ -319,3 +320,15 @@ function updateLighting(dt, simDt) {
   flashGlow.count = n; flashGlow.material.opacity = nightK * .55; flashGlow.instanceMatrix.needsUpdate = true;
 }
 function hourLabel() { const h = Math.floor(world.hour), m = Math.floor((world.hour % 1) * 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; }
+
+/* ---------- обгорание: фасад темнеет по степени, остов чёрный с потухшими окнами ---------- */
+const _scD = new THREE.Color(0x2a2522);
+function applyScorch(b) {
+  const want = b.gutted ? 1 : clamp((b.scorch - .2) / .6);
+  if (want < .05 || Math.abs((b.scorchK || 0) - want) < .15) return;
+  b.scorchK = want;
+  if (!b.scorched) { b.scorched = true; detachBuilding(b); b.mesh.userData.orig = b.mesh.userData.orig || b.mesh.material; b.mesh.material = (Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material]).map(mm => mm.clone()); }
+  const orig = Array.isArray(b.mesh.userData.orig) ? b.mesh.userData.orig : [b.mesh.userData.orig];
+  (Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material]).forEach((c, i) => { const o = orig[Math.min(i, orig.length - 1)]; c.color = (o.color ? o.color.clone() : new THREE.Color(0xffffff)).lerp(_scD, want); c.emissive = new THREE.Color(0); c.emissiveIntensity = 0; });
+  if (b.antenna) b.antenna.visible = want < .7; if (b.sign) b.sign.visible = want < .7;
+}
