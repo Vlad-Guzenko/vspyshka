@@ -172,6 +172,55 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .toast small{font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--amber);font-size:10.5px}.toast b{font-size:15px}.toast span{font-size:12px;color:var(--muted)}
 .achs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px}.achs li{background:var(--raise);border-radius:4px;padding:5px 8px;opacity:.45;display:flex;flex-direction:column}.achs li.done{opacity:1;border-left:3px solid var(--amber)}.achs b{font-size:12.5px}.achs small{font-size:11px;color:var(--muted)}
 .chron h3{margin:10px 0 2px;font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:13px;color:var(--amber)}.chron ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5}.chron li{margin:2px 0}
+
+/* ---------- игра на весь экран, панели поверх ---------- */
+html,body{height:100%;overflow:hidden}
+body{padding:0}
+.app{max-width:none;height:100%;display:block}
+.lab{display:block}.play{display:block}
+.stage{position:fixed;inset:0;border:0;border-radius:0;z-index:0;background:#1b1f20}
+.top{position:fixed;left:0;right:0;top:0;z-index:30;height:42px;padding:0 10px;flex-wrap:nowrap;gap:12px;background:rgba(14,17,18,.82);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.top::-webkit-scrollbar{display:none}
+.brand{flex:none;align-items:center;gap:10px}
+.brand h1{font-size:20px;margin:0}
+.brand .clock{font-size:11.5px;white-space:nowrap}
+.acts{flex:none;flex-wrap:nowrap;gap:4px}
+.acts .btn{padding:4px 8px;font-size:11.5px;white-space:nowrap}
+.tools{position:fixed;left:8px;top:50px;bottom:44px;width:208px;z-index:20;display:flex;flex-direction:column;flex-wrap:nowrap;gap:4px;overflow-y:auto;overflow-x:hidden;background:rgba(14,17,18,.84);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:6px;padding:6px;scrollbar-width:thin}
+.tgroup{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:0;border:0;border-radius:4px}
+.tgroup>button.gh{display:flex;justify-content:space-between;align-items:center;background:var(--raise);border:1px solid var(--line);border-radius:4px;padding:5px 8px;font-family:var(--f-display);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tgroup.open>button.gh{color:var(--fg);border-color:var(--muted)}
+.tgroup>button.gh em{font-style:normal;font-family:var(--f-mono);font-size:10px;color:var(--muted);letter-spacing:0;text-transform:none}
+.tgroup .gb{display:none;flex-direction:column;gap:2px;padding:2px 0 4px 6px}
+.tgroup.open .gb{display:flex}
+.tools .gb button{justify-content:flex-start;padding:4px 8px;font-size:12px;background:transparent;border-color:transparent}
+.tools .gb button:hover{border-color:var(--line);background:var(--panel)}
+.tools .gb button[aria-pressed="true"]{background:var(--panel);border-color:var(--amber)}
+.tools .gb button kbd{margin-left:auto}
+.tools>button{justify-content:flex-start}
+.tip{position:fixed;left:224px;right:344px;bottom:8px;z-index:20;min-height:0;background:rgba(14,17,18,.8);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:4px;padding:5px 10px;font-size:12.5px}
+.panel{position:fixed;right:8px;top:50px;bottom:44px;width:328px;z-index:20;background:rgba(22,27,29,.9);backdrop-filter:blur(6px);scrollbar-width:thin}
+.sec{padding:10px 12px}
+.cams{top:50px;right:344px}
+.squad{top:88px;right:344px}
+.objective{left:224px;top:50px}
+#mini{left:224px;bottom:44px}
+.camhelp{right:344px;bottom:44px;max-width:calc(100% - 600px)}
+.banner{top:58px}
+.radio{top:100px}
+.help{inset:50px 344px auto auto}
+.edge{position:fixed;top:50%;z-index:31;transform:translateY(-50%);width:16px;height:64px;background:rgba(14,17,18,.85);border:1px solid var(--line);color:var(--muted);font-size:11px;padding:0;border-radius:4px}
+.edge:hover{color:var(--fg);border-color:var(--muted)}
+#toolsToggle{left:0;border-left:0;border-radius:0 4px 4px 0}
+#panelToggle{right:0;border-right:0;border-radius:4px 0 0 4px}
+body.noTools .tools{display:none}
+body.noTools .tip,body.noTools .objective,body.noTools #mini{left:8px}
+body.noPanel .panel{display:none}
+body.noPanel .tip,body.noPanel .cams,body.noPanel .squad,body.noPanel .camhelp,body.noPanel .help{right:8px}
+body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
+.stage.cine .tools,.stage.cine .tip{display:none}
+@media (max-width:980px){html,body{height:100%}.app{height:100%}.lab{display:block}.stage{position:fixed;flex:none;aspect-ratio:auto}.tools{width:176px}.panel{width:280px}.tip{left:192px;right:296px}.cams,.squad,.camhelp,.help{right:296px}.objective,#mini{left:192px}}
+@media (max-width:700px){.panel{display:none}.tip{right:8px}.cams,.squad,.camhelp,.help{right:8px}#panelToggle{display:none}}
 </style>
 
 
@@ -286,6 +335,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
       <button class="btn primary" id="newCity">Новая игра</button>
     </div>
   </header>
+  <button class="edge" id="toolsToggle" title="Инструменты (клавиша [)" aria-label="Показать или скрыть инструменты">‹</button><button class="edge" id="panelToggle" title="Сводка (клавиша ])" aria-label="Показать или скрыть сводку">›</button>
   <main class="lab">
     <section class="play">
       <div class="tools" id="tools" role="toolbar" aria-label="Инструменты"></div>

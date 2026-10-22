@@ -177,6 +177,55 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .toast small{font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--amber);font-size:10.5px}.toast b{font-size:15px}.toast span{font-size:12px;color:var(--muted)}
 .achs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px}.achs li{background:var(--raise);border-radius:4px;padding:5px 8px;opacity:.45;display:flex;flex-direction:column}.achs li.done{opacity:1;border-left:3px solid var(--amber)}.achs b{font-size:12.5px}.achs small{font-size:11px;color:var(--muted)}
 .chron h3{margin:10px 0 2px;font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:13px;color:var(--amber)}.chron ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5}.chron li{margin:2px 0}
+
+/* ---------- игра на весь экран, панели поверх ---------- */
+html,body{height:100%;overflow:hidden}
+body{padding:0}
+.app{max-width:none;height:100%;display:block}
+.lab{display:block}.play{display:block}
+.stage{position:fixed;inset:0;border:0;border-radius:0;z-index:0;background:#1b1f20}
+.top{position:fixed;left:0;right:0;top:0;z-index:30;height:42px;padding:0 10px;flex-wrap:nowrap;gap:12px;background:rgba(14,17,18,.82);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.top::-webkit-scrollbar{display:none}
+.brand{flex:none;align-items:center;gap:10px}
+.brand h1{font-size:20px;margin:0}
+.brand .clock{font-size:11.5px;white-space:nowrap}
+.acts{flex:none;flex-wrap:nowrap;gap:4px}
+.acts .btn{padding:4px 8px;font-size:11.5px;white-space:nowrap}
+.tools{position:fixed;left:8px;top:50px;bottom:44px;width:208px;z-index:20;display:flex;flex-direction:column;flex-wrap:nowrap;gap:4px;overflow-y:auto;overflow-x:hidden;background:rgba(14,17,18,.84);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:6px;padding:6px;scrollbar-width:thin}
+.tgroup{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:0;border:0;border-radius:4px}
+.tgroup>button.gh{display:flex;justify-content:space-between;align-items:center;background:var(--raise);border:1px solid var(--line);border-radius:4px;padding:5px 8px;font-family:var(--f-display);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tgroup.open>button.gh{color:var(--fg);border-color:var(--muted)}
+.tgroup>button.gh em{font-style:normal;font-family:var(--f-mono);font-size:10px;color:var(--muted);letter-spacing:0;text-transform:none}
+.tgroup .gb{display:none;flex-direction:column;gap:2px;padding:2px 0 4px 6px}
+.tgroup.open .gb{display:flex}
+.tools .gb button{justify-content:flex-start;padding:4px 8px;font-size:12px;background:transparent;border-color:transparent}
+.tools .gb button:hover{border-color:var(--line);background:var(--panel)}
+.tools .gb button[aria-pressed="true"]{background:var(--panel);border-color:var(--amber)}
+.tools .gb button kbd{margin-left:auto}
+.tools>button{justify-content:flex-start}
+.tip{position:fixed;left:224px;right:344px;bottom:8px;z-index:20;min-height:0;background:rgba(14,17,18,.8);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:4px;padding:5px 10px;font-size:12.5px}
+.panel{position:fixed;right:8px;top:50px;bottom:44px;width:328px;z-index:20;background:rgba(22,27,29,.9);backdrop-filter:blur(6px);scrollbar-width:thin}
+.sec{padding:10px 12px}
+.cams{top:50px;right:344px}
+.squad{top:88px;right:344px}
+.objective{left:224px;top:50px}
+#mini{left:224px;bottom:44px}
+.camhelp{right:344px;bottom:44px;max-width:calc(100% - 600px)}
+.banner{top:58px}
+.radio{top:100px}
+.help{inset:50px 344px auto auto}
+.edge{position:fixed;top:50%;z-index:31;transform:translateY(-50%);width:16px;height:64px;background:rgba(14,17,18,.85);border:1px solid var(--line);color:var(--muted);font-size:11px;padding:0;border-radius:4px}
+.edge:hover{color:var(--fg);border-color:var(--muted)}
+#toolsToggle{left:0;border-left:0;border-radius:0 4px 4px 0}
+#panelToggle{right:0;border-right:0;border-radius:4px 0 0 4px}
+body.noTools .tools{display:none}
+body.noTools .tip,body.noTools .objective,body.noTools #mini{left:8px}
+body.noPanel .panel{display:none}
+body.noPanel .tip,body.noPanel .cams,body.noPanel .squad,body.noPanel .camhelp,body.noPanel .help{right:8px}
+body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
+.stage.cine .tools,.stage.cine .tip{display:none}
+@media (max-width:980px){html,body{height:100%}.app{height:100%}.lab{display:block}.stage{position:fixed;flex:none;aspect-ratio:auto}.tools{width:176px}.panel{width:280px}.tip{left:192px;right:296px}.cams,.squad,.camhelp,.help{right:296px}.objective,#mini{left:192px}}
+@media (max-width:700px){.panel{display:none}.tip{right:8px}.cams,.squad,.camhelp,.help{right:8px}#panelToggle{display:none}}
 </style>
 
 
@@ -291,6 +340,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
       <button class="btn primary" id="newCity">Новая игра</button>
     </div>
   </header>
+  <button class="edge" id="toolsToggle" title="Инструменты (клавиша [)" aria-label="Показать или скрыть инструменты">‹</button><button class="edge" id="panelToggle" title="Сводка (клавиша ])" aria-label="Показать или скрыть сводку">›</button>
   <main class="lab">
     <section class="play">
       <div class="tools" id="tools" role="toolbar" aria-label="Инструменты"></div>
@@ -948,10 +998,12 @@ function genCurves() {
 }
 /* ---------- машины на изогнутых дорогах ---------- */
 function curveDirOf(tx, ty) { return ((Math.round(Math.atan2(ty, tx) / (Math.PI / 2)) % 4) + 4) % 4; }
-function placeOnCurve(c, cv, t, cdir) {
+function placeOnCurve(c, cv, t, cdir, blend) {
   c.curve = cv; c.ct = t; c.cdir = cdir;
   const p = curvePos(cv, t), tx = p.tx * cdir, ty = p.ty * cdir, lat = cv.hw * .5;
-  c.x = p.x - ty * lat; c.y = p.y + tx * lat; c.ang = Math.atan2(ty, tx); c.dir = curveDirOf(tx, ty);
+  const nx = p.x - ty * lat, ny = p.y + tx * lat;
+  if (blend) { c.offx = c.x - nx; c.offy = c.y - ny; } else { c.offx = c.offy = 0; }
+  c.x = nx; c.y = ny; c.ang = Math.atan2(ty, tx); c.dir = curveDirOf(tx, ty);
 }
 function stepCurveCar(c, dt) {
   const cv = c.curve, p = curvePos(cv, c.ct), tx = p.tx * c.cdir, ty = p.ty * c.cdir, lat = cv.hw * .5;
@@ -966,19 +1018,19 @@ function stepCurveCar(c, dt) {
   c.v += clamp(target - c.v, -70 * dt, 22 * dt);
   if (c.v < 1) c.wait += dt; else c.wait = 0;
   if (people && c.wait > 1.5 && Math.random() < dt * .6) sfx.horn(c);
-  // наезд в панике
-  if (c.v > 12 && c.panic) near(x + tx * 9, y + ty * 9, 6, a => { if (a.state === "alive" && !a.hidden && Math.hypot(a.x - x, a.y - y) < 7) { a.vx = tx * c.v * .9; a.vy = ty * c.v * .9; a.vz = 9; a.z = Math.max(a.z, .1); a.hp -= c.v * 2.2; if (a.hp <= 0) kill(a, false, "car"); c.v *= .8; } });
+  carHitPeople(c, tx, ty, dt);
   c.ct += c.v * dt * c.cdir;
   if (c.ct < 0 || c.ct > cv.len) {
     if (cv.closed) { c.ct = (c.ct + cv.len) % cv.len; }
     else {
       const e = curvePos(cv, c.ct < 0 ? 0 : cv.len), l = nearestLaneTo(e.x, e.y, 45);
-      if (l && Math.random() < .8) { c.curve = null; placeOnLane(c, l.l, l.along); c.ang = Math.atan2(DY[c.dir], DX[c.dir]); c.plan = -1; c.planAt = null; return; }
+      if (l && Math.random() < .8) { const ox = c.x, oy = c.y; c.curve = null; placeOnLane(c, l.l, l.along); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.plan = -1; c.planAt = null; return; }
       c.cdir = -c.cdir; c.ct = clamp(c.ct, 0, cv.len); c.v = 0;
     }
   }
   const q = curvePos(cv, c.ct), qx = q.tx * c.cdir, qy = q.ty * c.cdir;
-  c.x = q.x - qy * lat; c.y = q.y + qx * lat;
+  if (c.offx || c.offy) { const k = Math.min(1, dt * 2.5); c.offx *= 1 - k; c.offy *= 1 - k; if (Math.abs(c.offx) + Math.abs(c.offy) < .05) c.offx = c.offy = 0; }
+  c.x = q.x - qy * lat + c.offx; c.y = q.y + qx * lat + c.offy;
   let want = Math.atan2(qy, qx), dd = want - c.ang; dd -= Math.round(dd / TAU) * TAU; c.ang += dd * Math.min(1, dt * 6);
   c.dir = curveDirOf(qx, qy);
 }
@@ -989,7 +1041,7 @@ function tryEnterCurve(c) {
     if (c.jAt === j) continue;
     if (Math.abs(j.x - c.x) > 9 || Math.abs(j.y - c.y) > 9) continue;
     c.jAt = j; if (Math.random() > .6) return false;
-    placeOnCurve(c, j.cv, j.t === 0 ? 0 : j.cv.len, j.t === 0 ? 1 : -1); return true;
+    placeOnCurve(c, j.cv, j.t === 0 ? 0 : j.cv.len, j.t === 0 ? 1 : -1, true); return true;
   }
   return false;
 }
@@ -1207,7 +1259,7 @@ function newAgent(role, x, y) {
     quietT: 0, rad: 0, hostile: 0, loot: null, lootT: 0, muzzle: null, onRoof: false, hideB: null, hideT: 0, roofZ: 0, rx: 0, ry: 0, crushed: false, vapor: false, zero: false, seen: 0,
     depotDone: false, ambAssigned: false, tent: null, buildB: null, workT: 0, tool: 0, spray: 0, sprayAt: null, axe: 0, far: 0, onRoofT: 0,
     order: null, post: null, campGoal: null, inCamp: null, forage: null, carry: 0,
-    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0,
+    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null,
   };
   if (role === "civ") {
     const r = Math.random();
@@ -1459,11 +1511,11 @@ function thinkHuman(a, dt) {
   if (a.armed && a.mag === 0 && a.ammo === 0 && !a.dry) { a.dry = true; if (a.role !== "civ") logE(a.role === "army" ? "У солдата кончились патроны" : "У полицейского кончились патроны"); }
   const range = (a.role === "army" ? 230 : a.hero === "sniper" ? 260 : a.role === "police" ? 170 : 70) + (a.post ? 90 : 0);
   if (a.armed && a.mag > 0 && a.reload <= 0 && zn && zd < range) {
-    a.aim = Math.atan2(zn.y - a.y, zn.x - a.x); a.aimT = .8;
+    if (zd < 120 || a.post || a.hero === "sniper") { a.aim = Math.atan2(zn.y - a.y, zn.x - a.x); a.aimT = .8; }
     if (a.cd <= 0 && clearShot(a, zn)) shoot(a, zn);
   }
   const hurt = clamp(a.hp / 100, .45, 1) * (1 - (a.burn || 0) * .4) * (a.bitten && a.incT < 4 ? .5 : 1);
-  if (a.role === "fire" || a.role === "worker" || a.role === "sanitar") { const r = a.unit ? thinkCrew(a, dt, zn, zd) : null; if (r) return r; }
+  if (a.role === "fire" || a.role === "worker" || a.role === "sanitar" || a.role === "builder") { const r = a.unit ? thinkCrew(a, dt, zn, zd) : null; if (r) return r; }
   if (a.role === "bandit") { if (zn && zd < 25 && !(a.mag + a.ammo > 0)) return flee(); const r = thinkBandit(a, dt, zn, zd); if (!(zn && a.mag > 0 && zd < 110)) return r; }
   // в панике — в ближайший дом, пока дверь цела; за лидером — в его укрытие
   if (a.role === "civ" && !a.hero && a.panic > .5 && !a.hideGoal && zn && Math.random() < dt * 1.5) { const ld = nearLeader(a); if (ld) { if (ld.hideGoal) a.hideGoal = ld.hideGoal; else if (Math.hypot(ld.x - a.x, ld.y - a.y) > 10 && zd > 12) return goTo(a, ld.x, ld.y, 15 * hurt); } }
@@ -1489,6 +1541,7 @@ function thinkHuman(a, dt) {
     if (zn && zd < 18) return flee();
     if (zn && zd < range) return [0, 0, 0];
     if (a.sweep && a.role === "army") { const r = armyClear(a, dt); if (r) return r; }
+    if (a.role === "army" && a.squad) { const r = squadMove(a, dt, zn, zd); if (r) return r; }
     if (a.ammo < a.magMax && depots.length) { const d = nearestDepot(a); if (d) return goTo(a, d.x, d.y, 9); }
     const fv = fieldVal(fZ, a.x, a.y);
     if (fv < (a.role === "army" ? (a.sweep ? 1e9 : 220) : 70)) { const d = fieldDir(fZ, a.x, a.y, false); if (d) return [d[0], d[1], a.role === "army" ? (a.sweep ? 12 : 10) : 9]; }
@@ -1667,7 +1720,7 @@ function step(dt) {
   fires = fires.filter(f => f.l > 0);
   if (evac) stepEvac(dt);
   statT -= dt; if (statT <= 0) { statT = 1; record(); }
-  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepResponse(dt); stepAuto(dt);
+  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepResponse(dt); stepAuto(dt); stepSquads(dt);
   for (const a of agents) if (a.hostile > 0) a.hostile -= dt;
   stepScenario(dt); stepNuke(dt); stepConstruction(dt); stepMachines(dt);
 }
@@ -1752,7 +1805,7 @@ function newCitySim(n) {
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
-  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); placeMetros();
+  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); resetSquads(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
   assignHomes(); pickHeroes();
   const p0 = pickPatientZero(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
@@ -1808,7 +1861,7 @@ function turnToward(c, g) {
 function spawnTraffic(n) {
   for (let i = 0; i < n; i++) {
     const lane = pick(lanes);
-    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
+    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, blend: 0, offx: 0, offy: 0, _i: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
     const r = Math.random();
     if (r < .04) { c.tanker = true; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
     else if (r < .09) { c.bus = true; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
@@ -1903,16 +1956,7 @@ function stepTraffic(dt) {
     if (c.v < 1) c.wait += dt; else c.wait = 0;
     if (people && c.wait > 1.5 && Math.random() < dt * .6) sfx.horn(c);
     // наезд: зомби отлетают, людей сбивает
-    if (c.v > 12 && c.panic) near(c.x + dx * 9, c.y + dy * 9, 6, a => {
-      if (a.state !== "alive" || (a.role !== "zombie" && Math.random() < .7)) return;
-      const k = c.v / 40;
-      if (a.role === "zombie") { a.zhp -= 1.2 * k + .5; a.riseT = 1.2; if (a.zhp <= 0) destroyZombie(a, false); } // сбитый зомби встаёт снова
-      else { a.hp -= 70 * k + 20; if (a.hp <= 0) kill(a, false, "car"); else a.grabT = 1; }
-      a.vx = dx * c.v * .8 + rnd(-8, 8); a.vy = dy * c.v * .8 + rnd(-8, 8);
-      if (a.state === "dead") { a.vz = 8 + c.v * .3; a.spin = rnd(-8, 8); a.z = .1; }
-      fxBlood(a.x, a.y, 3, 6); sfx.thud(c); c.dmg++; c.v *= .6;
-      if (c.dmg > 3 && Math.random() < .3) { c.wreck = true; abandonCar(c, "crash"); logT("crash", "Машина разбилась, сбив людей", "bad"); }
-    });
+    carHitPeople(c, dx, dy, dt);
     if (!c.moving) continue;
     // застряли среди зомби — водитель бросает машину
     if (c.wait > 3 && zNear >= 2 && !c.service) { abandonCar(c, "Водитель бросил машину посреди дороги"); continue; }
@@ -1921,6 +1965,7 @@ function stepTraffic(dt) {
     // поворот на перекрёстке
     const ox = c.x, oy = c.y;
     c.x += dx * c.v * dt; c.y += dy * c.v * dt;
+    if (c.offx || c.offy) { const k = Math.min(1, dt * 2.5); c.x -= c.offx * k; c.y -= c.offy * k; c.offx *= 1 - k; c.offy *= 1 - k; if (Math.abs(c.offx) + Math.abs(c.offy) < .05) c.offx = c.offy = 0; }
     if (c.service && (c.x < 4 || c.y < 4 || c.x > W - 4 || c.y > H - 4)) { if (c.leaving) { c.gone = true; continue; } const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (opp) placeOnLane(c, opp, clamp(c.lane.s.v ? c.y : c.x, 6, (c.lane.s.v ? H : W) - 6)); continue; }
     if (c.x < 4 || c.y < 4 || c.x > W - 4 || c.y > H - 4) {
       if (c.fleeTo) { c.gone = true; fled++; logT("fled", "Машины бегут из города по шоссе", "", 40); continue; } // спасся
@@ -1942,6 +1987,7 @@ function stepTraffic(dt) {
     }
     let da = Math.atan2(DY[c.dir], DX[c.dir]) - c.ang; da -= Math.round(da / TAU) * TAU; c.ang += da * Math.min(1, dt * (c.turnT > 0 ? 4 : 7));
   }
+  resolveCarOverlaps(dt);
 }
 
 /* ---------- разрушение ---------- */
@@ -2119,6 +2165,7 @@ const SERVICE = {
   dump: { col: "#c9701c", len: 1.5, crew: null, n: 0, siren: null, name: "Самосвал" },
   mixer: { col: "#f2efe6", len: 1.4, crew: null, n: 0, siren: null, name: "Бетономешалка" },
   sanit: { col: "#e4ece6", len: 1.3, crew: "sanitar", n: 3, siren: null, name: "Санитары" },
+  builder: { col: "#e8a81a", len: 1.45, crew: "builder", n: 4, siren: "amber", name: "Строители" },
 };
 function clearCarCells(c) { for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0; }
 let reports = [], dispatchT = 0, armyWaves = 0, serviceLog = {};
@@ -2165,13 +2212,14 @@ function serviceTurn(c) {
 }
 function deployCrew(c) {
   if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0;
-  const S = SERVICE[c.service];
+  const S = SERVICE[c.service], sid = S.crew === "army" ? ++squadSeq : 0;
   for (let i = 0; i < S.n; i++) {
     const [x, y] = freeNear(c.x, c.y, 14);
-    const a = newAgent(S.crew, x, y); a.unit = c; a.job = c.job || null; c.crew.push(a); if (c.sweep) a.sweep = true;
+    const a = newAgent(S.crew, x, y); a.unit = c; a.job = c.job || null; c.crew.push(a); if (c.sweep) a.sweep = true; if (sid) a.squad = sid;
     if (S.crew === "fire") { a.cloth = "#b5361f"; a.pants = "#2b2b2b"; a.hair = "#e8c020"; a.hat = "fire"; a.vest = "#d8b020"; }
-    if (S.crew === "worker") { a.cloth = "#f08a1c"; a.pants = "#2c3550"; a.hair = "#f4f4f0"; a.hat = "hard"; a.vest = "#f0c020"; }
+    if (S.crew === "worker" || S.crew === "builder") { a.cloth = "#f08a1c"; a.pants = "#2c3550"; a.hair = "#f4f4f0"; a.hat = "hard"; a.vest = "#f0c020"; }
   }
+  if (sid) squads.set(sid, { id: sid, members: c.crew.map(m => m.id), leader: c.crew[0].id, state: "advance", holdAt: null, holdT: 0, regroupT: 0, slots: [] });
   logT("svc" + c.service, `${S.name} на месте`, "good", 10);
 }
 function releaseUnit(c) {
@@ -2197,7 +2245,7 @@ function stepServiceCar(c, dt) {
     return;
   }
   if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.leaveT > 35 || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
-  if (!c.leaving && c.goal && (Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 50 || c.wait > (c.sweep ? 30 : 6))) deployCrew(c);
+  if (!c.leaving && c.goal && (Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 50 || c.wait > 25)) deployCrew(c);
 }
 function serviceTarget(type) {
   if (type === "fire") {
@@ -2289,6 +2337,17 @@ function thinkCrew(a, dt, zn, zd) {
     if (done) { const t = serviceTarget("fire"); if (t && Math.hypot(t.x - a.x, t.y - a.y) < 300) { for (const m of a.unit.crew) m.job = t.job; } else a.done = true; }
     if (tx !== undefined && !a.done) return goTo(a, tx, ty, 11);
   }
+  if (a.role === "builder") {
+    const j = job && job.wall;
+    if (zn && zd < 45) { a.done = true; return null; }
+    if (a.done) return goTo(a, a.unit.x, a.unit.y, 9);
+    if (!j || j.i >= j.cells.length) { a.done = true; for (const m of a.unit.crew) m.done = true; return goTo(a, a.unit.x, a.unit.y, 9); }
+    // идём к фронту работ: следующая клетка забора, чуть снаружи периметра
+    const gi = j.cells[Math.min(j.cells.length - 1, j.i + (a.unit.crew.indexOf(a) % 2))], gx = gi % GW, gy = (gi / GW) | 0, fx = gx * CS + 4, fy = gy * CS + 4;
+    const d = Math.hypot(fx - a.x, fy - a.y);
+    if (d < 11) { a.tool = .3; a.aim = Math.atan2(fy - a.y, fx - a.x); a.aimT = .3; j.work = (j.work || 0) + dt; return [0, 0, 0]; }
+    return goTo(a, fx, fy, 9);
+  }
   if (a.role === "worker") {
     if (zn && zd < 70) { a.done = true; return null; } // при зомби бросают работу
     const fin = () => { a.workT = 0; a.done = !job; for (const m of a.unit.crew) { m.job = null; m.done = true; } };
@@ -2334,7 +2393,7 @@ function bfsBox(e, sx, sy) {
         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
         const c = grid[(ny + y0) * GW + nx + x0];
         if (c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10) continue;
-        const j = ny * w + nx, nd = d + (c === 8 ? 3 : 1);
+        const j = ny * w + nx, nd = d + (c === 8 ? 3 : c === 0 ? 2 : 1);
         if (nd < f[j]) { f[j] = nd; ring[nd % RING].push(j); pending++; }
       }
     }
@@ -2357,18 +2416,21 @@ function boxDir(e, x, y) {
   const l = Math.hypot(best[0], best[1]); return [best[0] / l, best[1] / l];
 }
 function pathField(a, tx, ty) {
-  if (pathBudgetT !== simT) { pathBudgetT = simT; pathBudget = 4; }
-  const gx = clamp(Math.floor(tx / CS), 0, GW - 1), gy = clamp(Math.floor(ty / CS), 0, GH - 1), key = gy * GW + gx;
+  if (pathBudgetT !== simT) { pathBudgetT = simT; pathBudget = 3; }
+  const gx = clamp(Math.floor(tx / CS), 0, GW - 1), gy = clamp(Math.floor(ty / CS), 0, GH - 1);
   const ax = clamp(Math.floor(a.x / CS), 0, GW - 1), ay = clamp(Math.floor(a.y / CS), 0, GH - 1);
+  // ключ: клетка цели и район агента (40 клеток), чтобы коробки не разрастались на всю карту
+  const key = (gy * GW + gx) * 64 + Math.floor(ay / 40) * 8 + Math.floor(ax / 40);
   let e = pathCache.get(key);
   const inside = e && ax >= e.x0 && ax < e.x0 + e.w && ay >= e.y0 && ay < e.y0 + e.h;
-  if (e && inside && simT - e.t < 8) return e;
+  if (e && inside && simT - e.t < 10) return e;
   if (pathBudget <= 0) return e && inside ? e : null;
   pathBudget--;
-  if (pathCache.size >= 300) { let ok = null, ot = 1e9; for (const [k, v] of pathCache) if (v.t < ot) { ot = v.t; ok = k; } pathCache.delete(ok); }
-  const m = 22; // коробка с запасом, чтобы обойти квартал
-  const x0 = clamp(Math.min(inside ? e.x0 : gx, ax) - m, 0, GW - 1), y0 = clamp(Math.min(inside ? e.y0 : gy, ay) - m, 0, GH - 1);
-  const x1 = clamp(Math.max(inside ? e.x0 + e.w - 1 : gx, ax) + m, 0, GW - 1), y1 = clamp(Math.max(inside ? e.y0 + e.h - 1 : gy, ay) + m, 0, GH - 1);
+  if (pathCache.size >= 400) { let ok = null, ot = 1e9; for (const [k, v] of pathCache) if (v.t < ot) { ot = v.t; ok = k; } pathCache.delete(ok); }
+  const m = 18; // коробка: цель, агент и его район с запасом, чтобы обойти квартал
+  const rx0 = Math.floor(ax / 40) * 40, ry0 = Math.floor(ay / 40) * 40;
+  const x0 = clamp(Math.min(gx, rx0) - m, 0, GW - 1), y0 = clamp(Math.min(gy, ry0) - m, 0, GH - 1);
+  const x1 = clamp(Math.max(gx, rx0 + 39) + m, 0, GW - 1), y1 = clamp(Math.max(gy, ry0 + 39) + m, 0, GH - 1);
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   if (!e || e.w !== w || e.h !== h) e = { x0, y0, w, h, f: new Int16Array(w * h), t: 0 }; else { e.x0 = x0; e.y0 = y0; }
   pathCache.set(key, e);
@@ -2779,7 +2841,9 @@ function stepShelters(dt) {
     const z = b.occ.find(o => o.role === "zombie");
     if (z) {
       if (Math.random() < dt * .8) { const v = pick(b.occ.filter(o => o.role !== "zombie")); if (v) { v.hp -= 40; if (!v.bitten) { v.bitten = true; v.incT = settings.inc * rnd(.5, 1); bites++; } if (v.hp <= 0) kill(v, true); } }
-      if (Math.random() < dt * .5) { for (const o of b.occ.slice()) if (o.role !== "zombie" && Math.random() < .5) leaveShelter(o, true); leaveShelter(z, false); logT("inside", "В укрытии кто-то обратился", "bad", 20); }
+      if (!b.insideLogged) { b.insideLogged = true; logT("inside", "В укрытии кто-то обратился", "bad", 20); }
+      if (Math.random() < dt * .25) { for (const o of b.occ.slice()) if (o.role !== "zombie" && Math.random() < .3) leaveShelter(o, true); }
+      if (!b.occ.some(o => o.role !== "zombie") && Math.random() < dt * .08) { leaveShelter(z, false); b.insideLogged = false; }
       continue;
     }
     // снаружи спокойно — выходят
@@ -2837,26 +2901,38 @@ function stepTents(dt) {
 }
 
 /* ---------- карантинная стена ---------- */
-const wallMask = new Uint8Array(GW * GH);
+const wallMask = new Uint8Array(GW * GH), quarMask = new Uint8Array(GW * GH);
 let wallJobs = [];
 function planQuarantine(x0, y0, x1, y1) {
   if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0];
   if (x1 - x0 < 60 || y1 - y0 < 60) return false;
   const cells = [];
   const add = (x, y) => { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return; const c = grid[gy * GW + gx]; if (c === 0 || c === 1 || c === 2 || c === 7 || c === 8) cells.push(gy * GW + gx); };
-  for (let x = x0; x <= x1; x += CS) { add(x, y0); add(x, y1); }
-  for (let y = y0; y <= y1; y += CS) { add(x0, y); add(x1, y); }
-  wallJobs.push({ cells, i: 0, x0, y0, x1, y1 });
-  // по углам — посты военных
-  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) for (let k = 0; k < 2; k++) { const [ax, ay] = freeNear(cx + (cx === x0 ? -14 : 14), cy + (cy === y0 ? -14 : 14), 10); newAgent("army", ax, ay); }
-  logE("Карантин: военные возводят стену вокруг зоны", "good"); radio("Штаб: зона оцеплена. Из карантина никого не выпускать");
+  // обход периметра по часовой: строители идут вдоль забора
+  for (let x = x0; x <= x1; x += CS) add(x, y0);
+  for (let y = y0 + CS; y <= y1; y += CS) add(x1, y);
+  for (let x = x1 - CS; x >= x0; x -= CS) add(x, y1);
+  for (let y = y1 - CS; y > y0; y -= CS) add(x0, y);
+  const j = { cells, i: 0, x0, y0, x1, y1, t0: simT, work: 0 };
+  wallJobs.push(j);
+  // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
+  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
+  const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j };
+  logE("Карантин: военные оцепили район, строители едут ставить забор", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
   return true;
 }
 function stepWalls(dt) {
   for (const j of wallJobs) {
-    const n = Math.min(j.cells.length - j.i, Math.ceil(dt * 14));
-    for (let k = 0; k < n; k++) { const gi = j.cells[j.i++]; const c = grid[gi]; if (c === 3 || c === 5 || c === 9) continue; grid[gi] = 6; bhp[gi] = 300; wallMask[gi] = 1; }
-    if (n) { barrDirty = true; fieldT = 0; }
+    // сетку ставят строители у фронта работ; если их нет долго, военные достраивают сами, медленно
+    const rate = j.work > 0 ? 0 : 0; j.work = j.work || 0;
+    let builders = 0; const gi0 = j.cells[j.i], fx = (gi0 % GW) * CS + 4, fy = ((gi0 / GW) | 0) * CS + 4;
+    near(fx, fy, 16, a => { if (a.state === "alive" && a.role === "builder" && !a.done) builders++; });
+    const speed = builders ? .9 * Math.min(builders, 4) : simT - j.t0 > 150 ? .8 : 0;
+    j.acc = (j.acc || 0) + speed * dt;
+    const n = Math.min(j.cells.length - j.i, Math.floor(j.acc)); j.acc -= n;
+    for (let k = 0; k < n; k++) { const gi = j.cells[j.i++]; const c = grid[gi]; if (c === 3 || c === 5 || c === 9) continue; grid[gi] = 6; bhp[gi] = 300; wallMask[gi] = 1; quarMask[gi] = 1; }
+    if (n) { barrDirty = true; fieldT = Math.min(fieldT, .4); }
+    if (j.i >= j.cells.length && !j.doneLogged) { j.doneLogged = true; logE("Забор карантина замкнут", "good"); for (const a of agents) if (a.guardJob === j) { a.guardJob = null; a.order = null; } }
   }
   wallJobs = wallJobs.filter(j => j.i < j.cells.length);
 }
@@ -2967,7 +3043,7 @@ function nameFor(a, last) {
   a.name = a.first + " " + a.last;
   if (a.years === undefined) a.years = a.age === "kid" ? 5 + Math.floor(Math.random() * 10) : a.age === "old" ? 63 + Math.floor(Math.random() * 22) : 18 + Math.floor(Math.random() * 45);
 }
-const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", bandit: "мародёр", zombie: "зомби" };
+const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", builder: "строитель", sanitar: "санитар", bandit: "мародёр", zombie: "зомби" };
 // семьи: 1–4 человека, общий дом; половина сейчас дома, остальные в городе
 let families = [], famMap = {};
 function assignHomes() {
@@ -3830,6 +3906,143 @@ function stepAuto(dt) {
 }
 function resetAuto() { medpoints = []; guardT = 20; medT = 15; settings.curfew = false; }
 
+/* ---------- машины как твёрдые тела: наезд при касании кузова, машины не проезжают друг сквозь друга ---------- */
+function carHalf(c) { return [10 * (c.len || 1), c.tank ? 7 : 4.6]; }
+// наезд: человек или зомби внутри прямоугольника кузова (с учётом пути за шаг)
+function carHitPeople(c, tx, ty, dt) {
+  if (c.v < 3) return;
+  const [hl, hw] = carHalf(c), reach = hl + c.v * dt + .6;
+  near(c.x + tx * hl * .5, c.y + ty * hl * .5, reach + 4, a => {
+    if (a.state !== "alive" || a.hidden || a.z > 0.5 || a.grabT > 0) return;
+    const dx = a.x - c.x, dy = a.y - c.y, al = dx * tx + dy * ty, lt = -dx * ty + dy * tx;
+    if (al < -hl + 2 || al > reach || Math.abs(lt) > hw + .4) return;
+    const k = c.v / 40, side = Math.sign(lt) || (Math.random() < .5 ? 1 : -1);
+    if (a.role === "zombie") { a.zhp -= 1.2 * k + .4; a.riseT = 1.2; if (a.zhp <= 0) destroyZombie(a, false); }
+    else { a.hp -= c.v < 10 ? 6 : 60 * k + 18; if (a.hp <= 0) kill(a, false, "car"); else a.grabT = 1; }
+    // отлетает вперёд и в сторону от бампера
+    a.vx = tx * c.v * .75 - ty * side * c.v * .35 + rnd(-3, 3); a.vy = ty * c.v * .75 + tx * side * c.v * .35 + rnd(-3, 3);
+    a.vz = 2 + c.v * .22; a.z = Math.max(a.z, .1); a.spin = rnd(-6, 6);
+    if (a.state === "dead") { a.vz = 7 + c.v * .3; a.spin = rnd(-8, 8); }
+    fxBlood(a.x, a.y, 3, 6); sfx.thud(c); c.dmg++; c.v *= c.v > 20 ? .7 : .5;
+    if (c.dmg > 3 && Math.random() < .3 && !c.service) { c.wreck = true; abandonCar(c, "crash"); logT("crash", "Машина разбилась, сбив людей", "bad"); }
+  });
+}
+// пересечение двух повёрнутых прямоугольников: куда и насколько отодвинуть первый
+function obbOverlap(a, b) {
+  const ca = Math.cos(a.ang), sa = Math.sin(a.ang), cb = Math.cos(b.ang), sb = Math.sin(b.ang);
+  const [al, aw] = carHalf(a), [bl, bw] = carHalf(b);
+  let best = null;
+  for (const [ux, uy] of [[ca, sa], [-sa, ca], [cb, sb], [-sb, cb]]) {
+    const ra = al * Math.abs(ux * ca + uy * sa) + aw * Math.abs(-ux * sa + uy * ca), rb = bl * Math.abs(ux * cb + uy * sb) + bw * Math.abs(-ux * sb + uy * cb);
+    const d = (b.x - a.x) * ux + (b.y - a.y) * uy, pen = ra + rb - Math.abs(d);
+    if (pen <= 0) return null;
+    if (!best || pen < best.depth) best = { nx: d > 0 ? -ux : ux, ny: d > 0 ? -uy : uy, depth: pen };
+  }
+  return best;
+}
+// отодвигаем только вдоль собственного курса, чтобы машина не сползала с полосы
+function nudgeBack(c, nx, ny, amount) {
+  if (c.curve || c.tank) return;
+  const bx = Math.cos(c.ang), by = Math.sin(c.ang), s = nx * bx + ny * by;
+  c.x += bx * s * amount; c.y += by * s * amount;
+}
+function resolveCarOverlaps(dt) {
+  let i = 0; for (const c of cars) c._i = i++;
+  for (const c of cars) {
+    if (c.gone || c.z > 0 || c.towedBy || !(c.moving || c.stopped || c.tank)) continue;
+    nearCars(c.x, c.y, 36, o => {
+      if (o === c || o._i <= c._i || o.gone || o.z > 0 || o.towedBy || !(o.moving || o.stopped || o.tank)) return;
+      const h = obbOverlap(c, o); if (!h) return;
+      const cm = c.moving && !c.tank, om = o.moving && !o.tank, push = Math.min(h.depth, 2.5);
+      if (!cm && !om) return;
+      if (cm && om) {
+        const rel = Math.abs((c.v || 0) - (o.v || 0));
+        if (rel > 22 && (c.panic || o.panic)) { const f = (c.v || 0) >= (o.v || 0) ? c : o; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }
+        nudgeBack(c, h.nx, h.ny, push * .5); nudgeBack(o, -h.nx, -h.ny, push * .5);
+        const cBehind = (o.x - c.x) * Math.cos(c.ang) + (o.y - c.y) * Math.sin(c.ang) > 0;
+        if (cBehind) c.v = Math.min(c.v, 1); else o.v = Math.min(o.v, 1);
+      } else {
+        const m = cm ? c : o, s = cm ? o : c, sign = cm ? 1 : -1;
+        if (m.panic && m.v > 16) { carCollide(m, s, m.v); return; }
+        nudgeBack(m, h.nx * sign, h.ny * sign, push); m.v = 0;
+      }
+    });
+  }
+}
+
+/* ---------- отряды: держатся вместе, занимают перекрёстки, наступают и отходят ---------- */
+let squads = new Map(), squadSeq = 0, squadT = 0;
+function squadOf(a) { return a.squad ? squads.get(a.squad) : null; }
+function newSquad(members) {
+  const id = ++squadSeq, s = { id, members: members.map(m => m.id), leader: members[0].id, state: "hold", holdAt: null, holdT: 0, regroupT: 0, slots: [] };
+  for (const m of members) m.squad = id;
+  squads.set(id, s); return s;
+}
+// одиночные солдаты без приказа сбиваются в отряды по соседству
+function assignSquads() {
+  const loose = agents.filter(a => a.state === "alive" && a.role === "army" && !a.squad && !a.order && !a.post && !a.withdraw);
+  while (loose.length) {
+    const seed = loose.shift(), group = [seed];
+    for (let i = loose.length - 1; i >= 0; i--) if (Math.hypot(loose[i].x - seed.x, loose[i].y - seed.y) < 40 && group.length < 10) group.push(loose.splice(i, 1)[0]);
+    newSquad(group);
+  }
+}
+function nearestCrossing(x, y, maxD, except) {
+  let best = null, bd = maxD;
+  for (const c of crossings) { if (c === except) continue; const d = Math.hypot(c.x - x, c.y - y); if (d < bd && cellAt(c.x, c.y) === 0) { bd = d; best = c; } }
+  return best;
+}
+function stepSquads(dt) {
+  squadT -= dt; if (squadT > 0) return; squadT = 2;
+  assignSquads();
+  for (const [id, s] of squads) {
+    s.members = s.members.filter(mid => { const m = agentById(mid); return m && m.state === "alive" && m.role === "army" && m.squad === id && !m.withdraw; });
+    if (!s.members.length) { squads.delete(id); continue; }
+    let L = agentById(s.leader);
+    if (!L || L.state !== "alive" || L.squad !== id) { L = s.members.map(agentById).sort((p, q) => q.hp - p.hp)[0]; s.leader = L.id; }
+    // где зомби: по полю расстояний от командира
+    const fv = fieldVal(fZ, L.x, L.y), zDist = fv >= FAR ? 1e9 : fv * CS;
+    let close = 0, ammo = 0; nearZ(L.x, L.y, 26, () => close++); for (const mid of s.members) { const m = agentById(mid); if (m) ammo += m.mag + m.ammo; }
+    const alive = s.members.length;
+    if (s.regroupT > 0) { s.regroupT -= 2; if (s.regroupT <= 0) s.state = "hold"; continue; }
+    if (close >= 4 && (alive < 4 || ammo < alive * 12)) { s.state = "regroup"; s.regroupT = 8; logT("regroup", "Отряд отходит и перегруппировывается", "", 25); continue; }
+    if (zDist < 360 || close) { s.state = "advance"; continue; }
+    // спокойно: занять ближайший перекрёсток, раз в полторы минуты сменить
+    s.holdT -= 2;
+    if (s.state !== "hold" || !s.holdAt || s.holdT <= 0) {
+      const c = nearestCrossing(L.x, L.y, s.holdAt ? 220 : 260, s.holdAt && s.holdT <= 0 ? s.holdAt : null) || s.holdAt || { x: L.x, y: L.y };
+      s.holdAt = c; s.holdT = rnd(80, 120); s.state = "hold";
+    }
+  }
+}
+// позиция бойца в строю: клин за командиром или кольцо на перекрёстке
+function squadSlot(s, a) {
+  const idx = Math.max(0, s.members.indexOf(a.id)), L = agentById(s.leader);
+  if (s.state === "hold" && s.holdAt) { const n = Math.max(1, s.members.length), ang = idx / n * TAU; let sx = s.holdAt.x + Math.cos(ang) * 9, sy = s.holdAt.y + Math.sin(ang) * 9; if (blocked(sx, sy)) [sx, sy] = freeNear(sx, sy, 8); return [sx, sy, ang]; }
+  if (!L) return [a.x, a.y, a.dir];
+  const k = idx === 0 ? 0 : idx, side = k % 2 ? 1 : -1, row = Math.ceil(k / 2);
+  const bx = Math.cos(L.dir), by = Math.sin(L.dir), ox = -bx * row * 5 + (-by) * side * row * 3.5, oy = -by * row * 5 + bx * side * row * 3.5;
+  let sx = L.x + ox, sy = L.y + oy; if (blocked(sx, sy)) { sx = L.x - bx * row * 4; sy = L.y - by * row * 4; if (blocked(sx, sy)) { sx = L.x; sy = L.y; } }
+  return [sx, sy, L.dir];
+}
+// вызывается из поведения солдата, когда рядом нет видимого зомби
+function squadMove(a, dt, zn, zd) {
+  const s = squadOf(a); if (!s) return null;
+  if (s.state === "regroup") { const d = fieldDir(fZ, a.x, a.y, true); return d ? [d[0], d[1], 10] : null; }
+  if (s.state === "advance") {
+    if (a.id === s.leader) { const d = fieldDir(fZ, a.x, a.y, false); return d ? [d[0], d[1], 9] : null; }
+    const [sx, sy] = squadSlot(s, a), d = Math.hypot(sx - a.x, sy - a.y);
+    if (d > 5) return goTo(a, sx, sy, d > 18 ? 11 : 9);
+    return [0, 0, 0];
+  }
+  // hold: занять место и смотреть наружу
+  const [sx, sy, ang] = squadSlot(s, a), d = Math.hypot(sx - a.x, sy - a.y);
+  if (d > 2.5) return goTo(a, sx, sy, 8);
+  let dd = ang - a.dir; dd -= Math.round(dd / TAU) * TAU; a.dir += dd * Math.min(1, dt * 2);
+  return [0, 0, 0];
+}
+function resetSquads() { squads = new Map(); squadSeq = 0; squadT = 5; }
+
 /* ---------- 3D-сцена: город ---------- */
 const X = x => x - W / 2, Z = y => y - H / 2;
 if (THREE.ColorManagement) THREE.ColorManagement.legacyMode = false; // цвета в sRGB, иначе всё выглядит выцветшим
@@ -4521,10 +4734,17 @@ function updateBarricades() {
     // линия идёт вдоль соседей: по x, по z, или угол
     const hx = (gx > 0 && grid[i - 1] === 6) || (gx < GW - 1 && grid[i + 1] === 6), hy = (gy > 0 && grid[i - GW] === 6) || (gy < GH - 1 && grid[i + GW] === 6);
     const alongZ = hy && !hx, corner = hx && hy;
-    if (wall) {
+    if (wall && quarMask[i]) {
+      // карантин: сетка на стальных столбах с колючкой сверху
+      const hgt = 11 * hp;
+      put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, alongZ, k);
+      if (corner) put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, true, k);
+      put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), .8, hgt + 1.2, .8, false, k);
+      if (hp > .5) put(wallWire, x, y + hgt + .1, z, CS * 1.02, 2.2, 1, alongZ, k);
+    } else if (wall) {
       const hgt = 18 * hp, th = 1.3;
       if (corner) { put(wallPanel, x, y, z, CS * 1.02, hgt, th, false, k); put(wallPanel, x, y, z, th, hgt, CS * 1.02, false, k); }
-      else put(r % 4 === 0 ? wallStencil : wallPanel, x, y, z, alongZ ? th : CS * 1.02, hgt, alongZ ? CS * 1.02 : th, false, k);
+      else put(wallPanel, x, y, z, alongZ ? th : CS * 1.02, hgt, alongZ ? CS * 1.02 : th, false, k);
       put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), 1, hgt + 1.6, 1, false, k);
       if (hp > .5) put(wallWire, x, y + hgt + .2, z, CS * 1.02, 2.6, 1, alongZ, k);
     } else if (el) {
@@ -4739,7 +4959,7 @@ function updatePeople(dt) {
     let la = -sw * .9, ra = sw * .9, lx = -.08, rx = .08;
     const aiming = a.armed && !dead && !z && (a.aimT > 0 || a.role === "army");
     if (z && !dead) { la = 1.35 + Math.sin(simT * 2 + a.id) * .12; ra = 1.45 + Math.cos(simT * 2.3 + a.id) * .12; if (a.feedT > 0) { la = .9 + Math.sin(simT * 9) * .3; ra = 1 + Math.cos(simT * 8) * .3; } if (a.bash > 0) { la += Math.sin(simT * 20) * .5; ra -= Math.sin(simT * 20) * .5; } }
-    else if (aiming) { la = a.aimT > 0 ? 1.45 : .7; ra = a.aimT > 0 ? 1.35 : .6; lx = .55; rx = -.15; }
+    else if (aiming) { if (a.aimT > 0) { la = 1.45; ra = 1.35; lx = .55; rx = -.15; } else { la = .38 - sw * .25; ra = .32 - sw * .25; lx = .42; rx = -.08; } }
     else if (a.panic > .5 && !dead && sp > 8) { la = -sw * 1.4; ra = sw * 1.4; }
     else if (wounded) { la = .75; ra = sw * .5; lx = .5; } // держится за бок
     if (dead) { const r = a.id * 1.7; la = 1.2 + Math.sin(r); ra = -1 + Math.cos(r) * .6; lx = -.9; rx = .9; }
@@ -4755,8 +4975,8 @@ function updatePeople(dt) {
     if (a.bag && !z && !dead) { _jm.makeTranslation(0, -1.75, .35); pm.bag.setMatrixAt(bi, _jt.multiplyMatrices(_fa, _jm)); pm.bag.setColorAt(bi++, _c.set(a.bag)); }
     // оружие в руках
     if (a.armed && !z && !dead) {
-      const rifle = a.role === "army", aimed = a.aimT > 0 || rifle;
-      _p.makeRotationZ(aimed ? 0 : -1.2); _p.scale(new THREE.Vector3(rifle ? 1 : .45, 1, 1)); _p.setPosition(aimed ? 1.8 : .9, aimed ? SHO - .55 : SHO - 2, aimed ? .25 : 1.3);
+      const rifle = a.role === "army", aimed = a.aimT > 0;
+      _p.makeRotationZ(aimed ? 0 : rifle ? -.75 : -1.2); _p.scale(new THREE.Vector3(rifle ? 1 : .45, 1, 1)); _p.setPosition(aimed ? 1.8 : rifle ? 1.3 : .9, aimed ? SHO - .55 : rifle ? SHO - 1.7 : SHO - 2, aimed ? .25 : rifle ? .7 : 1.3);
       pm.gun.setMatrixAt(gi++, _t.multiplyMatrices(upper, _p));
       a.muzzle = [X(a.x) + Math.cos(a.dir) * 3.6 * s, (SHO - .5) * s + gY(a.x, a.y), Z(a.y) + Math.sin(a.dir) * 3.6 * s];
     }
@@ -6937,7 +7157,7 @@ const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOf
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
 const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt"];
-const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB"]);
+const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
 function serializeGame() {
   const bi = new Map(buildings.map((b, i) => [b, i]));
   const agentsS = agents.filter(a => !a.player || !fps.on).map(a => {
@@ -6956,7 +7176,7 @@ function serializeGame() {
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
-    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
+    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { zombieT: firsts.zombieT, titan: firsts.titan, titanDead: firsts.titanDead, topple: firsts.topple, nuke: firsts.nuke, reunion: firsts.reunion, metroSeen: firsts.metroSeen },
   };
 }
@@ -6980,7 +7200,7 @@ function loadGame(S) {
   resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;
   heroes = (S.heroes || []).map(agentById).filter(Boolean); metros = S.metros || []; depots = S.depots || []; strain = S.strain || { lvl: 1, t: 0 }; chDone = S.chDone || 0; chFail = S.chFail || 0;
   resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout || null; settings.dark = !!blackout;
-  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) m.cells = null; settings.curfew = !!S.curfew;
+  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); quarMask.fill(0); if (S.quarMask) quarMask.set(S.quarMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) m.cells = null; settings.curfew = !!S.curfew;
   for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) a.detained = cps[0] || null; if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
   for (const a of agents) if (!a.name) nameFor(a);
@@ -7450,6 +7670,11 @@ $("factions").addEventListener("click", e => {
 // растяжка тянется мышью
 let wireStart = null;
 
+/* ---------- панели поверх игры: скрыть и показать ---------- */
+$("toolsToggle").addEventListener("click", () => { document.body.classList.toggle("noTools"); $("toolsToggle").textContent = document.body.classList.contains("noTools") ? "›" : "‹"; resize(); });
+$("panelToggle").addEventListener("click", () => { document.body.classList.toggle("noPanel"); $("panelToggle").textContent = document.body.classList.contains("noPanel") ? "‹" : "›"; resize(); });
+window.addEventListener("keydown", e => { if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return; if (e.key === "[") $("toolsToggle").click(); if (e.key === "]") $("panelToggle").click(); });
+
 /* ---------- камера: орбита вокруг точки на земле ---------- */
 const camS = { tx: 0, tz: 60, dist: 1700, yaw: -1.05, pitch: .9 }, camC = { ...camS };
 const camDist = () => camC.dist;
@@ -7476,6 +7701,8 @@ function updateCamera(dt) {
     // свободная камера не проваливается в дома
     const cx = camera.position.x + W / 2, cz = camera.position.z + H / 2;
     for (const b of buildings) if (cx > b.x0 - 6 && cx < b.x1 + 6 && cz > b.y0 - 6 && cz < b.y1 + 6 && camera.position.y < b.h + 8) camera.position.y = b.h + 8;
+    // и не смотрит сквозь стену: если между точкой взгляда и камерой дом, камера придвигается
+    if (camC.dist < 420) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
   }
   camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
   camera.lookAt(camC.tx, lookY, camC.tz);
@@ -7543,7 +7770,7 @@ const TOOLS = [
   { k: "medic", n: "Медики", c: "#f0f0f0", tip: "<b>Медики:</b> находят укушенных и лечат, если инфекция не зашла далеко." },
   { k: "firefighters", n: "Пожарные", c: "#d23a2a", tip: "<b>Пожарные:</b> клик — машина выезжает из пожарной части к ближайшему пожару, тушит дома, машины и горящих людей. Топорами отбиваются от зомби." },
   { k: "repair", n: "Ремонтники", c: "#f08a1c", tip: "<b>Ремонтники:</b> клик — бригада разбирает завалы, убирает разбитые машины и ставит упавшие фонари. При зомби бросают работу и уходят." },
-  { k: "quarantine", n: "Карантин", c: "#9d998f", tip: "<b>Карантин:</b> протяни прямоугольник по карте — военные построят вокруг зоны бетонную стену и поставят посты по углам. Ни зомби, ни люди не пройдут." },
+  { k: "quarantine", n: "Карантин", c: "#9d998f", tip: "<b>Карантин:</b> протяни прямоугольник по карте. Военные оцепят зону постами, приедут строители и секция за секцией поставят сетчатый забор с колючкой. Пока забор не замкнут, зона открыта." },
   { k: "lab", n: "Учёные", c: "#7fd0e0", tip: "<b>Учёные:</b> клик — ещё трое учёных в лаборатории больницы, вакцина появится быстрее. Прогресс — в сводке." },
   { k: "vaccinate", n: "Вакцинация", c: "#5fe0a0", tip: "<b>Пункт вакцинации:</b> после готовности вакцины. Медики прививают подходящих людей, привитые не заражаются от укусов." },
   { k: "evac", n: "Эвакуация", c: "#c9a5f0", tip: "<b>Эвакуация:</b> точка посадки вертолёта. Забирает до 40 человек, взлетает через минуту или если зомби подошли." },
@@ -7579,16 +7806,18 @@ function renderTools() {
   }
   const GROUPS = [["Наблюдение", ["watch", "squad"]], ["Заражение", ["infect", "zombie", "horde"]], ["Оборона", ["barricade", "wall", "erase", "quarantine", "police", "army", "tank", "depot"]], ["Стройка", ["tower", "flood", "camp", "supply"]], ["Ловушки", ["mine", "wire", "barrels", "gen", "efence"]], ["Штаб", ["cp", "gather", "danger", "home"]], ["Службы", ["medic", "firefighters", "repair", "lab", "vaccinate", "evac"]], ["Удары", ["strike", "nuke"]], ["Стихии", ["boom", "meteor", "fire"]]];
   const btn = (t, i) => { const left = typeof limitLeft === "function" ? limitLeft(t.k) : Infinity; return `<button data-k="${t.k}" aria-pressed="${t.k === tool}" title="${t.n}"${left <= 0 ? " disabled" : ""}><i style="background:${t.c}"></i><kbd>${i === 10 ? "-" : i < 10 ? (i + 1) % 10 : ""}</kbd>${t.n}${left < Infinity ? ` <em>×${Math.max(0, left)}</em>` : ""}</button>`; };
-  $("tools").innerHTML = GROUPS.map(([name, keys]) => `<div class="tgroup"><span>${name}</span>${keys.map(k => { const i = TOOLS.findIndex(t => t.k === k); return i >= 0 ? btn(TOOLS[i], i) : ""; }).join("")}</div>`).join("");
+  GROUPS.forEach(([name, keys], gi) => { if (keys.includes(tool)) openGroups.add(gi); });
+  $("tools").innerHTML = GROUPS.map(([name, keys], gi) => `<div class="tgroup${openGroups.has(gi) ? " open" : ""}"><button class="gh" data-g="${gi}">${name}<em>${keys.length}</em></button><div class="gb">${keys.map(k => { const i = TOOLS.findIndex(t => t.k === k); return i >= 0 ? btn(TOOLS[i], i) : ""; }).join("")}</div></div>`).join("");
   $("tip").innerHTML = TOOLS.find(t => t.k === tool).tip;
 }
-$("tools").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (b.dataset.fl) { edFloors = clamp(edFloors + +b.dataset.fl, 2, 25); renderTools(); return; } tool = b.dataset.k; renderTools(); });
+const openGroups = new Set([0, 2]);
+$("tools").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (b.dataset.g !== undefined) { const g = +b.dataset.g; if (openGroups.has(g)) openGroups.delete(g); else openGroups.add(g); renderTools(); return; } if (b.dataset.fl) { edFloors = clamp(edFloors + +b.dataset.fl, 2, 25); renderTools(); return; } tool = b.dataset.k; renderTools(); });
 let barrPrev = null;
 function paintBarricade(x, y, erase, wall) {
   if (erase) {
     for (let gy = Math.floor((y - 5) / CS); gy <= Math.floor((y + 5) / CS); gy++) for (let gx = Math.floor((x - 5) / CS); gx <= Math.floor((x + 5) / CS); gx++) {
       if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
-      const i = gy * GW + gx; if (grid[i] === 6) { grid[i] = 0; wallMask[i] = 0; elecMask[i] = 0; barrDirty = true; }
+      const i = gy * GW + gx; if (grid[i] === 6) { grid[i] = 0; wallMask[i] = 0; elecMask[i] = 0; quarMask[i] = 0; barrDirty = true; }
     }
     fieldT = 0; return;
   }
@@ -7615,7 +7844,7 @@ function useTool(e, x, y) {
     for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(px, py, 16); newAgent("police", ax, ay); }
     logE("Прибыл полицейский патруль", "good"); sfx.siren(); return;
   }
-  if (tool === "army") { for (let i = 0; i < 6; i++) { const [ax, ay] = freeNear(x, y, 20); newAgent("army", ax, ay); } logE("Прибыл отряд военных", "good"); sfx.radio(); return; }
+  if (tool === "army") { const g = []; for (let i = 0; i < 6; i++) { const [ax, ay] = freeNear(x, y, 20); g.push(newAgent("army", ax, ay)); } newSquad(g); logE("Прибыл отряд военных", "good"); sfx.radio(); return; }
   if (tool === "medic") { for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(x, y, 14); newAgent("medic", ax, ay); } logE("Прибыли медики", "good"); return; }
   if (tool === "evac") {
     if (blocked(x, y)) return;

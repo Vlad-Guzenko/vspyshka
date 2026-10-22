@@ -24,6 +24,8 @@ function updateCamera(dt) {
     // свободная камера не проваливается в дома
     const cx = camera.position.x + W / 2, cz = camera.position.z + H / 2;
     for (const b of buildings) if (cx > b.x0 - 6 && cx < b.x1 + 6 && cz > b.y0 - 6 && cz < b.y1 + 6 && camera.position.y < b.h + 8) camera.position.y = b.h + 8;
+    // и не смотрит сквозь стену: если между точкой взгляда и камерой дом, камера придвигается
+    if (camC.dist < 420) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
   }
   camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
   camera.lookAt(camC.tx, lookY, camC.tz);
@@ -91,7 +93,7 @@ const TOOLS = [
   { k: "medic", n: "Медики", c: "#f0f0f0", tip: "<b>Медики:</b> находят укушенных и лечат, если инфекция не зашла далеко." },
   { k: "firefighters", n: "Пожарные", c: "#d23a2a", tip: "<b>Пожарные:</b> клик — машина выезжает из пожарной части к ближайшему пожару, тушит дома, машины и горящих людей. Топорами отбиваются от зомби." },
   { k: "repair", n: "Ремонтники", c: "#f08a1c", tip: "<b>Ремонтники:</b> клик — бригада разбирает завалы, убирает разбитые машины и ставит упавшие фонари. При зомби бросают работу и уходят." },
-  { k: "quarantine", n: "Карантин", c: "#9d998f", tip: "<b>Карантин:</b> протяни прямоугольник по карте — военные построят вокруг зоны бетонную стену и поставят посты по углам. Ни зомби, ни люди не пройдут." },
+  { k: "quarantine", n: "Карантин", c: "#9d998f", tip: "<b>Карантин:</b> протяни прямоугольник по карте. Военные оцепят зону постами, приедут строители и секция за секцией поставят сетчатый забор с колючкой. Пока забор не замкнут, зона открыта." },
   { k: "lab", n: "Учёные", c: "#7fd0e0", tip: "<b>Учёные:</b> клик — ещё трое учёных в лаборатории больницы, вакцина появится быстрее. Прогресс — в сводке." },
   { k: "vaccinate", n: "Вакцинация", c: "#5fe0a0", tip: "<b>Пункт вакцинации:</b> после готовности вакцины. Медики прививают подходящих людей, привитые не заражаются от укусов." },
   { k: "evac", n: "Эвакуация", c: "#c9a5f0", tip: "<b>Эвакуация:</b> точка посадки вертолёта. Забирает до 40 человек, взлетает через минуту или если зомби подошли." },
@@ -127,16 +129,18 @@ function renderTools() {
   }
   const GROUPS = [["Наблюдение", ["watch", "squad"]], ["Заражение", ["infect", "zombie", "horde"]], ["Оборона", ["barricade", "wall", "erase", "quarantine", "police", "army", "tank", "depot"]], ["Стройка", ["tower", "flood", "camp", "supply"]], ["Ловушки", ["mine", "wire", "barrels", "gen", "efence"]], ["Штаб", ["cp", "gather", "danger", "home"]], ["Службы", ["medic", "firefighters", "repair", "lab", "vaccinate", "evac"]], ["Удары", ["strike", "nuke"]], ["Стихии", ["boom", "meteor", "fire"]]];
   const btn = (t, i) => { const left = typeof limitLeft === "function" ? limitLeft(t.k) : Infinity; return `<button data-k="${t.k}" aria-pressed="${t.k === tool}" title="${t.n}"${left <= 0 ? " disabled" : ""}><i style="background:${t.c}"></i><kbd>${i === 10 ? "-" : i < 10 ? (i + 1) % 10 : ""}</kbd>${t.n}${left < Infinity ? ` <em>×${Math.max(0, left)}</em>` : ""}</button>`; };
-  $("tools").innerHTML = GROUPS.map(([name, keys]) => `<div class="tgroup"><span>${name}</span>${keys.map(k => { const i = TOOLS.findIndex(t => t.k === k); return i >= 0 ? btn(TOOLS[i], i) : ""; }).join("")}</div>`).join("");
+  GROUPS.forEach(([name, keys], gi) => { if (keys.includes(tool)) openGroups.add(gi); });
+  $("tools").innerHTML = GROUPS.map(([name, keys], gi) => `<div class="tgroup${openGroups.has(gi) ? " open" : ""}"><button class="gh" data-g="${gi}">${name}<em>${keys.length}</em></button><div class="gb">${keys.map(k => { const i = TOOLS.findIndex(t => t.k === k); return i >= 0 ? btn(TOOLS[i], i) : ""; }).join("")}</div></div>`).join("");
   $("tip").innerHTML = TOOLS.find(t => t.k === tool).tip;
 }
-$("tools").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (b.dataset.fl) { edFloors = clamp(edFloors + +b.dataset.fl, 2, 25); renderTools(); return; } tool = b.dataset.k; renderTools(); });
+const openGroups = new Set([0, 2]);
+$("tools").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (b.dataset.g !== undefined) { const g = +b.dataset.g; if (openGroups.has(g)) openGroups.delete(g); else openGroups.add(g); renderTools(); return; } if (b.dataset.fl) { edFloors = clamp(edFloors + +b.dataset.fl, 2, 25); renderTools(); return; } tool = b.dataset.k; renderTools(); });
 let barrPrev = null;
 function paintBarricade(x, y, erase, wall) {
   if (erase) {
     for (let gy = Math.floor((y - 5) / CS); gy <= Math.floor((y + 5) / CS); gy++) for (let gx = Math.floor((x - 5) / CS); gx <= Math.floor((x + 5) / CS); gx++) {
       if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
-      const i = gy * GW + gx; if (grid[i] === 6) { grid[i] = 0; wallMask[i] = 0; elecMask[i] = 0; barrDirty = true; }
+      const i = gy * GW + gx; if (grid[i] === 6) { grid[i] = 0; wallMask[i] = 0; elecMask[i] = 0; quarMask[i] = 0; barrDirty = true; }
     }
     fieldT = 0; return;
   }
@@ -163,7 +167,7 @@ function useTool(e, x, y) {
     for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(px, py, 16); newAgent("police", ax, ay); }
     logE("Прибыл полицейский патруль", "good"); sfx.siren(); return;
   }
-  if (tool === "army") { for (let i = 0; i < 6; i++) { const [ax, ay] = freeNear(x, y, 20); newAgent("army", ax, ay); } logE("Прибыл отряд военных", "good"); sfx.radio(); return; }
+  if (tool === "army") { const g = []; for (let i = 0; i < 6; i++) { const [ax, ay] = freeNear(x, y, 20); g.push(newAgent("army", ax, ay)); } newSquad(g); logE("Прибыл отряд военных", "good"); sfx.radio(); return; }
   if (tool === "medic") { for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(x, y, 14); newAgent("medic", ax, ay); } logE("Прибыли медики", "good"); return; }
   if (tool === "evac") {
     if (blocked(x, y)) return;

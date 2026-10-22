@@ -41,7 +41,9 @@ function stepShelters(dt) {
     const z = b.occ.find(o => o.role === "zombie");
     if (z) {
       if (Math.random() < dt * .8) { const v = pick(b.occ.filter(o => o.role !== "zombie")); if (v) { v.hp -= 40; if (!v.bitten) { v.bitten = true; v.incT = settings.inc * rnd(.5, 1); bites++; } if (v.hp <= 0) kill(v, true); } }
-      if (Math.random() < dt * .5) { for (const o of b.occ.slice()) if (o.role !== "zombie" && Math.random() < .5) leaveShelter(o, true); leaveShelter(z, false); logT("inside", "В укрытии кто-то обратился", "bad", 20); }
+      if (!b.insideLogged) { b.insideLogged = true; logT("inside", "В укрытии кто-то обратился", "bad", 20); }
+      if (Math.random() < dt * .25) { for (const o of b.occ.slice()) if (o.role !== "zombie" && Math.random() < .3) leaveShelter(o, true); }
+      if (!b.occ.some(o => o.role !== "zombie") && Math.random() < dt * .08) { leaveShelter(z, false); b.insideLogged = false; }
       continue;
     }
     // снаружи спокойно — выходят
@@ -99,26 +101,38 @@ function stepTents(dt) {
 }
 
 /* ---------- карантинная стена ---------- */
-const wallMask = new Uint8Array(GW * GH);
+const wallMask = new Uint8Array(GW * GH), quarMask = new Uint8Array(GW * GH);
 let wallJobs = [];
 function planQuarantine(x0, y0, x1, y1) {
   if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0];
   if (x1 - x0 < 60 || y1 - y0 < 60) return false;
   const cells = [];
   const add = (x, y) => { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return; const c = grid[gy * GW + gx]; if (c === 0 || c === 1 || c === 2 || c === 7 || c === 8) cells.push(gy * GW + gx); };
-  for (let x = x0; x <= x1; x += CS) { add(x, y0); add(x, y1); }
-  for (let y = y0; y <= y1; y += CS) { add(x0, y); add(x1, y); }
-  wallJobs.push({ cells, i: 0, x0, y0, x1, y1 });
-  // по углам — посты военных
-  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) for (let k = 0; k < 2; k++) { const [ax, ay] = freeNear(cx + (cx === x0 ? -14 : 14), cy + (cy === y0 ? -14 : 14), 10); newAgent("army", ax, ay); }
-  logE("Карантин: военные возводят стену вокруг зоны", "good"); radio("Штаб: зона оцеплена. Из карантина никого не выпускать");
+  // обход периметра по часовой: строители идут вдоль забора
+  for (let x = x0; x <= x1; x += CS) add(x, y0);
+  for (let y = y0 + CS; y <= y1; y += CS) add(x1, y);
+  for (let x = x1 - CS; x >= x0; x -= CS) add(x, y1);
+  for (let y = y1 - CS; y > y0; y -= CS) add(x0, y);
+  const j = { cells, i: 0, x0, y0, x1, y1, t0: simT, work: 0 };
+  wallJobs.push(j);
+  // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
+  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
+  const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j };
+  logE("Карантин: военные оцепили район, строители едут ставить забор", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
   return true;
 }
 function stepWalls(dt) {
   for (const j of wallJobs) {
-    const n = Math.min(j.cells.length - j.i, Math.ceil(dt * 14));
-    for (let k = 0; k < n; k++) { const gi = j.cells[j.i++]; const c = grid[gi]; if (c === 3 || c === 5 || c === 9) continue; grid[gi] = 6; bhp[gi] = 300; wallMask[gi] = 1; }
-    if (n) { barrDirty = true; fieldT = 0; }
+    // сетку ставят строители у фронта работ; если их нет долго, военные достраивают сами, медленно
+    const rate = j.work > 0 ? 0 : 0; j.work = j.work || 0;
+    let builders = 0; const gi0 = j.cells[j.i], fx = (gi0 % GW) * CS + 4, fy = ((gi0 / GW) | 0) * CS + 4;
+    near(fx, fy, 16, a => { if (a.state === "alive" && a.role === "builder" && !a.done) builders++; });
+    const speed = builders ? .9 * Math.min(builders, 4) : simT - j.t0 > 150 ? .8 : 0;
+    j.acc = (j.acc || 0) + speed * dt;
+    const n = Math.min(j.cells.length - j.i, Math.floor(j.acc)); j.acc -= n;
+    for (let k = 0; k < n; k++) { const gi = j.cells[j.i++]; const c = grid[gi]; if (c === 3 || c === 5 || c === 9) continue; grid[gi] = 6; bhp[gi] = 300; wallMask[gi] = 1; quarMask[gi] = 1; }
+    if (n) { barrDirty = true; fieldT = Math.min(fieldT, .4); }
+    if (j.i >= j.cells.length && !j.doneLogged) { j.doneLogged = true; logE("Забор карантина замкнут", "good"); for (const a of agents) if (a.guardJob === j) { a.guardJob = null; a.order = null; } }
   }
   wallJobs = wallJobs.filter(j => j.i < j.cells.length);
 }

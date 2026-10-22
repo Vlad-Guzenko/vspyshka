@@ -4,7 +4,7 @@ const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOf
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
 const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt"];
-const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB"]);
+const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
 function serializeGame() {
   const bi = new Map(buildings.map((b, i) => [b, i]));
   const agentsS = agents.filter(a => !a.player || !fps.on).map(a => {
@@ -23,7 +23,7 @@ function serializeGame() {
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
-    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
+    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { zombieT: firsts.zombieT, titan: firsts.titan, titanDead: firsts.titanDead, topple: firsts.topple, nuke: firsts.nuke, reunion: firsts.reunion, metroSeen: firsts.metroSeen },
   };
 }
@@ -47,7 +47,7 @@ function loadGame(S) {
   resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;
   heroes = (S.heroes || []).map(agentById).filter(Boolean); metros = S.metros || []; depots = S.depots || []; strain = S.strain || { lvl: 1, t: 0 }; chDone = S.chDone || 0; chFail = S.chFail || 0;
   resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout || null; settings.dark = !!blackout;
-  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) m.cells = null; settings.curfew = !!S.curfew;
+  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); quarMask.fill(0); if (S.quarMask) quarMask.set(S.quarMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) m.cells = null; settings.curfew = !!S.curfew;
   for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) a.detained = cps[0] || null; if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
   for (const a of agents) if (!a.name) nameFor(a);

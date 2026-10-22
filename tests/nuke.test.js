@@ -1,5 +1,5 @@
 const fs=require('fs');
-const src=['sim1.js','layout.js','curves.js','terrain.js','sim2.js','sim3.js','sim4.js','sim5.js','sim6.js','sim7.js','sim8.js','sim9.js','sim10.js','sim11.js','sim12.js','sim13.js','sim14.js','sim15.js'].map(f=>fs.readFileSync(require('path').join(__dirname,'..','src',f),'utf8')).join('\n');
+const src=['sim1.js','layout.js','curves.js','terrain.js','sim2.js','sim3.js','sim4.js','sim5.js','sim6.js','sim7.js','sim8.js','sim9.js','sim10.js','sim11.js','sim12.js','sim13.js','sim14.js','sim15.js','sim16.js','sim17.js'].map(f=>fs.readFileSync(require('path').join(__dirname,'..','src',f),'utf8')).join('\n');
 const stub=`let dn=0;function addDecal(){return dn++}function fxBlood(){}function fxHit(){}function fxShot(){}function fxBoom(){}function fxDebris(){}function fxCollapse(){}function fxToppleImpact(){}function fxCannon(){}function fxNuke(){}function onBanner(t){}
 function onResult(){} function onRadio(){} const world={hour:13}; function hourLabel(){return ''} function mmss(t){return t} let lastCounts=null;
 const sfx=new Proxy({},{get:()=>()=>{}});`;

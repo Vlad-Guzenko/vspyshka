@@ -9,7 +9,7 @@ function nameFor(a, last) {
   a.name = a.first + " " + a.last;
   if (a.years === undefined) a.years = a.age === "kid" ? 5 + Math.floor(Math.random() * 10) : a.age === "old" ? 63 + Math.floor(Math.random() * 22) : 18 + Math.floor(Math.random() * 45);
 }
-const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", bandit: "мародёр", zombie: "зомби" };
+const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", builder: "строитель", sanitar: "санитар", bandit: "мародёр", zombie: "зомби" };
 // семьи: 1–4 человека, общий дом; половина сейчас дома, остальные в городе
 let families = [], famMap = {};
 function assignHomes() {

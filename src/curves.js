@@ -100,10 +100,12 @@ function genCurves() {
 }
 /* ---------- машины на изогнутых дорогах ---------- */
 function curveDirOf(tx, ty) { return ((Math.round(Math.atan2(ty, tx) / (Math.PI / 2)) % 4) + 4) % 4; }
-function placeOnCurve(c, cv, t, cdir) {
+function placeOnCurve(c, cv, t, cdir, blend) {
   c.curve = cv; c.ct = t; c.cdir = cdir;
   const p = curvePos(cv, t), tx = p.tx * cdir, ty = p.ty * cdir, lat = cv.hw * .5;
-  c.x = p.x - ty * lat; c.y = p.y + tx * lat; c.ang = Math.atan2(ty, tx); c.dir = curveDirOf(tx, ty);
+  const nx = p.x - ty * lat, ny = p.y + tx * lat;
+  if (blend) { c.offx = c.x - nx; c.offy = c.y - ny; } else { c.offx = c.offy = 0; }
+  c.x = nx; c.y = ny; c.ang = Math.atan2(ty, tx); c.dir = curveDirOf(tx, ty);
 }
 function stepCurveCar(c, dt) {
   const cv = c.curve, p = curvePos(cv, c.ct), tx = p.tx * c.cdir, ty = p.ty * c.cdir, lat = cv.hw * .5;
@@ -118,19 +120,19 @@ function stepCurveCar(c, dt) {
   c.v += clamp(target - c.v, -70 * dt, 22 * dt);
   if (c.v < 1) c.wait += dt; else c.wait = 0;
   if (people && c.wait > 1.5 && Math.random() < dt * .6) sfx.horn(c);
-  // наезд в панике
-  if (c.v > 12 && c.panic) near(x + tx * 9, y + ty * 9, 6, a => { if (a.state === "alive" && !a.hidden && Math.hypot(a.x - x, a.y - y) < 7) { a.vx = tx * c.v * .9; a.vy = ty * c.v * .9; a.vz = 9; a.z = Math.max(a.z, .1); a.hp -= c.v * 2.2; if (a.hp <= 0) kill(a, false, "car"); c.v *= .8; } });
+  carHitPeople(c, tx, ty, dt);
   c.ct += c.v * dt * c.cdir;
   if (c.ct < 0 || c.ct > cv.len) {
     if (cv.closed) { c.ct = (c.ct + cv.len) % cv.len; }
     else {
       const e = curvePos(cv, c.ct < 0 ? 0 : cv.len), l = nearestLaneTo(e.x, e.y, 45);
-      if (l && Math.random() < .8) { c.curve = null; placeOnLane(c, l.l, l.along); c.ang = Math.atan2(DY[c.dir], DX[c.dir]); c.plan = -1; c.planAt = null; return; }
+      if (l && Math.random() < .8) { const ox = c.x, oy = c.y; c.curve = null; placeOnLane(c, l.l, l.along); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.plan = -1; c.planAt = null; return; }
       c.cdir = -c.cdir; c.ct = clamp(c.ct, 0, cv.len); c.v = 0;
     }
   }
   const q = curvePos(cv, c.ct), qx = q.tx * c.cdir, qy = q.ty * c.cdir;
-  c.x = q.x - qy * lat; c.y = q.y + qx * lat;
+  if (c.offx || c.offy) { const k = Math.min(1, dt * 2.5); c.offx *= 1 - k; c.offy *= 1 - k; if (Math.abs(c.offx) + Math.abs(c.offy) < .05) c.offx = c.offy = 0; }
+  c.x = q.x - qy * lat + c.offx; c.y = q.y + qx * lat + c.offy;
   let want = Math.atan2(qy, qx), dd = want - c.ang; dd -= Math.round(dd / TAU) * TAU; c.ang += dd * Math.min(1, dt * 6);
   c.dir = curveDirOf(qx, qy);
 }
@@ -141,7 +143,7 @@ function tryEnterCurve(c) {
     if (c.jAt === j) continue;
     if (Math.abs(j.x - c.x) > 9 || Math.abs(j.y - c.y) > 9) continue;
     c.jAt = j; if (Math.random() > .6) return false;
-    placeOnCurve(c, j.cv, j.t === 0 ? 0 : j.cv.len, j.t === 0 ? 1 : -1); return true;
+    placeOnCurve(c, j.cv, j.t === 0 ? 0 : j.cv.len, j.t === 0 ? 1 : -1, true); return true;
   }
   return false;
 }

@@ -10,7 +10,7 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-PARTS = ['sim1.js', 'layout.js', 'curves.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js',
+PARTS = ['sim1.js', 'layout.js', 'curves.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js',
          'render1.js', 'merge.js', 'render2.js', 'render3.js', 'render4.js', 'water.js', 'scream.js', 'render5.js', 'render6.js', 'render7.js', 'render8.js', 'render9.js', 'render10.js', 'render11.js',
          'gfx.js', 'people3d.js', 'samples.js', 'boom.js', 'audio.js', 'audio2.js', 'fps.js', 'editor.js', 'save.js', 'ui2.js', 'ui3.js', 'ui4.js', 'ui5.js', 'ui6.js', 'ui7.js', 'ui.js']
 DEBUG = ('window.__v = { camS, camC, camera, R3, scene, settings, world, get agents() { return agents; }, get cars() { return cars; }, '

@@ -689,10 +689,17 @@ function updateBarricades() {
     // линия идёт вдоль соседей: по x, по z, или угол
     const hx = (gx > 0 && grid[i - 1] === 6) || (gx < GW - 1 && grid[i + 1] === 6), hy = (gy > 0 && grid[i - GW] === 6) || (gy < GH - 1 && grid[i + GW] === 6);
     const alongZ = hy && !hx, corner = hx && hy;
-    if (wall) {
+    if (wall && quarMask[i]) {
+      // карантин: сетка на стальных столбах с колючкой сверху
+      const hgt = 11 * hp;
+      put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, alongZ, k);
+      if (corner) put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, true, k);
+      put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), .8, hgt + 1.2, .8, false, k);
+      if (hp > .5) put(wallWire, x, y + hgt + .1, z, CS * 1.02, 2.2, 1, alongZ, k);
+    } else if (wall) {
       const hgt = 18 * hp, th = 1.3;
       if (corner) { put(wallPanel, x, y, z, CS * 1.02, hgt, th, false, k); put(wallPanel, x, y, z, th, hgt, CS * 1.02, false, k); }
-      else put(r % 4 === 0 ? wallStencil : wallPanel, x, y, z, alongZ ? th : CS * 1.02, hgt, alongZ ? CS * 1.02 : th, false, k);
+      else put(wallPanel, x, y, z, alongZ ? th : CS * 1.02, hgt, alongZ ? CS * 1.02 : th, false, k);
       put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), 1, hgt + 1.6, 1, false, k);
       if (hp > .5) put(wallWire, x, y + hgt + .2, z, CS * 1.02, 2.6, 1, alongZ, k);
     } else if (el) {

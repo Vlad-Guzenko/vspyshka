@@ -10,6 +10,7 @@ const SERVICE = {
   dump: { col: "#c9701c", len: 1.5, crew: null, n: 0, siren: null, name: "Самосвал" },
   mixer: { col: "#f2efe6", len: 1.4, crew: null, n: 0, siren: null, name: "Бетономешалка" },
   sanit: { col: "#e4ece6", len: 1.3, crew: "sanitar", n: 3, siren: null, name: "Санитары" },
+  builder: { col: "#e8a81a", len: 1.45, crew: "builder", n: 4, siren: "amber", name: "Строители" },
 };
 function clearCarCells(c) { for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0; }
 let reports = [], dispatchT = 0, armyWaves = 0, serviceLog = {};
@@ -56,13 +57,14 @@ function serviceTurn(c) {
 }
 function deployCrew(c) {
   if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0;
-  const S = SERVICE[c.service];
+  const S = SERVICE[c.service], sid = S.crew === "army" ? ++squadSeq : 0;
   for (let i = 0; i < S.n; i++) {
     const [x, y] = freeNear(c.x, c.y, 14);
-    const a = newAgent(S.crew, x, y); a.unit = c; a.job = c.job || null; c.crew.push(a); if (c.sweep) a.sweep = true;
+    const a = newAgent(S.crew, x, y); a.unit = c; a.job = c.job || null; c.crew.push(a); if (c.sweep) a.sweep = true; if (sid) a.squad = sid;
     if (S.crew === "fire") { a.cloth = "#b5361f"; a.pants = "#2b2b2b"; a.hair = "#e8c020"; a.hat = "fire"; a.vest = "#d8b020"; }
-    if (S.crew === "worker") { a.cloth = "#f08a1c"; a.pants = "#2c3550"; a.hair = "#f4f4f0"; a.hat = "hard"; a.vest = "#f0c020"; }
+    if (S.crew === "worker" || S.crew === "builder") { a.cloth = "#f08a1c"; a.pants = "#2c3550"; a.hair = "#f4f4f0"; a.hat = "hard"; a.vest = "#f0c020"; }
   }
+  if (sid) squads.set(sid, { id: sid, members: c.crew.map(m => m.id), leader: c.crew[0].id, state: "advance", holdAt: null, holdT: 0, regroupT: 0, slots: [] });
   logT("svc" + c.service, `${S.name} на месте`, "good", 10);
 }
 function releaseUnit(c) {
@@ -88,7 +90,7 @@ function stepServiceCar(c, dt) {
     return;
   }
   if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.leaveT > 35 || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
-  if (!c.leaving && c.goal && (Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 50 || c.wait > (c.sweep ? 30 : 6))) deployCrew(c);
+  if (!c.leaving && c.goal && (Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 50 || c.wait > 25)) deployCrew(c);
 }
 function serviceTarget(type) {
   if (type === "fire") {
@@ -180,6 +182,17 @@ function thinkCrew(a, dt, zn, zd) {
     if (done) { const t = serviceTarget("fire"); if (t && Math.hypot(t.x - a.x, t.y - a.y) < 300) { for (const m of a.unit.crew) m.job = t.job; } else a.done = true; }
     if (tx !== undefined && !a.done) return goTo(a, tx, ty, 11);
   }
+  if (a.role === "builder") {
+    const j = job && job.wall;
+    if (zn && zd < 45) { a.done = true; return null; }
+    if (a.done) return goTo(a, a.unit.x, a.unit.y, 9);
+    if (!j || j.i >= j.cells.length) { a.done = true; for (const m of a.unit.crew) m.done = true; return goTo(a, a.unit.x, a.unit.y, 9); }
+    // идём к фронту работ: следующая клетка забора, чуть снаружи периметра
+    const gi = j.cells[Math.min(j.cells.length - 1, j.i + (a.unit.crew.indexOf(a) % 2))], gx = gi % GW, gy = (gi / GW) | 0, fx = gx * CS + 4, fy = gy * CS + 4;
+    const d = Math.hypot(fx - a.x, fy - a.y);
+    if (d < 11) { a.tool = .3; a.aim = Math.atan2(fy - a.y, fx - a.x); a.aimT = .3; j.work = (j.work || 0) + dt; return [0, 0, 0]; }
+    return goTo(a, fx, fy, 9);
+  }
   if (a.role === "worker") {
     if (zn && zd < 70) { a.done = true; return null; } // при зомби бросают работу
     const fin = () => { a.workT = 0; a.done = !job; for (const m of a.unit.crew) { m.job = null; m.done = true; } };
@@ -225,7 +238,7 @@ function bfsBox(e, sx, sy) {
         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
         const c = grid[(ny + y0) * GW + nx + x0];
         if (c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10) continue;
-        const j = ny * w + nx, nd = d + (c === 8 ? 3 : 1);
+        const j = ny * w + nx, nd = d + (c === 8 ? 3 : c === 0 ? 2 : 1);
         if (nd < f[j]) { f[j] = nd; ring[nd % RING].push(j); pending++; }
       }
     }
@@ -248,18 +261,21 @@ function boxDir(e, x, y) {
   const l = Math.hypot(best[0], best[1]); return [best[0] / l, best[1] / l];
 }
 function pathField(a, tx, ty) {
-  if (pathBudgetT !== simT) { pathBudgetT = simT; pathBudget = 4; }
-  const gx = clamp(Math.floor(tx / CS), 0, GW - 1), gy = clamp(Math.floor(ty / CS), 0, GH - 1), key = gy * GW + gx;
+  if (pathBudgetT !== simT) { pathBudgetT = simT; pathBudget = 3; }
+  const gx = clamp(Math.floor(tx / CS), 0, GW - 1), gy = clamp(Math.floor(ty / CS), 0, GH - 1);
   const ax = clamp(Math.floor(a.x / CS), 0, GW - 1), ay = clamp(Math.floor(a.y / CS), 0, GH - 1);
+  // ключ: клетка цели и район агента (40 клеток), чтобы коробки не разрастались на всю карту
+  const key = (gy * GW + gx) * 64 + Math.floor(ay / 40) * 8 + Math.floor(ax / 40);
   let e = pathCache.get(key);
   const inside = e && ax >= e.x0 && ax < e.x0 + e.w && ay >= e.y0 && ay < e.y0 + e.h;
-  if (e && inside && simT - e.t < 8) return e;
+  if (e && inside && simT - e.t < 10) return e;
   if (pathBudget <= 0) return e && inside ? e : null;
   pathBudget--;
-  if (pathCache.size >= 300) { let ok = null, ot = 1e9; for (const [k, v] of pathCache) if (v.t < ot) { ot = v.t; ok = k; } pathCache.delete(ok); }
-  const m = 22; // коробка с запасом, чтобы обойти квартал
-  const x0 = clamp(Math.min(inside ? e.x0 : gx, ax) - m, 0, GW - 1), y0 = clamp(Math.min(inside ? e.y0 : gy, ay) - m, 0, GH - 1);
-  const x1 = clamp(Math.max(inside ? e.x0 + e.w - 1 : gx, ax) + m, 0, GW - 1), y1 = clamp(Math.max(inside ? e.y0 + e.h - 1 : gy, ay) + m, 0, GH - 1);
+  if (pathCache.size >= 400) { let ok = null, ot = 1e9; for (const [k, v] of pathCache) if (v.t < ot) { ot = v.t; ok = k; } pathCache.delete(ok); }
+  const m = 18; // коробка: цель, агент и его район с запасом, чтобы обойти квартал
+  const rx0 = Math.floor(ax / 40) * 40, ry0 = Math.floor(ay / 40) * 40;
+  const x0 = clamp(Math.min(gx, rx0) - m, 0, GW - 1), y0 = clamp(Math.min(gy, ry0) - m, 0, GH - 1);
+  const x1 = clamp(Math.max(gx, rx0 + 39) + m, 0, GW - 1), y1 = clamp(Math.max(gy, ry0 + 39) + m, 0, GH - 1);
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   if (!e || e.w !== w || e.h !== h) e = { x0, y0, w, h, f: new Int16Array(w * h), t: 0 }; else { e.x0 = x0; e.y0 = y0; }
   pathCache.set(key, e);

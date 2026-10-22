@@ -45,7 +45,7 @@ function turnToward(c, g) {
 function spawnTraffic(n) {
   for (let i = 0; i < n; i++) {
     const lane = pick(lanes);
-    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
+    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, blend: 0, offx: 0, offy: 0, _i: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
     const r = Math.random();
     if (r < .04) { c.tanker = true; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
     else if (r < .09) { c.bus = true; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
@@ -140,16 +140,7 @@ function stepTraffic(dt) {
     if (c.v < 1) c.wait += dt; else c.wait = 0;
     if (people && c.wait > 1.5 && Math.random() < dt * .6) sfx.horn(c);
     // наезд: зомби отлетают, людей сбивает
-    if (c.v > 12 && c.panic) near(c.x + dx * 9, c.y + dy * 9, 6, a => {
-      if (a.state !== "alive" || (a.role !== "zombie" && Math.random() < .7)) return;
-      const k = c.v / 40;
-      if (a.role === "zombie") { a.zhp -= 1.2 * k + .5; a.riseT = 1.2; if (a.zhp <= 0) destroyZombie(a, false); } // сбитый зомби встаёт снова
-      else { a.hp -= 70 * k + 20; if (a.hp <= 0) kill(a, false, "car"); else a.grabT = 1; }
-      a.vx = dx * c.v * .8 + rnd(-8, 8); a.vy = dy * c.v * .8 + rnd(-8, 8);
-      if (a.state === "dead") { a.vz = 8 + c.v * .3; a.spin = rnd(-8, 8); a.z = .1; }
-      fxBlood(a.x, a.y, 3, 6); sfx.thud(c); c.dmg++; c.v *= .6;
-      if (c.dmg > 3 && Math.random() < .3) { c.wreck = true; abandonCar(c, "crash"); logT("crash", "Машина разбилась, сбив людей", "bad"); }
-    });
+    carHitPeople(c, dx, dy, dt);
     if (!c.moving) continue;
     // застряли среди зомби — водитель бросает машину
     if (c.wait > 3 && zNear >= 2 && !c.service) { abandonCar(c, "Водитель бросил машину посреди дороги"); continue; }
@@ -158,6 +149,7 @@ function stepTraffic(dt) {
     // поворот на перекрёстке
     const ox = c.x, oy = c.y;
     c.x += dx * c.v * dt; c.y += dy * c.v * dt;
+    if (c.offx || c.offy) { const k = Math.min(1, dt * 2.5); c.x -= c.offx * k; c.y -= c.offy * k; c.offx *= 1 - k; c.offy *= 1 - k; if (Math.abs(c.offx) + Math.abs(c.offy) < .05) c.offx = c.offy = 0; }
     if (c.service && (c.x < 4 || c.y < 4 || c.x > W - 4 || c.y > H - 4)) { if (c.leaving) { c.gone = true; continue; } const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (opp) placeOnLane(c, opp, clamp(c.lane.s.v ? c.y : c.x, 6, (c.lane.s.v ? H : W) - 6)); continue; }
     if (c.x < 4 || c.y < 4 || c.x > W - 4 || c.y > H - 4) {
       if (c.fleeTo) { c.gone = true; fled++; logT("fled", "Машины бегут из города по шоссе", "", 40); continue; } // спасся
@@ -179,6 +171,7 @@ function stepTraffic(dt) {
     }
     let da = Math.atan2(DY[c.dir], DX[c.dir]) - c.ang; da -= Math.round(da / TAU) * TAU; c.ang += da * Math.min(1, dt * (c.turnT > 0 ? 4 : 7));
   }
+  resolveCarOverlaps(dt);
 }
 
 /* ---------- разрушение ---------- */

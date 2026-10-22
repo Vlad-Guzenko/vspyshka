@@ -21,3 +21,8 @@ $("factions").addEventListener("click", e => {
 });
 // растяжка тянется мышью
 let wireStart = null;
+
+/* ---------- панели поверх игры: скрыть и показать ---------- */
+$("toolsToggle").addEventListener("click", () => { document.body.classList.toggle("noTools"); $("toolsToggle").textContent = document.body.classList.contains("noTools") ? "›" : "‹"; resize(); });
+$("panelToggle").addEventListener("click", () => { document.body.classList.toggle("noPanel"); $("panelToggle").textContent = document.body.classList.contains("noPanel") ? "‹" : "›"; resize(); });
+window.addEventListener("keydown", e => { if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return; if (e.key === "[") $("toolsToggle").click(); if (e.key === "]") $("panelToggle").click(); });

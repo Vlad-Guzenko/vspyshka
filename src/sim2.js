@@ -23,7 +23,7 @@ function newAgent(role, x, y) {
     quietT: 0, rad: 0, hostile: 0, loot: null, lootT: 0, muzzle: null, onRoof: false, hideB: null, hideT: 0, roofZ: 0, rx: 0, ry: 0, crushed: false, vapor: false, zero: false, seen: 0,
     depotDone: false, ambAssigned: false, tent: null, buildB: null, workT: 0, tool: 0, spray: 0, sprayAt: null, axe: 0, far: 0, onRoofT: 0,
     order: null, post: null, campGoal: null, inCamp: null, forage: null, carry: 0,
-    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0,
+    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null,
   };
   if (role === "civ") {
     const r = Math.random();
@@ -275,11 +275,11 @@ function thinkHuman(a, dt) {
   if (a.armed && a.mag === 0 && a.ammo === 0 && !a.dry) { a.dry = true; if (a.role !== "civ") logE(a.role === "army" ? "У солдата кончились патроны" : "У полицейского кончились патроны"); }
   const range = (a.role === "army" ? 230 : a.hero === "sniper" ? 260 : a.role === "police" ? 170 : 70) + (a.post ? 90 : 0);
   if (a.armed && a.mag > 0 && a.reload <= 0 && zn && zd < range) {
-    a.aim = Math.atan2(zn.y - a.y, zn.x - a.x); a.aimT = .8;
+    if (zd < 120 || a.post || a.hero === "sniper") { a.aim = Math.atan2(zn.y - a.y, zn.x - a.x); a.aimT = .8; }
     if (a.cd <= 0 && clearShot(a, zn)) shoot(a, zn);
   }
   const hurt = clamp(a.hp / 100, .45, 1) * (1 - (a.burn || 0) * .4) * (a.bitten && a.incT < 4 ? .5 : 1);
-  if (a.role === "fire" || a.role === "worker" || a.role === "sanitar") { const r = a.unit ? thinkCrew(a, dt, zn, zd) : null; if (r) return r; }
+  if (a.role === "fire" || a.role === "worker" || a.role === "sanitar" || a.role === "builder") { const r = a.unit ? thinkCrew(a, dt, zn, zd) : null; if (r) return r; }
   if (a.role === "bandit") { if (zn && zd < 25 && !(a.mag + a.ammo > 0)) return flee(); const r = thinkBandit(a, dt, zn, zd); if (!(zn && a.mag > 0 && zd < 110)) return r; }
   // в панике — в ближайший дом, пока дверь цела; за лидером — в его укрытие
   if (a.role === "civ" && !a.hero && a.panic > .5 && !a.hideGoal && zn && Math.random() < dt * 1.5) { const ld = nearLeader(a); if (ld) { if (ld.hideGoal) a.hideGoal = ld.hideGoal; else if (Math.hypot(ld.x - a.x, ld.y - a.y) > 10 && zd > 12) return goTo(a, ld.x, ld.y, 15 * hurt); } }
@@ -305,6 +305,7 @@ function thinkHuman(a, dt) {
     if (zn && zd < 18) return flee();
     if (zn && zd < range) return [0, 0, 0];
     if (a.sweep && a.role === "army") { const r = armyClear(a, dt); if (r) return r; }
+    if (a.role === "army" && a.squad) { const r = squadMove(a, dt, zn, zd); if (r) return r; }
     if (a.ammo < a.magMax && depots.length) { const d = nearestDepot(a); if (d) return goTo(a, d.x, d.y, 9); }
     const fv = fieldVal(fZ, a.x, a.y);
     if (fv < (a.role === "army" ? (a.sweep ? 1e9 : 220) : 70)) { const d = fieldDir(fZ, a.x, a.y, false); if (d) return [d[0], d[1], a.role === "army" ? (a.sweep ? 12 : 10) : 9]; }
@@ -483,7 +484,7 @@ function step(dt) {
   fires = fires.filter(f => f.l > 0);
   if (evac) stepEvac(dt);
   statT -= dt; if (statT <= 0) { statT = 1; record(); }
-  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepResponse(dt); stepAuto(dt);
+  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepResponse(dt); stepAuto(dt); stepSquads(dt);
   for (const a of agents) if (a.hostile > 0) a.hostile -= dt;
   stepScenario(dt); stepNuke(dt); stepConstruction(dt); stepMachines(dt);
 }
@@ -568,7 +569,7 @@ function newCitySim(n) {
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
-  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); placeMetros();
+  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); resetSquads(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
   assignHomes(); pickHeroes();
   const p0 = pickPatientZero(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;

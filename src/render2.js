@@ -147,7 +147,7 @@ function updatePeople(dt) {
     let la = -sw * .9, ra = sw * .9, lx = -.08, rx = .08;
     const aiming = a.armed && !dead && !z && (a.aimT > 0 || a.role === "army");
     if (z && !dead) { la = 1.35 + Math.sin(simT * 2 + a.id) * .12; ra = 1.45 + Math.cos(simT * 2.3 + a.id) * .12; if (a.feedT > 0) { la = .9 + Math.sin(simT * 9) * .3; ra = 1 + Math.cos(simT * 8) * .3; } if (a.bash > 0) { la += Math.sin(simT * 20) * .5; ra -= Math.sin(simT * 20) * .5; } }
-    else if (aiming) { la = a.aimT > 0 ? 1.45 : .7; ra = a.aimT > 0 ? 1.35 : .6; lx = .55; rx = -.15; }
+    else if (aiming) { if (a.aimT > 0) { la = 1.45; ra = 1.35; lx = .55; rx = -.15; } else { la = .38 - sw * .25; ra = .32 - sw * .25; lx = .42; rx = -.08; } }
     else if (a.panic > .5 && !dead && sp > 8) { la = -sw * 1.4; ra = sw * 1.4; }
     else if (wounded) { la = .75; ra = sw * .5; lx = .5; } // держится за бок
     if (dead) { const r = a.id * 1.7; la = 1.2 + Math.sin(r); ra = -1 + Math.cos(r) * .6; lx = -.9; rx = .9; }
@@ -163,8 +163,8 @@ function updatePeople(dt) {
     if (a.bag && !z && !dead) { _jm.makeTranslation(0, -1.75, .35); pm.bag.setMatrixAt(bi, _jt.multiplyMatrices(_fa, _jm)); pm.bag.setColorAt(bi++, _c.set(a.bag)); }
     // оружие в руках
     if (a.armed && !z && !dead) {
-      const rifle = a.role === "army", aimed = a.aimT > 0 || rifle;
-      _p.makeRotationZ(aimed ? 0 : -1.2); _p.scale(new THREE.Vector3(rifle ? 1 : .45, 1, 1)); _p.setPosition(aimed ? 1.8 : .9, aimed ? SHO - .55 : SHO - 2, aimed ? .25 : 1.3);
+      const rifle = a.role === "army", aimed = a.aimT > 0;
+      _p.makeRotationZ(aimed ? 0 : rifle ? -.75 : -1.2); _p.scale(new THREE.Vector3(rifle ? 1 : .45, 1, 1)); _p.setPosition(aimed ? 1.8 : rifle ? 1.3 : .9, aimed ? SHO - .55 : rifle ? SHO - 1.7 : SHO - 2, aimed ? .25 : rifle ? .7 : 1.3);
       pm.gun.setMatrixAt(gi++, _t.multiplyMatrices(upper, _p));
       a.muzzle = [X(a.x) + Math.cos(a.dir) * 3.6 * s, (SHO - .5) * s + gY(a.x, a.y), Z(a.y) + Math.sin(a.dir) * 3.6 * s];
     }
