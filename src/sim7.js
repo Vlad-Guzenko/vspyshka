@@ -25,7 +25,7 @@ function detonate() {
   // электромагнитный импульс глушит машины
   for (const c of cars) if (c.moving && Math.hypot(c.x - x, c.y - y) < NUKE.RMAX * 1.6) { c.moving = false; c.stopped = true; c.v = 0; }
   radZones.push({ x, y, r: NUKE.R1 * 1.4, t: 240 });
-  dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
+  addDanger(x, y, NUKE.R1 * 1.7, 900);
   dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
   firsts.nuke = true;
   logE("Ядерный взрыв", "bad");

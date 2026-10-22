@@ -23,7 +23,7 @@ function newAgent(role, x, y) {
     quietT: 0, rad: 0, hostile: 0, loot: null, lootT: 0, muzzle: null, onRoof: false, hideB: null, hideT: 0, roofZ: 0, rx: 0, ry: 0, crushed: false, vapor: false, zero: false, seen: 0,
     depotDone: false, ambAssigned: false, tent: null, buildB: null, workT: 0, tool: 0, spray: 0, sprayAt: null, axe: 0, far: 0, onRoofT: 0,
     order: null, post: null, campGoal: null, inCamp: null, forage: null, carry: 0,
-    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null,
+    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null, dz: null, dzT: 0,
   };
   if (role === "civ") {
     const r = Math.random();
@@ -322,7 +322,7 @@ function thinkHuman(a, dt) {
     if (hb && hb.door && !a.forage) { const d = Math.hypot(hb.door[0] - a.x, hb.door[1] - a.y); if (d > 70) return goTo(a, hb.door[0] + rnd(-20, 20), hb.door[1] + rnd(-20, 20), 8); }
   }
   // слух об опасности: уходим из зоны
-  const dz = a.role === "civ" ? inDanger(a) : null;
+  let dz = null; if (a.role === "civ") { a.dzT -= dt; if (a.dzT <= 0) { a.dzT = .5; a.dz = dangers.length ? inDanger(a) : null; } dz = a.dz; }
   if (dz) { const dd = Math.hypot(a.x - dz.x, a.y - dz.y) || 1; return [(a.x - dz.x) / dd, (a.y - dz.y) / dd, 12 * hurt]; }
   if (a.armed && a.role === "civ" && a.ammo < a.magMax && depots.length) { const d = nearestDepot(a, 200); if (d) return goTo(a, d.x, d.y, 7); }
   if (a.role === "medic") {
@@ -493,7 +493,7 @@ function step(dt) {
 }
 function boom(x, y, R, big) {
   interest(x, y, big ? 9 : 5);
-  if (R >= 30) dangers.push({ x, y, r: R * 2.2, t: big ? 240 : 120 });
+  if (R >= 30) addDanger(x, y, R * 2.2, big ? 240 : 120);
   fxBoom(x, y, R); sfx.boom(x, y, big);
   for (const a of agents) {
     if (a.state === "saved") continue;

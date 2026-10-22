@@ -44,9 +44,10 @@ function resolveCarOverlaps(dt) {
     if (c.gone || c.z > 0 || c.towedBy || !(c.moving || c.stopped || c.tank)) continue;
     nearCars(c.x, c.y, 36, o => {
       if (o === c || o._i <= c._i || o.gone || o.z > 0 || o.towedBy || !(o.moving || o.stopped || o.tank)) return;
-      const h = obbOverlap(c, o); if (!h) return;
-      const cm = c.moving && !c.tank, om = o.moving && !o.tank, push = Math.min(h.depth, 2.5);
+      const cm = c.moving && !c.tank, om = o.moving && !o.tank;
       if (!cm && !om) return;
+      const h = obbOverlap(c, o); if (!h) return;
+      const push = Math.min(h.depth, 2.5);
       if (cm && om) {
         const rel = Math.abs((c.v || 0) - (o.v || 0));
         if (rel > 22 && (c.panic || o.panic)) { const f = (c.v || 0) >= (o.v || 0) ? c : o; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }

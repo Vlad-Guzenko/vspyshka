@@ -1294,7 +1294,7 @@ function newAgent(role, x, y) {
     quietT: 0, rad: 0, hostile: 0, loot: null, lootT: 0, muzzle: null, onRoof: false, hideB: null, hideT: 0, roofZ: 0, rx: 0, ry: 0, crushed: false, vapor: false, zero: false, seen: 0,
     depotDone: false, ambAssigned: false, tent: null, buildB: null, workT: 0, tool: 0, spray: 0, sprayAt: null, axe: 0, far: 0, onRoofT: 0,
     order: null, post: null, campGoal: null, inCamp: null, forage: null, carry: 0,
-    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null,
+    cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null, dz: null, dzT: 0,
   };
   if (role === "civ") {
     const r = Math.random();
@@ -1593,7 +1593,7 @@ function thinkHuman(a, dt) {
     if (hb && hb.door && !a.forage) { const d = Math.hypot(hb.door[0] - a.x, hb.door[1] - a.y); if (d > 70) return goTo(a, hb.door[0] + rnd(-20, 20), hb.door[1] + rnd(-20, 20), 8); }
   }
   // слух об опасности: уходим из зоны
-  const dz = a.role === "civ" ? inDanger(a) : null;
+  let dz = null; if (a.role === "civ") { a.dzT -= dt; if (a.dzT <= 0) { a.dzT = .5; a.dz = dangers.length ? inDanger(a) : null; } dz = a.dz; }
   if (dz) { const dd = Math.hypot(a.x - dz.x, a.y - dz.y) || 1; return [(a.x - dz.x) / dd, (a.y - dz.y) / dd, 12 * hurt]; }
   if (a.armed && a.role === "civ" && a.ammo < a.magMax && depots.length) { const d = nearestDepot(a, 200); if (d) return goTo(a, d.x, d.y, 7); }
   if (a.role === "medic") {
@@ -1764,7 +1764,7 @@ function step(dt) {
 }
 function boom(x, y, R, big) {
   interest(x, y, big ? 9 : 5);
-  if (R >= 30) dangers.push({ x, y, r: R * 2.2, t: big ? 240 : 120 });
+  if (R >= 30) addDanger(x, y, R * 2.2, big ? 240 : 120);
   fxBoom(x, y, R); sfx.boom(x, y, big);
   for (const a of agents) {
     if (a.state === "saved") continue;
@@ -2068,7 +2068,7 @@ function collapse(b) {
   for (const c of cars) if (!c.moving && c.x > b.x0 - m && c.x < b.x1 + m && c.y > b.y0 - m && c.y < b.y1 + m) { c.wreck = true; c.crushed = true; }
   for (const l of lamps) if (l.x > b.x0 - m && l.x < b.x1 + m && l.y > b.y0 - m && l.y < b.y1 + m) l.down = l.down || rnd(1.2, 1.5) * (Math.random() < .5 ? 1 : -1);
   fieldT = 0; gridDirty = true; barrDirty = true;
-  dangers.push({ x: cx, y: cy, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, t: 300 });
+  addDanger(cx, cy, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, 300);
   logE(b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", "bad");
   fxCollapse(b); sfx.collapse(b); interest((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 10);
 }
@@ -2104,7 +2104,7 @@ function gutBuilding(b) {
   b.gutted = true; b.gutT = 180; b.scorch = 1; b.fire = 0;
   for (const o of (b.occ || []).slice()) leaveShelter(o, true);
   b.door = null; b.gutDoor = true;
-  dangers.push({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 16, t: 200 });
+  addDanger((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 16, 200);
   logT("gutted", b.kind === "tower" ? "Небоскрёб выгорел дотла: остался остов" : "Дом выгорел дотла", "bad", 20);
 }
 function stepBuildings(dt) {
@@ -2749,7 +2749,7 @@ function detonate() {
   // электромагнитный импульс глушит машины
   for (const c of cars) if (c.moving && Math.hypot(c.x - x, c.y - y) < NUKE.RMAX * 1.6) { c.moving = false; c.stopped = true; c.v = 0; }
   radZones.push({ x, y, r: NUKE.R1 * 1.4, t: 240 });
-  dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
+  addDanger(x, y, NUKE.R1 * 1.7, 900);
   dangers.push({ x, y, r: NUKE.R1 * 1.7, t: 900 });
   firsts.nuke = true;
   logE("Ядерный взрыв", "bad");
@@ -3694,7 +3694,7 @@ function broadcastGather(x, y) {
 }
 function broadcastDanger(x, y) {
   if (settings.noRadio) { logT("noradio", "Оповещение невозможно: радиовышка разрушена", "bad", 10); return false; }
-  dangers.push({ x, y, r: 160, t: 120 }); let n = 0;
+  addDanger(x, y, 160, 120); let n = 0;
   near(x, y, 230, a => { if (a.state === "alive" && a.role === "civ" && !a.hidden) { a.panic = Math.max(a.panic, .7); a.dest = null; a.bcastT = 0; n++; } });
   logE(`Слух: «${placeName(x, y)} опасно, уходите». Поверили ${n} человек`, ""); sfx.radio(); return true;
 }
@@ -3702,6 +3702,11 @@ function broadcastHome() {
   if (settings.noRadio) { logT("noradio", "Оповещение невозможно: радиовышка разрушена", "bad", 10); return false; }
   let n = 0; for (const a of agents) if (a.state === "alive" && a.role === "civ" && !a.hidden && !a.forage && a.home >= 0) { a.homeGoal = true; a.dest = null; n++; }
   logE(`Радио: «Всем оставаться дома». Домой пошли ${n} человек`, "good"); sfx.radio(); return true;
+}
+// новая зона: если рядом уже есть похожая — расширяем её, иначе добавляем; список не разрастается
+function addDanger(x, y, r, t) {
+  for (const d of dangers) if (Math.hypot(d.x - x, d.y - y) < Math.max(r, d.r) * .6) { d.r = Math.max(d.r, r); d.t = Math.max(d.t, t); return d; }
+  const d = { x, y, r, t }; dangers.push(d); if (dangers.length > 60) dangers.shift(); return d;
 }
 function stepDangers(dt) { for (const d of dangers) d.t -= dt; dangers = dangers.filter(d => d.t > 0); }
 function inDanger(a) { for (const d of dangers) if (Math.hypot(d.x - a.x, d.y - a.y) < d.r) return d; return null; }
@@ -4032,9 +4037,10 @@ function resolveCarOverlaps(dt) {
     if (c.gone || c.z > 0 || c.towedBy || !(c.moving || c.stopped || c.tank)) continue;
     nearCars(c.x, c.y, 36, o => {
       if (o === c || o._i <= c._i || o.gone || o.z > 0 || o.towedBy || !(o.moving || o.stopped || o.tank)) return;
-      const h = obbOverlap(c, o); if (!h) return;
-      const cm = c.moving && !c.tank, om = o.moving && !o.tank, push = Math.min(h.depth, 2.5);
+      const cm = c.moving && !c.tank, om = o.moving && !o.tank;
       if (!cm && !om) return;
+      const h = obbOverlap(c, o); if (!h) return;
+      const push = Math.min(h.depth, 2.5);
       if (cm && om) {
         const rel = Math.abs((c.v || 0) - (o.v || 0));
         if (rel > 22 && (c.panic || o.panic)) { const f = (c.v || 0) >= (o.v || 0) ? c : o; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }

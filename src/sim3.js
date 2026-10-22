@@ -213,7 +213,7 @@ function collapse(b) {
   for (const c of cars) if (!c.moving && c.x > b.x0 - m && c.x < b.x1 + m && c.y > b.y0 - m && c.y < b.y1 + m) { c.wreck = true; c.crushed = true; }
   for (const l of lamps) if (l.x > b.x0 - m && l.x < b.x1 + m && l.y > b.y0 - m && l.y < b.y1 + m) l.down = l.down || rnd(1.2, 1.5) * (Math.random() < .5 ? 1 : -1);
   fieldT = 0; gridDirty = true; barrDirty = true;
-  dangers.push({ x: cx, y: cy, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, t: 300 });
+  addDanger(cx, cy, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, 300);
   logE(b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", "bad");
   fxCollapse(b); sfx.collapse(b); interest((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 10);
 }
@@ -249,7 +249,7 @@ function gutBuilding(b) {
   b.gutted = true; b.gutT = 180; b.scorch = 1; b.fire = 0;
   for (const o of (b.occ || []).slice()) leaveShelter(o, true);
   b.door = null; b.gutDoor = true;
-  dangers.push({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, r: Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 16, t: 200 });
+  addDanger((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 16, 200);
   logT("gutted", b.kind === "tower" ? "Небоскрёб выгорел дотла: остался остов" : "Дом выгорел дотла", "bad", 20);
 }
 function stepBuildings(dt) {

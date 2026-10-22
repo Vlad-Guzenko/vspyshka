@@ -87,7 +87,7 @@ function broadcastGather(x, y) {
 }
 function broadcastDanger(x, y) {
   if (settings.noRadio) { logT("noradio", "Оповещение невозможно: радиовышка разрушена", "bad", 10); return false; }
-  dangers.push({ x, y, r: 160, t: 120 }); let n = 0;
+  addDanger(x, y, 160, 120); let n = 0;
   near(x, y, 230, a => { if (a.state === "alive" && a.role === "civ" && !a.hidden) { a.panic = Math.max(a.panic, .7); a.dest = null; a.bcastT = 0; n++; } });
   logE(`Слух: «${placeName(x, y)} опасно, уходите». Поверили ${n} человек`, ""); sfx.radio(); return true;
 }
@@ -95,6 +95,11 @@ function broadcastHome() {
   if (settings.noRadio) { logT("noradio", "Оповещение невозможно: радиовышка разрушена", "bad", 10); return false; }
   let n = 0; for (const a of agents) if (a.state === "alive" && a.role === "civ" && !a.hidden && !a.forage && a.home >= 0) { a.homeGoal = true; a.dest = null; n++; }
   logE(`Радио: «Всем оставаться дома». Домой пошли ${n} человек`, "good"); sfx.radio(); return true;
+}
+// новая зона: если рядом уже есть похожая — расширяем её, иначе добавляем; список не разрастается
+function addDanger(x, y, r, t) {
+  for (const d of dangers) if (Math.hypot(d.x - x, d.y - y) < Math.max(r, d.r) * .6) { d.r = Math.max(d.r, r); d.t = Math.max(d.t, t); return d; }
+  const d = { x, y, r, t }; dangers.push(d); if (dangers.length > 60) dangers.shift(); return d;
 }
 function stepDangers(dt) { for (const d of dangers) d.t -= dt; dangers = dangers.filter(d => d.t > 0); }
 function inDanger(a) { for (const d of dangers) if (Math.hypot(d.x - a.x, d.y - a.y) < d.r) return d; return null; }
