@@ -26,6 +26,13 @@ function stepSquads(dt) {
   for (const [id, s] of squads) {
     s.members = s.members.filter(mid => { const m = agentById(mid); return m && m.state === "alive" && m.role === "army" && m.squad === id && !m.withdraw; });
     if (!s.members.length) { squads.delete(id); continue; }
+    // малый отряд рядом с другим вливается в него
+    if (s.members.length <= 4) {
+      const me = agentById(s.leader) || agentById(s.members[0]);
+      let host = null;
+      for (const [oid, o] of squads) { if (oid === id || o.members.length + s.members.length > 10) continue; const ol = agentById(o.leader); if (ol && me && Math.hypot(ol.x - me.x, ol.y - me.y) < 70) { host = o; break; } }
+      if (host) { for (const mid of s.members) { const m = agentById(mid); if (m) { m.squad = host.id; host.members.push(mid); } } squads.delete(id); continue; }
+    }
     let L = agentById(s.leader);
     if (!L || L.state !== "alive" || L.squad !== id) { L = s.members.map(agentById).sort((p, q) => q.hp - p.hp)[0]; s.leader = L.id; }
     // где зомби: по полю расстояний от командира

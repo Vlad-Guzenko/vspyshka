@@ -12,7 +12,7 @@ function serializeGame() {
     if (a.hideB) o.hideB = bi.get(a.hideB); if (a.player) o.player = false;
     return o;
   });
-  const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => { const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar"].includes(k)) o[k] = c[k]; if (c.lane) o.lane = lanes.indexOf(c.lane); return o; });
+  const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => { const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar"].includes(k)) o[k] = c[k]; if (c.lane) o.lane = lanes.indexOf(c.lane); if (c.curve) o.curve = curves.indexOf(c.curve); o.jAt = null; o.over = 0; o.latOff = 0; o.latTgt = 0; return o; });
   return {
     v: 1, date: Date.now(), layoutKey, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId,
     grid: b64(grid), bhp: b64(Uint8Array.from(bhp, v => clamp(Math.round(v), 0, 255))), wall: b64(wallMask),
@@ -37,7 +37,7 @@ function loadGame(S) {
   trees = S.trees; lamps = S.lamps; fountains = S.fountains; fences = S.fences; waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
   special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));
   agents = S.agents.map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
-  cars = S.cars.map(o => { const c = { ...o }; if (o.lane >= 0) c.lane = lanes[o.lane]; else { c.moving = false; c.lane = null; } return c; });
+  cars = S.cars.map(o => { const c = { ...o }; if (o.lane >= 0) c.lane = lanes[o.lane]; else { c.moving = false; c.lane = null; } c.curve = typeof o.curve === "number" && curves[o.curve] ? curves[o.curve] : null; c.jAt = null; return c; });
   tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
   fires = S.fires; tents = S.tents; research = S.research; scientists = S.scientists; vaccineReady = S.vaccineReady; armyWaves = S.armyWaves; gangsSpawned = S.gangsSpawned;
   simT = S.simT; bites = S.bites; deaths = S.deaths; zkills = S.zkills; saved = S.saved; cured = S.cured; nextId = S.nextId;
@@ -47,7 +47,7 @@ function loadGame(S) {
   resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;
   heroes = (S.heroes || []).map(agentById).filter(Boolean); metros = S.metros || []; depots = S.depots || []; strain = S.strain || { lvl: 1, t: 0 }; chDone = S.chDone || 0; chFail = S.chFail || 0;
   resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout || null; settings.dark = !!blackout;
-  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); quarMask.fill(0); if (S.quarMask) quarMask.set(S.quarMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) m.cells = null; settings.curfew = !!S.curfew;
+  resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); quarMask.fill(0); if (S.quarMask) quarMask.set(S.quarMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) { m.cells = []; for (let gy = Math.floor((m.y - 6) / CS); gy <= Math.floor((m.y + 6) / CS); gy++) for (let gx = Math.floor((m.x - 9) / CS); gx <= Math.floor((m.x + 9) / CS); gx++) { const i = gy * GW + gx; if (grid[i] === 5) m.cells.push([i, 1]); } } settings.curfew = !!S.curfew;
   for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) a.detained = cps[0] || null; if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
   for (const a of agents) if (!a.name) nameFor(a);

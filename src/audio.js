@@ -203,6 +203,7 @@ const sfx = {
   jet() { /* пролёт озвучивается петлёй в updateAudio */ jetT = 6; },
   siren() {}, radio() { play("radio", undefined, undefined, .35); },
   crash(c) { if (!c) return; playS(Math.random() < .5 ? "glass" : "metal", c.x, c.y, 1.1, { rate: rnd(.8, 1.1) }, "crash"); playS("slam", c.x, c.y, .8, { rate: rnd(.7, .9) }); },
+  deny() { play("chime", undefined, undefined, .45, { rate: .5 }); },
   horn(c) { play("horn", c.x, c.y, .7, { rate: rnd(.9, 1.1) }); },
   thud(c) { playS("hit", c.x, c.y, 1, { rate: rnd(.7, .9) }, "thud"); play("flesh", c.x, c.y, .7); },
   nuke(x, y) { const d = Math.hypot(X(x) - camC.tx, Z(y) - camC.tz) + camC.dist * .5; play("nuke", undefined, undefined, 2.6, { delay: Math.min(4, d / 1360), wet: .6 }); },

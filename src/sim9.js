@@ -3,9 +3,9 @@ const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital
 function computeDoors() {
   for (const b of buildings) {
     b.occ = []; b.door = null;
-    if (!HIDE_KINDS.has(b.kind) || b.rot !== undefined) continue;
+    if (!HIDE_KINDS.has(b.kind)) continue;
     const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-    const sides = [[cx, b.y1 + 5], [cx, b.y0 - 5], [b.x0 - 5, cy], [b.x1 + 5, cy]];
+    const sides = b.rot !== undefined ? (b.doorPref ? [b.doorPref, freeNear(b.doorPref[0], b.doorPref[1], 12)] : []) : [[cx, b.y1 + 5], [cx, b.y0 - 5], [b.x0 - 5, cy], [b.x1 + 5, cy]];
     for (const [x, y] of sides) { const c = cellAt(x, y); if (c === 0 || c === 1 || c === 2 || c === 7) { b.door = [x, y]; break; } }
     if (!b.door) continue;
     b.cap = clamp(Math.floor((b.x1 - b.x0) * (b.y1 - b.y0) / 160) * (b.floors > 4 ? 2 : 1), 4, 80);

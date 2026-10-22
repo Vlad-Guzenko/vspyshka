@@ -395,6 +395,7 @@ function move(a, mx, my, sp, dt) {
   if (!blocked(a.x, ny) && !vehicleAt(a.x, ny) && cellAt(a.x, ny) !== 9) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
   a.speed = Math.hypot(a.vx, a.vy);
   a.stuck = sp > 2 && a.speed < 1.5 ? (a.stuck || 0) + dt : 0;
+  if (a.stuck > 2 && !a.hidden && !a.onRoof && blocked(a.x, a.y)) { const [fx, fy] = freeNear(a.x, a.y, 12); a.x = fx; a.y = fy; a.stuck = 0; }
   const want = a.aimT > 0 ? a.aim : a.speed > 1.5 ? Math.atan2(a.vy, a.vx) : a.dir;
   let dd = want - a.dir; dd -= Math.round(dd / TAU) * TAU;
   a.dir += dd * Math.min(1, dt * 8);

@@ -1,5 +1,10 @@
 /* ---------- изогнутые и диагональные дороги поверх осевой сетки: кольца, лучи, извилины ---------- */
-let curves = [], junctions = [];
+let curves = [], junctions = [], clearedCells = new Set();
+const urbanMask = new Uint8Array(GW * GH);
+function buildUrbanMask() {
+  urbanMask.fill(0);
+  for (const b of blocks) { if (b.rural || ["field", "meadow", "forest", "bank", "hill", "bigpark"].includes(b.kind)) continue; for (let gy = Math.floor((b.y0 - 12) / CS); gy <= Math.floor((b.y1 + 12) / CS); gy++) for (let gx = Math.floor((b.x0 - 12) / CS); gx <= Math.floor((b.x1 + 12) / CS); gx++) if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) urbanMask[gy * GW + gx] = 1; }
+}
 function curveBuild(pts, hw, closed) {
   if (closed) pts = pts.concat([pts[0]]);
   const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
@@ -39,14 +44,14 @@ function rasterCurve(cv) {
   }
   const inCorridor = (x0, y0, x1, y1) => { for (let gy = Math.floor(y0 / CS); gy <= Math.floor(y1 / CS); gy++) for (let gx = Math.floor(x0 / CS); gx <= Math.floor(x1 / CS); gx++) { const i = gy * GW + gx; if (road.has(i) || side.has(i)) return true; } return false; };
   const isSpecial = b => Object.values(special).some(s => s.b === b);
-  buildings = buildings.filter(b => { if (!inCorridor(b.x0, b.y0, b.x1, b.y1) || isSpecial(b)) return true; fillCells(b.x0, b.y0, b.x1, b.y1, 2); return false; });
+  buildings = buildings.filter(b => { if (!inCorridor(b.x0, b.y0, b.x1, b.y1) || isSpecial(b)) return true; fillCells(b.x0, b.y0, b.x1, b.y1, 2); for (let gy = Math.floor(b.y0 / CS); gy <= Math.floor((b.y1 - 1) / CS); gy++) for (let gx = Math.floor(b.x0 / CS); gx <= Math.floor((b.x1 - 1) / CS); gx++) clearedCells.add(gy * GW + gx); return false; });
   trees = trees.filter(t => { if (curveNearest(cv, t.x, t.y).d > R + 3) return true; fillCells(t.x - 3, t.y - 3, t.x + 3, t.y + 3, 2); return false; });
   lamps = lamps.filter(l => curveNearest(cv, l.x, l.y).d > R);
   fences = fences.filter(f => curveNearest(cv, (f[0] + f[2]) / 2, (f[1] + f[3]) / 2).d > R + 6 && curveNearest(cv, f[0], f[1]).d > R && curveNearest(cv, f[2], f[3]).d > R);
   fountains = fountains.filter(f => curveNearest(cv, f.x, f.y).d > R + f.r);
-  for (const i of side) { const c = grid[i]; if (c === 2 || c === 7 || c === 8 || c === 3 || c === 4) grid[i] = 1; }
+  for (const i of side) { const c = grid[i]; if (!urbanMask[i]) { if (c === 3 || c === 4) grid[i] = 2; continue; } if (c === 2 || c === 7 || c === 8 || c === 3 || c === 4) grid[i] = 1; }
   for (const i of road) grid[i] = 0;
-  for (let t = 40; t < cv.len - 20; t += 64) { const p = curvePos(cv, t); for (const s of [-1, 1]) { const x = p.x + s * (-p.ty) * (cv.hw + 3), y = p.y + s * p.tx * (cv.hw + 3); if (x > 10 && y > 10 && x < W - 10 && y < H - 10 && cellAt(x, y) === 1) lamps.push({ x, y, f: Math.abs(p.tx) > Math.abs(p.ty) ? (s < 0 ? 0 : 1) : (s < 0 ? 2 : 3) }); } }
+  for (let t = 40; t < cv.len - 20; t += 64) { const p = curvePos(cv, t); for (const s of [-1, 1]) { const x = p.x + s * (-p.ty) * (cv.hw + 3), y = p.y + s * p.tx * (cv.hw + 3); if (x > 10 && y > 10 && x < W - 10 && y < H - 10 && cellAt(x, y) === 1 && urbanMask[Math.floor(y / CS) * GW + Math.floor(x / CS)]) lamps.push({ x, y, f: Math.abs(p.tx) > Math.abs(p.ty) ? (s < 0 ? 0 : 1) : (s < 0 ? 2 : 3) }); } }
 }
 // ближайшая точка на осевой улице (не краевой): концы открытых дорог притягиваются к ним, чтобы был стык
 function nearestStreetPt(x, y, maxD) {
@@ -80,9 +85,38 @@ function windingPts(x0, y0, x1, y1, amp, waves) {
   for (let i = 0; i <= n; i++) { const k = i / n, off = Math.sin(k * waves * TAU + ph) * amp * Math.sin(k * Math.PI); pts.push([x0 + ux * L * k - uy * off, y0 + uy * L * k + ux * off]); }
   return pts;
 }
+// дома вдоль кривой дороги: повёрнуты по касательной, стоят там, где снесли старую застройку
+function buildAlongCurves() {
+  for (const cv of curves) {
+    for (let t = 14; t < cv.len - 14;) {
+      const p = curvePos(cv, t), nx = -p.ty, ny = p.tx, lotW = rnd(14, 26), gap = rnd(3, 7);
+      for (const side of [-1, 1]) {
+        const cx0 = p.x + nx * side * (cv.hw + 10), cy0 = p.y + ny * side * (cv.hw + 10);
+        const gi0 = Math.floor(cy0 / CS) * GW + Math.floor(cx0 / CS);
+        if (cx0 < 20 || cy0 < 20 || cx0 > W - 20 || cy0 > H - 20 || !urbanMask[gi0]) continue;
+        const dist = districtOf(cx0, cy0), floors = dist === 0 ? Math.floor(rnd(4, 9)) : dist === 1 ? Math.floor(rnd(2, 5)) : Math.floor(rnd(1, 3)), kind = floors <= 2 ? "house" : "apt";
+        const depth = kind === "house" ? rnd(12, 18) : rnd(16, 24), off = cv.hw + 8 + depth / 2;
+        const cx = p.x + nx * side * off, cy = p.y + ny * side * off;
+        const hx = Math.abs(p.tx) * lotW / 2 + Math.abs(nx) * depth / 2, hy = Math.abs(p.ty) * lotW / 2 + Math.abs(ny) * depth / 2;
+        const x0 = cx - hx, y0 = cy - hy, x1 = cx + hx, y1 = cy + hy;
+        if (x0 < 12 || y0 < 12 || x1 > W - 12 || y1 > H - 12) continue;
+        let ok = true, cleared = 0, total = 0;
+        for (let gy = Math.floor(y0 / CS); gy <= Math.floor(y1 / CS) && ok; gy++) for (let gx = Math.floor(x0 / CS); gx <= Math.floor(x1 / CS); gx++) { const i = gy * GW + gx, c = grid[i]; total++; if (clearedCells.has(i)) cleared++; if (!(c === 1 || c === 2) || !urbanMask[i]) { ok = false; break; } }
+        if (!ok || cleared < total * .35) continue;
+        // не слишком близко к другой кривой дороге
+        let nearRoad = false; for (const o of curves) if (o !== cv && curveNearest(o, cx, cy).d < o.hw + depth / 2 + 4) nearRoad = true; if (nearRoad) continue;
+        const b = addBuilding({ x0, y0, x1, y1, kind, floors, style: kind === "house" ? 11 + Math.floor(Math.random() * 4) : Math.floor(Math.random() * 5), rot: Math.atan2(p.ty, p.tx), cx, cy, w: lotW, d: depth, ridge: "x" });
+        b.doorPref = [p.x + nx * side * (cv.hw + 4), p.y + ny * side * (cv.hw + 4)];
+        lamps = lamps.filter(l => l.x < x0 - 2 || l.x > x1 + 2 || l.y < y0 - 2 || l.y > y1 + 2);
+      }
+      t += lotW + gap;
+    }
+  }
+}
 function genCurves() {
-  curves = []; junctions = [];
+  curves = []; junctions = []; clearedCells = new Set();
   const kind = L.curves; if (!kind) return;
+  buildUrbanMask();
   const cx = W / 2, cy = H / 2;
   if (kind === "ring" || kind === "radial") {
     const rings = kind === "ring" ? [250, 520] : [200, 400, 620], spokes = kind === "ring" ? 8 : 12;
@@ -97,6 +131,7 @@ function genCurves() {
     for (let i = 0; i < 4; i++) for (let k = 0; k < 4; k++) { const y = H * (.2 + .2 * i) + rnd(-40, 40); if (addCurve(windingPts(20, y, W - 20, y + rnd(-200, 200), rnd(90, 160), rnd(1.5, 3)), 16, false)) break; }
     for (let i = 0; i < 3; i++) for (let k = 0; k < 4; k++) { const x = W * (.25 + .25 * i) + rnd(-60, 60); if (addCurve(windingPts(x, 20, x + rnd(-250, 250), H - 20, rnd(80, 140), rnd(1.5, 2.5)), 14, false)) break; }
   }
+  buildAlongCurves();
 }
 /* ---------- машины на изогнутых дорогах ---------- */
 function curveDirOf(tx, ty) { return ((Math.round(Math.atan2(ty, tx) / (Math.PI / 2)) % 4) + 4) % 4; }

@@ -29,7 +29,7 @@ function laneBusy(l, along, self) {
   return busy;
 }
 function placeOnLane(c, lane, along) {
-  c.lane = lane; c.dir = lane.dir;
+  c.lane = lane; c.dir = lane.dir; c.latOff = 0; c.latTgt = 0; c.over = 0;
   if (lane.s.v) { c.x = lane.c; c.y = along; } else { c.x = along; c.y = lane.c; }
 }
 let fled = 0;
@@ -45,7 +45,7 @@ function turnToward(c, g) {
 function spawnTraffic(n) {
   for (let i = 0; i < n; i++) {
     const lane = pick(lanes);
-    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, blend: 0, offx: 0, offy: 0, _i: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
+    const c = { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, fleeTo: null, curve: null, ct: 0, cdir: 1, jAt: null, blend: 0, offx: 0, offy: 0, _i: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0 };
     const r = Math.random();
     if (r < .04) { c.tanker = true; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
     else if (r < .09) { c.bus = true; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
@@ -59,7 +59,7 @@ function spawnTraffic(n) {
 function abandonCar(c, why) {
   c.moving = false; c.stopped = true; c.v = 0;
   const hw = Math.abs(Math.cos(c.ang)) > .5 ? 9 : 4, hh = hw === 9 ? 4 : 9;
-  fillCells(c.x - hw, c.y - hh, c.x + hw, c.y + hh, 5); fieldT = 0;
+  fillCells(c.x - hw, c.y - hh, c.x + hw, c.y + hh, 5); evictRect(c.x - hw - 4, c.y - hh - 4, c.x + hw + 4, c.y + hh + 4); fieldT = 0;
   if (!c.wreck && why !== "crash") {
     // водитель выскакивает и бежит; из автобуса высыпают пассажиры
     const side = Math.random() < .5 ? 1 : -1, ox = -DY[c.dir] * 8 * side, oy = DX[c.dir] * 8 * side;
@@ -81,7 +81,7 @@ function stepTraffic(dt) {
       if (c.z <= 0) {
         c.z = 0; c.vz = 0; c.sr = 0; c.sy = 0;
         c.roll = Math.round(c.roll / (Math.PI / 2)) * (Math.PI / 2); // ложится на бок или на крышу
-        fillCells(c.x - 6, c.y - 6, c.x + 6, c.y + 6, 5); fieldT = 0;
+        fillCells(c.x - 6, c.y - 6, c.x + 6, c.y + 6, 5); evictRect(c.x - 10, c.y - 10, c.x + 10, c.y + 10); fieldT = 0;
         fxDebris(c.x, c.y); sfx.crash(c);
       }
       continue;
@@ -91,6 +91,8 @@ function stepTraffic(dt) {
     if (c.curve) { stepCurveCar(c, dt); continue; }
     if (junctions.length && tryEnterCurve(c)) continue;
     const dx = DX[c.dir], dy = DY[c.dir];
+    if (c.latOff !== c.latTgt) { c.latOff += (c.latTgt - c.latOff) * Math.min(1, dt * 2.2); if (Math.abs(c.latOff - c.latTgt) < .05) c.latOff = c.latTgt; }
+    if (c.lane && !c.offx && !c.offy) { const lat = c.lane.c + (c.latOff || 0); if (c.lane.s.v) c.x = lat; else c.y = lat; }
     // что впереди: машины, люди, препятствия
     let clear = 1e9, people = false, zAhead = false, ahead = null;
     nearCars(c.x + dx * 25, c.y + dy * 25, 32, o => {
@@ -115,7 +117,7 @@ function stepTraffic(dt) {
       }
     });
     let water = false;
-    for (let k = 12; k < 40; k += 6) { const cc = cellAt(c.x + dx * k, c.y + dy * k); if (cc === 9 || cc === 1 || cc === 2 || cc === 7 || (cc === 3 && !c.lane.s.edge && k < 20 && cellAt(c.x + dx * (k + 8), c.y + dy * (k + 8)) === 3)) { water = k < 20; break; } if (cc === 3 || cc === 4 || cc === 6 || cc === 8) { clear = Math.min(clear, k); break; } }
+    for (let k = 12; k < 40; k += 6) { const cc = cellAt(c.x + dx * k, c.y + dy * k); if (cc === 9 || cc === 1 || cc === 2 || cc === 7 || (cc === 3 && !c.lane.s.edge && k < 20 && cellAt(c.x + dx * (k + 8), c.y + dy * (k + 8)) === 3)) { water = k < 20; break; } if (cc === 5 && !c.over) { clear = Math.min(clear, k - 6); break; } if (cc === 3 || cc === 4 || cc === 6 || cc === 8) { clear = Math.min(clear, k); break; } }
     if (water) { const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (opp) { placeOnLane(c, opp, c.lane.s.v ? c.y : c.x); c.ang += Math.PI; continue; } }
     if (zNear > 0 && !c.panic && !c.service) { c.panic = true; c.spd *= 1.35; c.fleeTo = nearestEdge(c.x, c.y); }
     if (c.goal) { c.svcT = (c.svcT || 0) + dt; if (!c.leaving && c.svcT > 70) { deployCrew(c); continue; } }
@@ -145,7 +147,7 @@ function stepTraffic(dt) {
     // застряли среди зомби — водитель бросает машину
     if (c.wait > 3 && zNear >= 2 && !c.service) { abandonCar(c, "Водитель бросил машину посреди дороги"); continue; }
     if (c.service && !c.leaving && zNear >= 1 && (c.service === "police" || c.service === "army")) { deployCrew(c); continue; }
-    if (c.wait > 22) { const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (opp && !laneBusy(opp, c.lane.s.v ? c.y : c.x, c)) { placeOnLane(c, opp, c.lane.s.v ? c.y : c.x); c.wait = 0; c.turnT = 1; } }
+    stepOvertake(c, dt, dx, dy, clear, ahead);
     // поворот на перекрёстке
     const ox = c.x, oy = c.y;
     c.x += dx * c.v * dt; c.y += dy * c.v * dt;

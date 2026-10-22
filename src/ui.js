@@ -25,7 +25,7 @@ function updateCamera(dt) {
     const cx = camera.position.x + W / 2, cz = camera.position.z + H / 2;
     for (const b of buildings) if (cx > b.x0 - 6 && cx < b.x1 + 6 && cz > b.y0 - 6 && cz < b.y1 + 6 && camera.position.y < b.h + 8) camera.position.y = b.h + 8;
     // и не смотрит сквозь стену: если между точкой взгляда и камерой дом, камера придвигается
-    if (camC.dist < 420) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
+    if (camC.dist < 420 && cellAt(camC.tx + W / 2, camC.tz + H / 2) !== 3) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
   }
   camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
   camera.lookAt(camC.tx, lookY, camC.tz);
@@ -157,7 +157,7 @@ function paintBarricade(x, y, erase, wall) {
 }
 const BARR_KIND = { barricade: 0, wall: 1, efence: 2 };
 function useTool(e, x, y) {
-  if (["army", "tank", "strike", "evac", "nuke"].includes(tool)) { if (limitLeft(tool) <= 0) { $("tip").innerHTML = "<b>Лимит исчерпан</b> в этом сценарии."; return; } spendLimit(tool); setTimeout(renderTools, 0); }
+  if (["army", "tank", "strike", "evac", "nuke"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } spendLimit(tool); setTimeout(renderTools, 0); }
   if (tool === "watch") { const a = agentAt(e); if (a) { followA = a; camS.dist = Math.min(camS.dist, 160); camS.pitch = Math.min(camS.pitch, .55); } return; }
   if (tool === "infect") { const a = agentAt(e, a => a.state === "alive" && a.role !== "zombie" && !a.bitten); if (a) { a.bitten = true; a.incT = settings.inc * rnd(.7, 1.3); bites++; logE("Заражён ещё один человек", "bad"); } return; }
   if (tool === "zombie") { if (!blocked(x, y)) { const a = newAgent("zombie", x, y); turn(a); a.riseT = 0; } return; }
@@ -175,7 +175,7 @@ function useTool(e, x, y) {
     evac = { x, y, hx: x - Math.cos(a) * 900, hy: y - Math.sin(a) * 900, alt: 110, yaw: a, landed: false, leaving: false, t: 60, cap: 40, capMax: 40 };
     fieldT = 0; logE("Вертолёт эвакуации в пути"); return;
   }
-  if (tool === "nuke") { if (!launchNuke(x, y)) { $("tip").innerHTML = "<b>Удар уже в пути.</b>"; uses.nuke = Math.max(0, (uses.nuke || 1) - 1); } return; }
+  if (tool === "nuke") { if (!launchNuke(x, y)) { warn("<b>Удар уже в пути.</b>"); uses.nuke = Math.max(0, (uses.nuke || 1) - 1); } return; }
   if (tool === "strike") { strikes.push({ x, y, t: 3 }); logE("Штурмовик заходит на цель", "bad"); }
   if (tool === "firefighters" || tool === "repair") {
     const type = tool === "repair" ? "repair" : "fire", t = serviceTarget(type);
@@ -184,21 +184,21 @@ function useTool(e, x, y) {
     logE(type === "fire" ? "Вызваны пожарные" : "Вызваны ремонтники", "good"); return;
   }
   if (tool === "lab") { scientists += 3; logE(`В лабораторию прибыли учёные, всего ${scientists}`, "good"); return; }
-  if (tool === "vaccinate") { if (!vaccineReady) { $("tip").innerHTML = `<b>Вакцина ещё не готова:</b> ${Math.floor(research * 100)}%. Ускорь её учёными.`; return; } addTent(x, y); return; }
+  if (tool === "vaccinate") { if (!vaccineReady) { warn(`<b>Вакцина ещё не готова:</b> ${Math.floor(research * 100)}%. Ускорь её учёными.`); return; } addTent(x, y); return; }
   if (tool === "tank") { const [tx, ty] = freeNear(x, y, 20); addTank(tx, ty); logE("Прибыл танк", "good"); sfx.radio(); }
-  if (tool === "depot") { if (blocked(x, y)) { $("tip").innerHTML = "<b>Здесь нельзя:</b> выбери свободное место на улице или площади."; return; } addDepot(x, y); sfx.radio(); }
+  if (tool === "depot") { if (blocked(x, y)) { warn("<b>Здесь нельзя:</b> выбери свободное место на улице или площади."); return; } addDepot(x, y); sfx.radio(); }
   if (tool === "boom") { boom(x, y, 48, false); logT("boom", "Взрыв", "bad", 5); }
   if (tool === "meteor") callMeteor(x, y);
   if (tool === "fire") startFire(x, y);
   if (tool === "horde") spawnHorde(x, y);
-  if (tool === "tower") { if (!addTower(x, y)) $("tip").innerHTML = "<b>Здесь не поставить:</b> нужна свободная площадка 4 × 4 м."; }
+  if (tool === "tower") { if (!addTower(x, y)) warn("<b>Здесь не поставить:</b> нужна свободная площадка 4 × 4 м."); }
   if (tool === "flood") addFlood(x, y);
-  if (tool === "camp") { if (!addCamp(x, y)) $("tip").innerHTML = "<b>Слишком близко к краю карты.</b>"; }
+  if (tool === "camp") { if (!addCamp(x, y)) warn("<b>Слишком близко к краю карты.</b>"); }
   if (tool === "supply") callDrop(x, y);
-  if (tool === "mine") { if (!addMine(x, y)) $("tip").innerHTML = "<b>Здесь нельзя:</b> выбери свободное место."; }
-  if (tool === "barrels") { if (blocked(x, y)) { $("tip").innerHTML = "<b>Здесь нельзя:</b> выбери свободное место."; return; } addBarrels(x, y); }
-  if (tool === "gen") { if (blocked(x, y)) { $("tip").innerHTML = "<b>Здесь нельзя:</b> выбери свободное место."; return; } addGen(x, y); sfx.radio(); }
-  if (tool === "cp") { if (!addCheckpoint(x, y)) $("tip").innerHTML = "<b>КПП:</b> кликни ближе к улице (не у края карты)."; }
+  if (tool === "mine") { if (!addMine(x, y)) warn("<b>Здесь нельзя:</b> выбери свободное место."); }
+  if (tool === "barrels") { if (blocked(x, y)) { warn("<b>Здесь нельзя:</b> выбери свободное место."); return; } addBarrels(x, y); }
+  if (tool === "gen") { if (blocked(x, y)) { warn("<b>Здесь нельзя:</b> выбери свободное место."); return; } addGen(x, y); sfx.radio(); }
+  if (tool === "cp") { if (!addCheckpoint(x, y)) warn("<b>КПП:</b> кликни ближе к улице (не у края карты)."); }
   if (tool === "gather") broadcastGather(x, y);
   if (tool === "danger") broadcastDanger(x, y);
   if (tool === "home") broadcastHome();
@@ -263,13 +263,13 @@ const endPtr = e => {
   ptrs.delete(e.pointerId);
   if (edDrag && qStart && qEnd) { edApply(edDrag, qStart, qEnd); edDrag = null; qStart = qEnd = null; }
   if (editMode && edDirty) { edDirty = false; edRebuild(); }
-  if (qStart && qEnd) { if (!planQuarantine(qStart[0], qStart[1], qEnd[0], qEnd[1])) $("tip").innerHTML = "<b>Карантин:</b> зона слишком маленькая, протяни прямоугольник побольше."; qStart = qEnd = null; }
+  if (qStart && qEnd) { if (!planQuarantine(qStart[0], qStart[1], qEnd[0], qEnd[1])) warn("<b>Карантин:</b> зона слишком маленькая, протяни прямоугольник побольше."); qStart = qEnd = null; }
   if (tool === "squad" && selStart && selEnd) {
     if (drag && drag.moved && Math.hypot(selEnd[0] - selStart[0], selEnd[1] - selStart[1]) > 6) { const n = selectBox(selStart[0], selStart[1], selEnd[0], selEnd[1]); $("tip").innerHTML = n ? `<b>Выбрано бойцов: ${n}.</b> Кликни по земле — займут позицию.` : "<b>В рамке нет бойцов.</b> Нужны солдаты или полицейские."; }
     else useTool(e, selStart[0], selStart[1]);
     selStart = selEnd = null;
   }
-  if (tool === "wire" && wireStart && selEnd) { if (!addWire(wireStart[0], wireStart[1], selEnd[0], selEnd[1])) $("tip").innerHTML = "<b>Растяжка:</b> протяни линию длиннее 6 м."; wireStart = null; selEnd = null; }
+  if (tool === "wire" && wireStart && selEnd) { if (!addWire(wireStart[0], wireStart[1], selEnd[0], selEnd[1])) warn("<b>Растяжка:</b> протяни линию длиннее 6 м."); wireStart = null; selEnd = null; }
   if (drag && drag.mode === "tool" && tool === "watch" && !drag.moved) useTool(e);
   if (ptrs.size < 2) pinch = null;
   drag = null;

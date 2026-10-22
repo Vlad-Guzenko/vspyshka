@@ -5,7 +5,14 @@ function blockFree(x0, y0, x1, y1) {
     if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx, c = grid[i];
     if (c === 0 || c === 1 || c === 2 || c === 7 || c === 8) { out.push([i, c]); grid[i] = 5; }
   }
-  fieldT = 0; return out;
+  evictRect(x0, y0, x1, y1); fieldT = 0; return out;
+}
+// кто стоял там, где теперь препятствие, выходит на свободное место
+function evictRect(x0, y0, x1, y1) {
+  near((x0 + x1) / 2, (y0 + y1) / 2, Math.hypot(x1 - x0, y1 - y0) / 2 + 4, a => {
+    if (a.state !== "alive" || a.hidden || a.x < x0 || a.x > x1 || a.y < y0 || a.y > y1) return;
+    const [fx, fy] = freeNear(a.x, a.y, 14); a.x = fx; a.y = fy;
+  });
 }
 function unblock(cells) { for (const [i, c] of cells) if (grid[i] === 5) grid[i] = c; fieldT = 0; }
 /* ---------- ловушки: мины, растяжки, бочки, электрозабор с генератором ---------- */
@@ -13,8 +20,8 @@ let traps = [], gens = [];
 const elecMask = new Uint8Array(GW * GH);
 function addMine(x, y) { if (blocked(x, y)) return false; traps.push({ k: "mine", x, y, arm: 2 }); logT("mine", "Установлена мина", "", 10); return true; }
 function addWire(x0, y0, x1, y1) { const L = Math.hypot(x1 - x0, y1 - y0); if (L < 6) return false; traps.push({ k: "wire", x: x0, y: y0, x2: x1, y2: y1, arm: 2 }); logT("wire", "Поставлена растяжка", "", 10); return true; }
-function addBarrels(x, y) { for (let i = 0; i < 3; i++) { const [bx, by] = freeNear(x + rnd(-4, 4), y + rnd(-4, 4), 4); traps.push({ k: "barrel", x: bx, y: by, fuse: -1 }); fillCells(bx - 1, by - 1, bx + 1, by + 1, 5); } fieldT = 0; logT("barrel", "Выставлены бочки с бензином", "", 10); return true; }
-function addGen(x, y) { const [gx, gy] = freeNear(x, y, 6); gens.push({ x: gx, y: gy, fuel: 300, max: 300 }); fillCells(gx - 2, gy - 2, gx + 2, gy + 2, 5); fieldT = 0; logE("Запущен генератор: электрозабор в радиусе 30 м под током, топлива на 5 минут", "good"); return true; }
+function addBarrels(x, y) { for (let i = 0; i < 3; i++) { const [bx, by] = freeNear(x + rnd(-4, 4), y + rnd(-4, 4), 4); traps.push({ k: "barrel", x: bx, y: by, fuse: -1 }); fillCells(bx - 1, by - 1, bx + 1, by + 1, 5); evictRect(bx - 4, by - 4, bx + 4, by + 4); } fieldT = 0; logT("barrel", "Выставлены бочки с бензином", "", 10); return true; }
+function addGen(x, y) { const [gx, gy] = freeNear(x, y, 6); gens.push({ x: gx, y: gy, fuel: 300, max: 300 }); fillCells(gx - 2, gy - 2, gx + 2, gy + 2, 5); evictRect(gx - 6, gy - 6, gx + 6, gy + 6); fieldT = 0; logE("Запущен генератор: электрозабор в радиусе 30 м под током, топлива на 5 минут", "good"); return true; }
 function powered(x, y) { for (const g of gens) if (g.fuel > 0 && Math.hypot(g.x - x, g.y - y) < 120) return true; return false; }
 function trapBlast(x, y, R) { for (const t of traps) if (t.k === "barrel" && t.fuse < 0 && Math.hypot(t.x - x, t.y - y) < R * 1.3) t.fuse = rnd(.15, .5); }
 function blowBarrel(t) {

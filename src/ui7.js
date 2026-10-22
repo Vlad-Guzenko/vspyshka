@@ -26,3 +26,6 @@ let wireStart = null;
 $("toolsToggle").addEventListener("click", () => { document.body.classList.toggle("noTools"); $("toolsToggle").textContent = document.body.classList.contains("noTools") ? "›" : "‹"; resize(); });
 $("panelToggle").addEventListener("click", () => { document.body.classList.toggle("noPanel"); $("panelToggle").textContent = document.body.classList.contains("noPanel") ? "‹" : "›"; resize(); });
 window.addEventListener("keydown", e => { if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return; if (e.key === "[") $("toolsToggle").click(); if (e.key === "]") $("panelToggle").click(); });
+
+/* ---------- предупреждение: всплывает на пару секунд и звучит ---------- */
+function warn(html) { $("toast").innerHTML = `<small>Нельзя</small><b>${html.replace(/<\/?b>/g, "")}</b>`; $("toast").hidden = false; toastT = 2.6; sfx.deny(); }
