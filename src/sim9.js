@@ -111,14 +111,16 @@ function planQuarantine(x0, y0, x1, y1) {
   // обход периметра по часовой: строители идут вдоль забора
   for (let x = x0; x <= x1; x += CS) add(x, y0);
   for (let y = y0 + CS; y <= y1; y += CS) add(x1, y);
-  for (let x = x1 - CS; x >= x0; x -= CS) add(x, y1);
+  const gx = (x0 + x1) / 2; // ворота: проход 14 м в середине нижней стороны
+  for (let x = x1 - CS; x >= x0; x -= CS) if (Math.abs(x - gx) > 7) add(x, y1);
   for (let y = y1 - CS; y > y0; y -= CS) add(x0, y);
-  const j = { cells, i: 0, x0, y0, x1, y1, t0: simT, work: 0 };
+  const j = { cells, i: 0, x0, y0, x1, y1, t0: simT, work: 0, gate: [gx, y1] };
   wallJobs.push(j);
+  j.cp = addGateCheckpoint(gx, y1);
   // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
-  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
+  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [gx - 12, y1], [gx + 12, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
   const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j }; j.lastSent = simT;
-  logE("Карантин: военные оцепили район, строители едут ставить забор", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
+  logE("Карантин: военные оцепили район, строители едут ставить забор; выход через КПП с проверкой", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
   return true;
 }
 function stepWalls(dt) {

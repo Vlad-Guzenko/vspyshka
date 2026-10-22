@@ -23,7 +23,7 @@ function stepResponse(dt) {
   respT -= dt; if (respT > 0) return; respT = 2;
   const c = lastCounts || counts(), Z = c.Z;
   const recent = reports.filter(r => r.kind === "attack" && simT - r.t < 60).length;
-  const want = Z >= 200 || (c.H < 150 && Z > 40) ? 5 : Z >= 50 ? 4 : Z >= 15 ? 3 : Z >= 4 || recent >= 3 ? 2 : (firsts.zombie || bites >= 2 || recent >= 1) ? 1 : 0;
+  const want = Z >= 200 || (c.H < 150 && Z > 40) ? 5 : Z >= 60 ? 4 : Z >= 20 ? 3 : Z >= 6 || recent >= 4 ? 2 : (firsts.zombie || bites >= 2 || recent >= 1) ? 1 : 0;
   if (want > alert) { alert = want; alertT = simT; announceAlert(); }
   else if (want < alert && simT - alertT > 120 && Z <= [0, 0, 1, 6, 25, 100][alert]) { alert--; alertT = simT; logE(alert ? `Штаб понижает уровень ЧС до ${alert}: ${ALERT_N[alert]}` : "Штаб: отбой тревоги, очаг ликвидирован", "good"); radio(alert ? "Штаб: обстановка стабилизируется, уровень понижен" : "Штаб: отбой, всем службам возвращаться"); }
   if (!alert) return;
@@ -34,8 +34,8 @@ function stepResponse(dt) {
   // 2. армия: держим численность солдат по числу зомби, колонны идут каждые 20–30 с
   if (alert >= 2) {
     let soldiers = 0; for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.withdraw) soldiers++;
-    const need = Math.min(alert >= 4 ? 90 : 56, 10 + Z * 1.3) * (scen && scen.limits ? .5 : 1);
-    if (soldiers < need && hq.withdrawnT <= 0 && since("army") > (alert >= 3 ? 20 : 30)) {
+    const need = Math.min(alert >= 4 ? 60 : 36, 6 + Z * .8) * (scen && scen.limits ? .5 : 1);
+    if (soldiers < need && hq.withdrawnT <= 0 && since("army") > (alert >= 3 ? 35 : 50)) {
       respLog.army = simT; respLog.armyN = (respLog.armyN || 0) + 1;
       for (let i = 0; i < 2; i++) { const t = spawnService("army", cl.x + rnd(-70, 70), cl.y + rnd(-70, 70), null); t.spd = 66; t.sweep = true; }
       logE(respLog.armyN === 1 ? "Армия входит в город: колонна идёт к очагу на ликвидацию" : `Подкрепление армии, колонна ${respLog.armyN}`, "good"); if (respLog.armyN === 1) { sfx.radio(); interest(cl.x, cl.y, 4); }

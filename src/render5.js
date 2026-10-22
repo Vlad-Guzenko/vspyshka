@@ -87,7 +87,10 @@ function updateConstruction() {
     if (b.state === "construct" || (b.state === "ok" && b.scaf)) {
       if (!b.scaf) { b.scaf = makeScaffold(b); scene.add(b.scaf); if (b.mesh.userData.orig) { b.mesh.material = b.mesh.userData.orig; b.scorched = false; } for (const o of b.obj.children.slice()) { if (o.userData.shell) b.obj.remove(o); else o.visible = true; } }
       if (b.topple) { b.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rot !== undefined ? -b.rot : 0); b.obj.position.set(b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2), 0, b.rot !== undefined ? Z(b.cy) : Z((b.y0 + b.y1) / 2)); b.topple = false; b.ruinH = 0; }
-      const drop = (b.h - b.ruinH) * (1 - (b.prog || 0));
+      // этажи появляются по одному: высота растёт ступенями, на верхнем этаже пыль и искры сварки
+      const fl = Math.max(1, b.floors), stepP = Math.floor((b.prog || 0) * fl) / fl, drop = (b.h - b.ruinH) * (1 - stepP);
+      if (b.state === "construct" && (b.lastStep || 0) !== stepP) { b.lastStep = stepP; const top = (b.baseY || 0) + b.ruinH + (b.h - b.ruinH) * stepP; for (let i = 0; i < 14; i++) smokeParticle(X(rnd(b.x0, b.x1)), top + 1, Z(rnd(b.y0, b.y1)), 1.4); }
+      if (b.state === "construct" && stepP < 1 && Math.random() < .25) { const top = (b.baseY || 0) + b.ruinH + (b.h - b.ruinH) * stepP + 2, ex = Math.random() < .5 ? b.x0 : b.x1, ez = rnd(b.y0, b.y1); for (let i = 0; i < 6; i++) emit(PS_ADD, { x: X(ex), y: top, z: Z(ez), vx: rnd(-6, 6), vy: rnd(1, 8), vz: rnd(-6, 6), l: rnd(.15, .4), s0: 1.2, s1: .2, c: [2.2, 1.8, 1.0], a: 1, g: 25 }); }
       b.obj.position.y = (b.baseY || 0) - drop; b.obj.rotation.x *= .9; b.obj.rotation.z *= .9; b.obj.position.x = b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2);
       // кран работает: поворот стрелы, тележка ездит, груз опускается на стройку и поднимается
       const u = b.scaf.userData, ph = (simT * .12 + (b.x0 % 7)) % 1, rise = (b.h - b.ruinH) * (b.prog || 0) + b.ruinH;

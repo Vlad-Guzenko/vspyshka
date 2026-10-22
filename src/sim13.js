@@ -126,6 +126,13 @@ function addCheckpoint(x, y) {
   cps.push(cp); barrDirty = true; fieldT = 0;
   logE("Развёрнут КПП: полиция проверяет проходящих на укусы, заражённых отправляют в изолятор", "good"); return true;
 }
+// КПП на воротах карантина: без своих клеток (стены вокруг уже есть), проход вдоль y, изолятор снаружи
+function addGateCheckpoint(x, y) {
+  const cp = { x, y, v: true, cells: [], queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [x + 22, y + 14], gate: true };
+  for (let i = 0; i < 2; i++) { const [px, py] = freeNear(x + (i ? 9 : -9), y + 6, 5); const g = newAgent("police", px, py); g.order = { x: px, y: py }; g.cp = cp; }
+  blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7);
+  cps.push(cp); return cp;
+}
 function stepCheckpoints(dt) {
   for (const cp of cps) {
     if (cp.broken) continue;
@@ -147,7 +154,7 @@ function stepCheckpoints(dt) {
     cp.queue = waiting;
     cp.queueT = waiting > 10 ? cp.queueT + dt : 0;
     if (cp.queueT > 40) {
-      cp.broken = true; for (const i of cp.cells) { grid[i] = 0; wallMask[i] = 0; } barrDirty = true; fieldT = 0;
+      cp.broken = true; for (const i of cp.cells) { grid[i] = 0; wallMask[i] = 0; quarMask[i] = 0; } barrDirty = true; fieldT = 0;
       near(cp.x, cp.y, 40, a => { if (a.state === "alive" && a.role === "civ") { a.panic = 1; a.cpWait = 0; } });
       logE("Бунт на КПП: толпа снесла барьер", "bad"); interest(cp.x, cp.y, 6);
     }

@@ -2811,7 +2811,7 @@ function stepConstruction(dt) {
     // строят, пока рядом есть рабочие
     let n = 0; near((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 30, a => { if (a.state === "alive" && a.role === "worker" && a.buildB === b) n++; });
     if (n) b.lastWork = simT;
-    b.prog = Math.min(1, b.prog + dt * Math.min(n, 6) / (200 + b.floors * 40)); // дом за полторы-две минуты, башня за пять-семь
+    b.prog = Math.min(1, b.prog + dt * Math.min(n, 6) / (500 + b.floors * 70)); // три рабочих: дом за три-четыре минуты, башня за десять
     if (b.prog >= 1) {
       b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false; b.gutted = false; b.gutT = 0;
       if (b.gutDoor) { b.gutDoor = false; const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; for (const [x, y] of b.rot !== undefined ? (b.doorPref ? [b.doorPref] : []) : [[cx, b.y1 + 5], [cx, b.y0 - 5], [b.x0 - 5, cy], [b.x1 + 5, cy]]) { const c = cellAt(x, y); if (c === 0 || c === 1 || c === 2 || c === 7) { b.door = [x, y]; break; } } }
@@ -2986,14 +2986,16 @@ function planQuarantine(x0, y0, x1, y1) {
   // обход периметра по часовой: строители идут вдоль забора
   for (let x = x0; x <= x1; x += CS) add(x, y0);
   for (let y = y0 + CS; y <= y1; y += CS) add(x1, y);
-  for (let x = x1 - CS; x >= x0; x -= CS) add(x, y1);
+  const gx = (x0 + x1) / 2; // ворота: проход 14 м в середине нижней стороны
+  for (let x = x1 - CS; x >= x0; x -= CS) if (Math.abs(x - gx) > 7) add(x, y1);
   for (let y = y1 - CS; y > y0; y -= CS) add(x0, y);
-  const j = { cells, i: 0, x0, y0, x1, y1, t0: simT, work: 0 };
+  const j = { cells, i: 0, x0, y0, x1, y1, t0: simT, work: 0, gate: [gx, y1] };
   wallJobs.push(j);
+  j.cp = addGateCheckpoint(gx, y1);
   // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
-  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
+  for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [gx - 12, y1], [gx + 12, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) { const [ax, ay] = freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10); const g = newAgent("army", ax, ay); g.order = { x: ax, y: ay }; g.guardJob = j; }
   const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j }; j.lastSent = simT;
-  logE("Карантин: военные оцепили район, строители едут ставить забор", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
+  logE("Карантин: военные оцепили район, строители едут ставить забор; выход через КПП с проверкой", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
   return true;
 }
 function stepWalls(dt) {
@@ -3735,6 +3737,13 @@ function addCheckpoint(x, y) {
   cps.push(cp); barrDirty = true; fieldT = 0;
   logE("Развёрнут КПП: полиция проверяет проходящих на укусы, заражённых отправляют в изолятор", "good"); return true;
 }
+// КПП на воротах карантина: без своих клеток (стены вокруг уже есть), проход вдоль y, изолятор снаружи
+function addGateCheckpoint(x, y) {
+  const cp = { x, y, v: true, cells: [], queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [x + 22, y + 14], gate: true };
+  for (let i = 0; i < 2; i++) { const [px, py] = freeNear(x + (i ? 9 : -9), y + 6, 5); const g = newAgent("police", px, py); g.order = { x: px, y: py }; g.cp = cp; }
+  blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7);
+  cps.push(cp); return cp;
+}
 function stepCheckpoints(dt) {
   for (const cp of cps) {
     if (cp.broken) continue;
@@ -3756,7 +3765,7 @@ function stepCheckpoints(dt) {
     cp.queue = waiting;
     cp.queueT = waiting > 10 ? cp.queueT + dt : 0;
     if (cp.queueT > 40) {
-      cp.broken = true; for (const i of cp.cells) { grid[i] = 0; wallMask[i] = 0; } barrDirty = true; fieldT = 0;
+      cp.broken = true; for (const i of cp.cells) { grid[i] = 0; wallMask[i] = 0; quarMask[i] = 0; } barrDirty = true; fieldT = 0;
       near(cp.x, cp.y, 40, a => { if (a.state === "alive" && a.role === "civ") { a.panic = 1; a.cpWait = 0; } });
       logE("Бунт на КПП: толпа снесла барьер", "bad"); interest(cp.x, cp.y, 6);
     }
@@ -3890,7 +3899,7 @@ function stepResponse(dt) {
   respT -= dt; if (respT > 0) return; respT = 2;
   const c = lastCounts || counts(), Z = c.Z;
   const recent = reports.filter(r => r.kind === "attack" && simT - r.t < 60).length;
-  const want = Z >= 200 || (c.H < 150 && Z > 40) ? 5 : Z >= 50 ? 4 : Z >= 15 ? 3 : Z >= 4 || recent >= 3 ? 2 : (firsts.zombie || bites >= 2 || recent >= 1) ? 1 : 0;
+  const want = Z >= 200 || (c.H < 150 && Z > 40) ? 5 : Z >= 60 ? 4 : Z >= 20 ? 3 : Z >= 6 || recent >= 4 ? 2 : (firsts.zombie || bites >= 2 || recent >= 1) ? 1 : 0;
   if (want > alert) { alert = want; alertT = simT; announceAlert(); }
   else if (want < alert && simT - alertT > 120 && Z <= [0, 0, 1, 6, 25, 100][alert]) { alert--; alertT = simT; logE(alert ? `Штаб понижает уровень ЧС до ${alert}: ${ALERT_N[alert]}` : "Штаб: отбой тревоги, очаг ликвидирован", "good"); radio(alert ? "Штаб: обстановка стабилизируется, уровень понижен" : "Штаб: отбой, всем службам возвращаться"); }
   if (!alert) return;
@@ -3901,8 +3910,8 @@ function stepResponse(dt) {
   // 2. армия: держим численность солдат по числу зомби, колонны идут каждые 20–30 с
   if (alert >= 2) {
     let soldiers = 0; for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.withdraw) soldiers++;
-    const need = Math.min(alert >= 4 ? 90 : 56, 10 + Z * 1.3) * (scen && scen.limits ? .5 : 1);
-    if (soldiers < need && hq.withdrawnT <= 0 && since("army") > (alert >= 3 ? 20 : 30)) {
+    const need = Math.min(alert >= 4 ? 60 : 36, 6 + Z * .8) * (scen && scen.limits ? .5 : 1);
+    if (soldiers < need && hq.withdrawnT <= 0 && since("army") > (alert >= 3 ? 35 : 50)) {
       respLog.army = simT; respLog.armyN = (respLog.armyN || 0) + 1;
       for (let i = 0; i < 2; i++) { const t = spawnService("army", cl.x + rnd(-70, 70), cl.y + rnd(-70, 70), null); t.spd = 66; t.sweep = true; }
       logE(respLog.armyN === 1 ? "Армия входит в город: колонна идёт к очагу на ликвидацию" : `Подкрепление армии, колонна ${respLog.armyN}`, "good"); if (respLog.armyN === 1) { sfx.radio(); interest(cl.x, cl.y, 4); }
@@ -4151,7 +4160,17 @@ function stepSquads(dt) {
 // позиция бойца в строю: клин за командиром или кольцо на перекрёстке
 function squadSlot(s, a) {
   const idx = Math.max(0, s.members.indexOf(a.id)), L = agentById(s.leader);
-  if (s.state === "hold" && s.holdAt) { const n = Math.max(1, s.members.length), ang = idx / n * TAU; let sx = s.holdAt.x + Math.cos(ang) * 9, sy = s.holdAt.y + Math.sin(ang) * 9; if (blocked(sx, sy)) [sx, sy] = freeNear(sx, sy, 8); return [sx, sy, ang]; }
+  if (s.state === "hold" && s.holdAt) {
+    const h = s.holdAt;
+    if (h.v && h.h) {
+      // четыре угла перекрёстка на тротуаре, по бойцу-двум на угол, смотрят наружу
+      const k = idx % 4, sx0 = k % 2 ? 1 : -1, sy0 = k < 2 ? -1 : 1, along = Math.floor(idx / 4) * 4;
+      let sx = h.v.p + sx0 * (h.v.hw + 4), sy = h.h.p + sy0 * (h.h.hw + 4) + sy0 * along;
+      if (blocked(sx, sy)) [sx, sy] = freeNear(sx, sy, 8);
+      return [sx, sy, Math.atan2(sy0, sx0)];
+    }
+    const n = Math.max(1, s.members.length), ang = idx / n * TAU; let sx = h.x + Math.cos(ang) * 9, sy = h.y + Math.sin(ang) * 9; if (blocked(sx, sy)) [sx, sy] = freeNear(sx, sy, 8); return [sx, sy, ang];
+  }
   if (!L) return [a.x, a.y, a.dir];
   const k = idx === 0 ? 0 : idx, side = k % 2 ? 1 : -1, row = Math.ceil(k / 2);
   const bx = Math.cos(L.dir), by = Math.sin(L.dir), ox = -bx * row * 5 + (-by) * side * row * 3.5, oy = -by * row * 5 + bx * side * row * 3.5;
@@ -5786,7 +5805,10 @@ function updateConstruction() {
     if (b.state === "construct" || (b.state === "ok" && b.scaf)) {
       if (!b.scaf) { b.scaf = makeScaffold(b); scene.add(b.scaf); if (b.mesh.userData.orig) { b.mesh.material = b.mesh.userData.orig; b.scorched = false; } for (const o of b.obj.children.slice()) { if (o.userData.shell) b.obj.remove(o); else o.visible = true; } }
       if (b.topple) { b.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rot !== undefined ? -b.rot : 0); b.obj.position.set(b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2), 0, b.rot !== undefined ? Z(b.cy) : Z((b.y0 + b.y1) / 2)); b.topple = false; b.ruinH = 0; }
-      const drop = (b.h - b.ruinH) * (1 - (b.prog || 0));
+      // этажи появляются по одному: высота растёт ступенями, на верхнем этаже пыль и искры сварки
+      const fl = Math.max(1, b.floors), stepP = Math.floor((b.prog || 0) * fl) / fl, drop = (b.h - b.ruinH) * (1 - stepP);
+      if (b.state === "construct" && (b.lastStep || 0) !== stepP) { b.lastStep = stepP; const top = (b.baseY || 0) + b.ruinH + (b.h - b.ruinH) * stepP; for (let i = 0; i < 14; i++) smokeParticle(X(rnd(b.x0, b.x1)), top + 1, Z(rnd(b.y0, b.y1)), 1.4); }
+      if (b.state === "construct" && stepP < 1 && Math.random() < .25) { const top = (b.baseY || 0) + b.ruinH + (b.h - b.ruinH) * stepP + 2, ex = Math.random() < .5 ? b.x0 : b.x1, ez = rnd(b.y0, b.y1); for (let i = 0; i < 6; i++) emit(PS_ADD, { x: X(ex), y: top, z: Z(ez), vx: rnd(-6, 6), vy: rnd(1, 8), vz: rnd(-6, 6), l: rnd(.15, .4), s0: 1.2, s1: .2, c: [2.2, 1.8, 1.0], a: 1, g: 25 }); }
       b.obj.position.y = (b.baseY || 0) - drop; b.obj.rotation.x *= .9; b.obj.rotation.z *= .9; b.obj.position.x = b.rot !== undefined ? X(b.cx) : X((b.x0 + b.x1) / 2);
       // кран работает: поворот стрелы, тележка ездит, груз опускается на стройку и поднимается
       const u = b.scaf.userData, ph = (simT * .12 + (b.x0 % 7)) % 1, rise = (b.h - b.ruinH) * (b.prog || 0) + b.ruinH;
