@@ -4045,6 +4045,8 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
   const blockedBy = ahead ? (ahead.stopped || ahead.wreck || !ahead.moving || (ahead.v < 1 && ahead.wait > 4)) : true;
   if (!blockedBy) return;
   const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (!opp) return;
+  // совсем глухо (стена, завал, вереница брошенных машин) — разворачиваемся на встречную и едем назад
+  if (c.wait > 12 && !laneBusy(opp, c.lane.s.v ? c.y : c.x, c)) { const ox = c.x, oy = c.y; placeOnLane(c, opp, c.lane.s.v ? c.y : c.x); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.turnT = 1.2; c.wait = 0; c.plan = -1; c.planAt = undefined; return; }
   // не выезжаем на встречку у перекрёстка
   for (const l of lanes) { if (l.s.v === c.lane.s.v) continue; const along0 = c.lane.s.v ? c.y : c.x, d = (l.c - along0) * (c.dir < 2 ? 1 : -1); if (d > -10 && d < 40 && c.lane.c >= l.a0 - 2 && c.lane.c <= l.a1 + 2) return; }
   if (!oppClear(c, opp, dx, dy)) return;
