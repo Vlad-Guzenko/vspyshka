@@ -131,29 +131,22 @@ function hillBlock(b) {
 }
 // дорога ровная поперёк своей оси; мост лежит на уровне берегов
 function flattenRoads() {
-  for (const s of streets) {
-    const half = s.hw + 10;
-    for (let t = s.a0; t <= s.a1; t += CS) {
-      const x = s.v ? s.p : t, y = s.v ? t : s.p, i0 = clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1), h = TH[i0];
+  if (!hasHills) return;
+  for (const e of RE) {
+    const half = e.hw + 10;
+    for (let t = 0; t <= e.len; t += CS) {
+      const p = edgePos(e, t), i0 = clamp(Math.floor(p.y / CS), 0, GH - 1) * GW + clamp(Math.floor(p.x / CS), 0, GW - 1), h = TH[i0];
       if (h <= WATER_Y) continue;
       for (let o = -half; o <= half; o += CS) {
-        const xx = s.v ? x + o : x, yy = s.v ? y : y + o, gx = Math.floor(xx / CS), gy = Math.floor(yy / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+        const xx = p.x - p.ty * o, yy = p.y + p.tx * o, gx = Math.floor(xx / CS), gy = Math.floor(yy / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
         const i = gy * GW + gx; if (TH[i] <= WATER_Y) continue;
-        // у воды дорога не поднимает берег, только опускается к нему
         if (h > TH[i] && waterD(xx, yy) < BANK) continue;
-        const k = 1 - smooth(s.hw, half, Math.abs(o)); TH[i] += (h - TH[i]) * k;
+        const k = 1 - smooth(e.hw, half, Math.abs(o)); TH[i] += (h - TH[i]) * k;
       }
     }
   }
   smoothTerrain(2);
-  for (const b of bridges) {
-    const t0 = b.v ? b.y0 : b.x0, t1 = b.v ? b.y1 : b.x1, c = b.v ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2;
-    const hA = gY(b.v ? c : t0 - 8, b.v ? t0 - 8 : c), hB = gY(b.v ? c : t1 + 8, b.v ? t1 + 8 : c), hh = Math.max(hA, hB, WATER_Y + 2.5);
-    b.h = hh;
-    for (let y = b.y0; y < b.y1 + CS; y += CS) for (let x = b.x0; x < b.x1 + CS; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) TH[gy * GW + gx] = hh; }
-  }
 }
-// пруды из парков: клетки воды без формулы — тоже дно и берега
 function sinkPonds() {
   for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) if (grid[gy * GW + gx] === 9 && TH[gy * GW + gx] > WATER_Y) {
     TH[gy * GW + gx] = BED;

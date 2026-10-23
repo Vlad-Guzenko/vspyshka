@@ -81,7 +81,7 @@ function stepScenario(dt) {
   if (scenKey === "evac") { if (saved >= 150) endScenario(true, "Эвакуация завершена: 150 человек спасены"); else if (c.H === 0 || (limitLeft("evac") <= 0 && !evac && saved < 150)) endScenario(false, "Эвакуация провалена"); }
   if (scenKey === "mall") {
     waveT -= dt;
-    if (waveT <= 0) { wave++; waveT = 55; const n = 12 + wave * 10; for (let i = 0; i < n; i++) { const e = edgeLanePoint(); spawnZombieAt(e.l.s.v ? e.l.c : e.along, e.l.s.v ? e.along : e.l.c); } radio(`Разведка: волна ${wave}, около ${n} зомби`); }
+    if (waveT <= 0) { wave++; waveT = 55; const n = 12 + wave * 10; for (let i = 0; i < n; i++) { const e = edgeLanePoint(); spawnZombieAt(e.x, e.y); } radio(`Разведка: волна ${wave}, около ${n} зомби`); }
     if (scenT > 30 && atMall() < 40) endScenario(false, "У торгового центра почти никого не осталось");
     else if (scenT >= scen.time) endScenario(true, "Рубеж удержан");
   }

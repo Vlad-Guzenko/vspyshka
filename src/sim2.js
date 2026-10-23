@@ -565,7 +565,7 @@ function record() {
 // нулевой пациент: не в промзоне и не в порту среди контейнеров, а там, где есть люди вокруг — иначе вспышка глохнет
 function pickPatientZero() {
   const quiet = { industry: 1, lot: 1, bigpark: 1, field: 1, meadow: 1, forest: 1, bank: 1, hill: 1 };
-  const inQuiet = a => blocks.some(b => quiet[b.kind] && a.x >= b.x0 && a.x <= b.x1 && a.y >= b.y0 && a.y <= b.y1);
+  const inQuiet = a => { const b = blockAt(a.x, a.y); return !!(b && (quiet[b.kind] || b.rural)); };
   let cand = agents.filter(a => !a.armed && a.role === "civ");
   if (!cand.length) cand = agents.slice();
   const lively = cand.filter(a => !inQuiet(a));
@@ -577,7 +577,7 @@ function pickPatientZero() {
   return pick(scored.slice(0, Math.max(1, Math.ceil(scored.length / 3))))[1];
 }
 function newCitySim(n) {
-  genCity(); buildCrossings(); buildJunctions();
+  genCity(); buildCrossings();
   agents = []; stats = []; events = []; firsts = {}; noises = []; simT = 0; bites = 0; deaths = 0; zkills = 0; saved = 0; cured = 0;
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();

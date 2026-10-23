@@ -12,48 +12,27 @@ const SERVICE = {
   sanit: { col: "#e4ece6", len: 1.3, crew: "sanitar", n: 3, siren: null, name: "Санитары" },
   builder: { col: "#e8a81a", len: 1.45, crew: "builder", n: 4, siren: "amber", name: "Строители" },
 };
-function clearCarCells(c) { for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0; }
+function clearCarCells(c) {
+  if (c.cells) { for (let k = 0; k < c.cells.length; k += 2) if (grid[c.cells[k]] === 5) grid[c.cells[k]] = c.cells[k + 1]; c.cells = null; fieldT = 0; return; }
+  for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0;
+}
 let reports = [], dispatchT = 0, armyWaves = 0, serviceLog = {};
 function report(x, y, kind) { if (reports.length < 80) reports.push({ x, y, t: simT, kind }); }
-function nearestLanePoint(x, y) {
-  let best = null, bd = 1e9;
-  for (const l of lanes) {
-    const along = clamp(l.s.v ? y : x, l.a0 + 30, l.a1 - 30), px = l.s.v ? l.c : along, py = l.s.v ? along : l.c, d = Math.hypot(px - x, py - y);
-    if (d < bd && !blocked(px, py)) { bd = d; best = { l, along }; }
-  }
-  return best;
-}
-function edgeLanePoint(nx, ny) {
-  // полоса, которая доходит до края карты, и её начало на этом краю; с координатами — один из трёх ближайших въездов
-  const edge = lanes.filter(l => l.dir < 2 ? l.a0 <= 0 : l.a1 >= (l.s.v ? H : W));
-  const pool = edge.length ? edge : lanes;
-  const at = l => { const start = l.dir < 2 ? l.a0 + 20 : l.a1 - 20; return [l.s.v ? l.c : start, l.s.v ? start : l.c, start]; };
-  let l;
-  if (nx !== undefined) { const sorted = pool.map(l => { const [x, y] = at(l); return [Math.hypot(x - nx, y - ny), l]; }).sort((a, b) => a[0] - b[0]); l = pick(sorted.slice(0, 3))[1]; }
-  else l = pick(pool);
-  return { l, along: at(l)[2] };
-}
 function spawnService(type, gx, gy, from) {
   const S = SERVICE[type];
-  let p = null;
-  if (from) p = nearestLanePoint(from.x, from.y);
+  let p = from ? nearestLanePoint(from.x, from.y) : null;
   if (!p) p = edgeLanePoint(gx, gy);
-  const c = { moving: true, service: type, col: S.col, len: S.len, wreck: false, boomT: 0, burnT: 0, spd: 46, v: 20, wait: 0, stuck: 0, dmg: 0, horn: 0, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
-  placeOnLane(c, p.l, p.along);
-  // разворачиваемся в сторону цели
-  const want = Math.atan2(gy - c.y, gx - c.x), dd = Math.cos(want) * DX[c.dir] + Math.sin(want) * DY[c.dir];
-  if (dd < 0) { const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (opp) placeOnLane(c, opp, c.lane.s.v ? c.y : c.x); }
-  c.ang = Math.atan2(DY[c.dir], DX[c.dir]);
+  const c = { ...newCar(), service: type, col: S.col, len: S.len, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
+  placeOnLane(c, p.l, p.s);
+  // разворачиваемся, если по встречной полосе к цели ближе
+  const opp = oppLane(p.l), R = routeTo(gx, gy);
+  if (opp && R && !p.l.from.exit) {
+    const s2 = p.l.e.len - p.s, here = laneEnd(p.l) - p.s + R.dist[p.l.to.id], there = laneEnd(opp) - s2 + R.dist[opp.to.id];
+    if (there < here) placeOnLane(c, opp, s2);
+  }
   cars.push(c);
   if (S.siren) sfx.siren(c);
   return c;
-}
-// выбор поворота на перекрёстке: туда, где ближе к цели
-function serviceTurn(c) {
-  const gx = c.goal.x - c.x, gy = c.goal.y - c.y, L = Math.hypot(gx, gy) || 1;
-  let best = c.dir, bs = (DX[c.dir] * gx + DY[c.dir] * gy) / L;
-  for (const nd of [(c.dir + 1) % 4, (c.dir + 3) % 4]) { const s = (DX[nd] * gx + DY[nd] * gy) / L; if (s > bs + .15) { bs = s; best = nd; } }
-  return best;
 }
 function deployCrew(c) {
   if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT;
@@ -94,7 +73,7 @@ function releaseUnit(c) {
   if (c.leaving) return;
   releaseJob(c.job); c.stopped = false;
   c.leaving = true; c.moving = true; c.deployed = false; c.v = 0;
-  const e = edgeLanePoint(); c.goal = { x: e.l.s.v ? e.l.c : e.along, y: e.l.s.v ? e.along : e.l.c };
+  c.goal = null; c.next = null; c.route = null;
 }
 function stepServiceCar(c, dt) {
   if (c.wreck) { if (!c.wreckRel) { c.wreckRel = true; releaseJob(c.job); for (const a of c.crew) { a.unit = null; a.job = null; a.done = false; } c.crew = []; c.stopped = true; c.stopT = simT; } return; }
@@ -113,7 +92,7 @@ function stepServiceCar(c, dt) {
     if (alive.every(a => a.done && Math.hypot(a.x - c.x, a.y - c.y) < 10)) { for (const a of alive) a.state = "saved"; releaseUnit(c); }
     return;
   }
-  if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.leaveT > 35 || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
+  if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.leaveT > 60 || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
   if (!c.leaving && c.goal && (Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 50 || c.wait > 25)) deployCrew(c);
 }
 function serviceTarget(type) {
@@ -165,7 +144,7 @@ function stepServices(dt) {
     if (t) {
       const c = spawnService("repair", t.x, t.y, null); c.job = t.job;
       // к завалу едут погрузчик и самосвал
-      if (t.job.ruin && t.job.ruin.state === "ruin") { const p = nearestLanePoint(t.x, t.y); const lx = p ? (p.l.s.v ? p.l.c : p.along) : t.x, ly = p ? (p.l.s.v ? p.along : p.l.c) : t.y; addMachine("loader", lx, ly, { ruin: t.job.ruin }); spawnService("dump", t.x, t.y, null).job = { ruin: t.job.ruin }; logT("loader", "К завалу выехали погрузчик и самосвал", "good", 20); }
+      if (t.job.ruin && t.job.ruin.state === "ruin") { const p = nearestLanePoint(t.x, t.y); const lx = p ? p.x : t.x, ly = p ? p.y : t.y; addMachine("loader", lx, ly, { ruin: t.job.ruin }); spawnService("dump", t.x, t.y, null).job = { ruin: t.job.ruin }; logT("loader", "К завалу выехали погрузчик и самосвал", "good", 20); }
     }
   }
   // армия: вводится, когда полиция не справляется
@@ -178,7 +157,6 @@ function stepServices(dt) {
     logE(armyWaves === 1 ? "Введена армия: колонна въезжает в город" : `Подкрепление армии, волна ${armyWaves}`, "good"); sfx.radio();
   }
 }
-function edgePointNear(x, y) { const e = edgeLanePoint(x, y); return [e.l.s.v ? e.l.c : e.along, e.l.s.v ? e.along : e.l.c]; }
 
 /* ---------- работа экипажей ---------- */
 function thinkCrew(a, dt, zn, zd) {

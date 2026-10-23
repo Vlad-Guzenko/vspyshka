@@ -1,37 +1,36 @@
 /* ---------- светофоры на перекрёстках ---------- */
-let tlPoles = null, tlHeads = null, tlLamps = null;
+let tlPoles = null, tlHeads = null, tlLamps = null, tlList = [];
 function buildTrafficLights() {
   for (const m of [tlPoles, tlHeads, tlLamps]) if (m) { scene.remove(m); m.dispose(); }
-  const n = Math.max(1, crossings.length * 2), m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
-  tlPoles = new THREE.InstancedMesh(new THREE.CylinderGeometry(.25, .3, 14, 6).translate(0, 7, 0), new THREE.MeshStandardMaterial({ color: 0x2a2d30, metalness: .5, roughness: .5 }), n);
-  tlHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 3.4, 1.1), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: .6 }), n);
-  tlLamps = new THREE.InstancedMesh(new THREE.SphereGeometry(.38, 8, 6), new THREE.MeshBasicMaterial({ toneMapped: false }), n * 2);
+  tlList = [];
+  for (const n of RN) { if (!n.sig) continue; for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (l) tlList.push({ n, e, l }); } }
+  const cnt = Math.max(1, tlList.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
+  tlPoles = new THREE.InstancedMesh(new THREE.CylinderGeometry(.25, .3, 14, 6).translate(0, 7, 0), new THREE.MeshStandardMaterial({ color: 0x2a2d30, metalness: .5, roughness: .5 }), cnt);
+  tlHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 3.4, 1.1), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: .6 }), cnt);
+  tlLamps = new THREE.InstancedMesh(new THREE.SphereGeometry(.38, 8, 6), new THREE.MeshBasicMaterial({ toneMapped: false }), cnt * 2);
   tlLamps.setColorAt(0, new THREE.Color());
-  crossings.forEach((cr, i) => {
-    // столб на ближнем к машинам углу: вертикальная улица и горизонтальная
-    for (let k = 0; k < 2; k++) {
-      const x = cr.x + (k ? -1 : 1) * (cr.v.hw + 3), y = cr.y + (k ? 1 : -1) * (cr.h.hw + 3), j = i * 2 + k;
-      const ty = gY(x, y);
-      m.makeTranslation(X(x), ty, Z(y)); tlPoles.setMatrixAt(j, m);
-      q.setFromAxisAngle(up, k ? Math.PI / 2 : 0);
-      m.compose(new THREE.Vector3(X(x), ty + 13, Z(y)), q, one); tlHeads.setMatrixAt(j, m);
-      for (let s = 0; s < 2; s++) { m.compose(new THREE.Vector3(X(x) + (k ? 0 : (s ? -.6 : .6)), ty + 13.9 - s * 1.8, Z(y) + (k ? (s ? -.6 : .6) : 0)), q, one); tlLamps.setMatrixAt(j * 2 + s, m); }
-    }
+  tlList.forEach((t, j) => {
+    const s = laneEnd(t.l), p = lanePos(t.l, s), rx = -p.ty, ry = p.tx, side = t.e.hw - t.l.off + 3.5;
+    const x = p.x + rx * side, y = p.y + ry * side, ty = gY(x, y);
+    m.makeTranslation(X(x), ty, Z(y)); tlPoles.setMatrixAt(j, m);
+    // лицевая сторона — навстречу машинам
+    q.setFromAxisAngle(up, -Math.atan2(-p.ty, -p.tx));
+    m.compose(new THREE.Vector3(X(x), ty + 13, Z(y)), q, one); tlHeads.setMatrixAt(j, m);
+    for (let k = 0; k < 2; k++) { m.compose(new THREE.Vector3(X(x - p.tx * .6), ty + 13.9 - k * 1.8, Z(y - p.ty * .6)), q, one); tlLamps.setMatrixAt(j * 2 + k, m); }
   });
-  for (const o of [tlPoles, tlHeads, tlLamps]) { o.castShadow = o !== tlLamps; o.frustumCulled = false; scene.add(o); }
+  for (const o of [tlPoles, tlHeads, tlLamps]) { o.count = tlList.length * (o === tlLamps ? 2 : 1); o.castShadow = o !== tlLamps; o.frustumCulled = false; scene.add(o); }
   tlT = 0;
 }
 let tlT = 0;
 const TL_COL = { g: new THREE.Color("#30ff60"), y: new THREE.Color("#ffc020"), r: new THREE.Color("#ff2a20"), off: new THREE.Color("#202020") };
 function updateTrafficLights(dt) {
-  if (!tlLamps) return; tlT -= dt; if (tlT > 0) return; tlT = .25;
-  crossings.forEach((cr, i) => {
-    for (let k = 0; k < 2; k++) {
-      const st = lightFor(cr, k === 0), j = i * 2 + k;
-      // верхняя лампа — красный/жёлтый, нижняя — зелёный
-      tlLamps.setColorAt(j * 2, st === "g" ? TL_COL.off : TL_COL[st]);
-      tlLamps.setColorAt(j * 2 + 1, st === "g" ? TL_COL.g : TL_COL.off);
-    }
+  if (!tlLamps || !tlList.length) return; tlT -= dt; if (tlT > 0) return; tlT = .25;
+  const dark = typeof settings !== "undefined" && settings.dark;
+  tlList.forEach((t, j) => {
+    const st = dark ? "off" : lightFor(t.n, t.e);
+    // верхняя лампа — красный/жёлтый, нижняя — зелёный
+    tlLamps.setColorAt(j * 2, st === "g" || st === "off" ? TL_COL.off : TL_COL[st]);
+    tlLamps.setColorAt(j * 2 + 1, st === "g" ? TL_COL.g : TL_COL.off);
   });
   if (tlLamps.instanceColor) tlLamps.instanceColor.needsUpdate = true;
 }

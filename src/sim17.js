@@ -55,12 +55,12 @@ function squadSlot(s, a) {
   const idx = Math.max(0, s.members.indexOf(a.id)), L = agentById(s.leader);
   if (s.state === "hold" && s.holdAt) {
     const h = s.holdAt;
-    if (h.v && h.h) {
-      // четыре угла перекрёстка на тротуаре, по бойцу-двум на угол, смотрят наружу
-      const k = idx % 4, sx0 = k % 2 ? 1 : -1, sy0 = k < 2 ? -1 : 1, along = Math.floor(idx / 4) * 4;
-      let sx = h.v.p + sx0 * (h.v.hw + 4), sy = h.h.p + sy0 * (h.h.hw + 4) + sy0 * along;
+    if (h.corners && h.corners.length) {
+      // углы перекрёстка на тротуаре, по бойцу-двум на угол, смотрят наружу
+      const k = idx % h.corners.length, row = Math.floor(idx / h.corners.length), [cx, cy, a] = h.corners[k];
+      let sx = cx + Math.cos(a) * row * 4, sy = cy + Math.sin(a) * row * 4;
       if (blocked(sx, sy)) [sx, sy] = freeNear(sx, sy, 8);
-      return [sx, sy, Math.atan2(sy0, sx0)];
+      return [sx, sy, a];
     }
     const n = Math.max(1, s.members.length), ang = idx / n * TAU; let sx = h.x + Math.cos(ang) * 9, sy = h.y + Math.sin(ang) * 9; if (blocked(sx, sy)) [sx, sy] = freeNear(sx, sy, 8); return [sx, sy, ang];
   }

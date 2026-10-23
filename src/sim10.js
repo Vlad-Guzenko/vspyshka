@@ -1,26 +1,20 @@
 /* ---------- светофоры ---------- */
 let crossings = [];
+// перекрёстки в городе: там светофоры, зебры, по углам — тротуар, где встаёт отряд
 function buildCrossings() {
   crossings = [];
-  const vs = streets.filter(s => s.v && !s.edge && !s.water), hs = streets.filter(s => !s.v && !s.edge && !s.water);
-  for (const v of vs) for (const h of hs) if (streetsCross(v, h) && cellAt(v.p, h.p) === 0) crossings.push({ v, h, x: v.p, y: h.p, off: rnd(0, 30) });
-}
-// фаза: 0–13 с зелёный по вертикали, 13–15 жёлтый, 15–28 зелёный по горизонтали, 28–30 жёлтый
-function lightFor(cr, vertical) { const t = (simT + cr.off) % 30; return vertical ? (t < 13 ? "g" : t < 15 ? "y" : "r") : (t >= 15 && t < 28 ? "g" : t >= 28 ? "y" : "r"); }
-// для машины: расстояние до стоп-линии, если впереди красный
-function redAhead(c) {
-  if (c.panic || c.service) return 1e9;
-  const vertical = c.lane.s.v, dx = DX[c.dir], dy = DY[c.dir];
-  let best = 1e9;
-  for (const cr of crossings) {
-    if ((vertical ? cr.v : cr.h) !== c.lane.s) continue;
-    const along = (cr.x - c.x) * dx + (cr.y - c.y) * dy, half = (vertical ? cr.h.hw : cr.v.hw) + 14;
-    if (along < half || along > half + 60) continue;
-    if (lightFor(cr, vertical) !== "g") best = Math.min(best, along - half + 2);
+  for (const n of RN) {
+    if (n.ed.length < 3 || n.round || n.ed.every(e => e.rural)) continue;
+    const dirs = n.ed.map(e => { const d = edgeDirFrom(e, n); return { e, a: Math.atan2(d[1], d[0]) }; }).sort((p, q) => p.a - q.a), corners = [];
+    for (let i = 0; i < dirs.length; i++) {
+      const p = dirs[i], q = dirs[(i + 1) % dirs.length]; let span = q.a - p.a; if (span <= 0) span += TAU;
+      if (span > Math.PI * 1.2) continue;
+      const mid = p.a + span / 2, hw = (p.e.hw + q.e.hw) / 2 + 4, r = Math.min(46, hw / Math.max(.35, Math.sin(span / 2)));
+      corners.push([n.x + Math.cos(mid) * r, n.y + Math.sin(mid) * r, mid]);
+    }
+    crossings.push({ x: n.x, y: n.y, node: n, corners });
   }
-  return best;
 }
-
 /* ---------- распорядок дня: ночью улицы пустеют, утром город оживает ---------- */
 let routineT = 0;
 function activity() { const h = world.hour; return h < 5 ? .12 : h < 7 ? .35 : h < 10 ? 1 : h < 17 ? .8 : h < 20 ? 1 : h < 23 ? .55 : .2; }
@@ -48,7 +42,7 @@ function stepRoutine(dt) {
 function carCollide(c, o, v) {
   if (c.wreck) return;
   c.wreck = true; c.dmg = 9; abandonCar(c, "crash");
-  const ang = Math.atan2(DY[c.dir], DX[c.dir]);
+  const ang = c.ang;
   if (!o.tank) { o.vx = (o.vx || 0) + Math.cos(ang) * v * .5; o.vy = (o.vy || 0) + Math.sin(ang) * v * .5; o.vz = v * .15; o.z = .1; o.sr = rnd(-2, 2); o.sy = rnd(-2, 2); o.roll = o.roll || 0; if (o.moving) { o.moving = false; o.stopped = true; } o.wreck = o.wreck || v > 30; }
   sfx.crash(c); fxDebris(c.x, c.y); if (Math.random() < .25) c.burnT = rnd(20, 60);
   for (const k of cars) if (!k.wreck && Math.hypot(k.x - c.x, k.y - c.y) < 60) k.alarm = rnd(10, 30);

@@ -129,7 +129,7 @@ function stepSpits(dt) {
   acids = acids.filter(a => a.l > 0);
 }
 function spawnTitan(x, y) {
-  if (x === undefined) { const e = edgeLanePoint(); x = e.l.s.v ? e.l.c : e.along; y = e.l.s.v ? e.along : e.l.c; }
+  if (x === undefined) { const e = edgeLanePoint(); x = e.x; y = e.y; }
   const [zx, zy] = freeNear(x, y, 20), a = newAgent("zombie", zx, zy);
   a.ztype = "titan"; turn(a); a.riseT = 0; a.size = 1.15; a.hair = "#2a1a14";
   logE("В город вошёл Титан: огромный мутант, пули его почти не берут. Нужны танки или авиация", "bad");
@@ -156,10 +156,11 @@ function titanRage(a, dt) {
 let metros = [], metroT = 60;
 function placeMetros() {
   metros = [];
-  const cands = blocks.filter(b => b.d === 0 || b.kind === "plaza" || b.kind === "towers");
+  const cands = blocks.filter(b => !b.rural && (b.kind === "plaza" || b.kind === "towers" || (b.d === 0 && b.kind === "apt")));
   for (let i = 0; i < 3 && cands.length; i++) {
-    const b = cands.splice(Math.floor(Math.random() * cands.length), 1)[0];
-    const x = b.x0 + 5, y = b.y0 + 5;
+    const b = cands.splice(Math.floor(Math.random() * cands.length), 1)[0], cs = blockCells(b).filter(c => distRoad[c] === 1 && (grid[c] === 1 || grid[c] === 7));
+    if (!cs.length) continue;
+    const c0 = cs[Math.floor(Math.random() * cs.length)], x = (c0 % GW) * CS + 4, y = Math.floor(c0 / GW) * CS + 4;
     if (cellAt(x, y) === 1 || cellAt(x, y) === 7) metros.push({ x, y, dir: 0 });
   }
 }
@@ -276,9 +277,11 @@ function placeName(x, y) {
   if (oldTown && Math.hypot(x - oldTown.x, y - oldTown.y) < oldTown.R) return "в старом городе";
   if (bigPark && x > bigPark.x0 && x < bigPark.x1 && y > bigPark.y0 && y < bigPark.y1) return "в городском парке";
   for (const m of metros) if (Math.hypot(m.x - x, m.y - y) < 40) return "у входа в метро";
-  const b = blocks.find(b => x >= b.x0 - 12 && x <= b.x1 + 12 && y >= b.y0 - 12 && y <= b.y1 + 12);
+  const b = blockAt(x, y) || blockAt(x + 12, y) || blockAt(x - 12, y) || blockAt(x, y + 12) || blockAt(x, y - 12);
   if (!b) return "на окраине";
-  return { hill: "на холме", field: "в поле", meadow: "на лугу", forest: "в лесу", bank: "на берегу", park: "в парке", plaza: "на площади", towers: "в центре", houses: "во дворе многоэтажек", suburb: "в частном секторе", industry: "в промзоне", lot: "на парковке", bigpark: "в городском парке" }[b.kind] || "на улице";
+  let k = b.kind;
+  if (b.rural) { const gi = Math.floor(y / CS) * GW + Math.floor(x / CS), pt = patchOf[gi] >= 0 ? patches[patchOf[gi]] : null; k = pt ? pt.kind : "field"; }
+  return { hill: "на холме", field: "в поле", meadow: "на лугу", forest: "в лесу", bank: "на берегу", park: "в парке", plaza: "на площади", towers: "в центре", apt: "во дворе многоэтажек", houses: "во дворе многоэтажек", suburb: "в частном секторе", industry: "в промзоне", lot: "на парковке", bigpark: "в городском парке", old: "в старом городе", square: "на соборной площади", island: "на круглой площади", green: "в сквере", glacis: "на бульварном кольце" }[k] || "на улице";
 }
 function causeText(a) {
   if (a.vapor) return "испарился в ядерном взрыве";

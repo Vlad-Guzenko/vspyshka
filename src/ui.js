@@ -372,6 +372,8 @@ let paused = false, speed = 1, patientZero = null;
 function setPaused(v) { paused = !!v; $("pause").setAttribute("aria-pressed", paused); $("pause").textContent = paused ? "Продолжить" : "Пауза"; }
 function togglePause() { setPaused(!paused); }
 function followPatientZero() { followA = patientZero; camS.dist = 130; camS.pitch = .5; }
+// список планировок — из таблицы LAYOUTS, скрытые не показываем
+$("layout").innerHTML = '<option value="random">Случайная</option>' + Object.entries(LAYOUTS).filter(([k, v]) => !v.hidden).map(([k, v]) => `<option value="${k}">${v.n}</option>`).join("");
 function newCity(scenarioKey = "sandbox") {
   const _g = genCity; genCity = () => _g($("layout").value); patientZero = newCitySim(+$("pop").value); genCity = _g;
   setupScenario(typeof scenarioKey === "string" ? scenarioKey : "sandbox", patientZero); renderTools();

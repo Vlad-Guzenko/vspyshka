@@ -145,7 +145,7 @@ function stepWalls(dt) {
 /* ---------- мародёры и банды ---------- */
 let gangsSpawned = 0;
 function spawnGang() {
-  const e = edgeLanePoint(), x = e.l.s.v ? e.l.c : e.along, y = e.l.s.v ? e.along : e.l.c;
+  const e = edgeLanePoint(), x = e.x, y = e.y;
   const target = special.mall || pick(buildings.filter(b => b.door));
   for (let i = 0; i < 5; i++) {
     const [ax, ay] = freeNear(x, y, 20), a = newAgent("bandit", ax, ay);

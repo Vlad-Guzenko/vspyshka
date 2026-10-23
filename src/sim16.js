@@ -34,9 +34,11 @@ function obbOverlap(a, b) {
 }
 // отодвигаем только вдоль собственного курса, чтобы машина не сползала с полосы
 function nudgeBack(c, nx, ny, amount) {
-  if (c.curve || c.tank) return;
-  const bx = Math.cos(c.ang), by = Math.sin(c.ang), s = nx * bx + ny * by;
-  c.x += bx * s * amount; c.y += by * s * amount;
+  if (c.tank) return;
+  const bx = Math.cos(c.ang), by = Math.sin(c.ang), s = (nx * bx + ny * by) * amount;
+  if (c.turn) c.turn.u = Math.max(0, c.turn.u + s);
+  else if (c.lane) c.s = clamp(c.s + s, 0, c.lane.e.len);
+  c.x += bx * s; c.y += by * s;
 }
 function resolveCarOverlaps(dt) {
   let i = 0; for (const c of cars) c._i = i++;
@@ -66,37 +68,43 @@ function resolveCarOverlaps(dt) {
 /* ---------- объезд: препятствие на полосе, встречная свободна — выезжаем на неё и возвращаемся ---------- */
 // встречная полоса свободна впереди: ни машин, ни завалов на 100 м
 function oppClear(c, opp, dx, dy) {
-  const oc = opp.c, px = c.lane.s.v ? oc : c.x, py = c.lane.s.v ? c.y : oc;
-  let busy = false;
-  nearCars(px + dx * 55, py + dy * 55, 70, o => { if (busy || o === c || o.gone || o.towedBy) return; const al = (o.x - px) * dx + (o.y - py) * dy, lt = c.lane.s.v ? Math.abs(o.x - oc) : Math.abs(o.y - oc); if (lt < 5 && al > -14 && al < 110 && (o.moving || o.stopped || o.wreck || o.tank)) busy = true; });
+  const so = opp.e.len - c.s, off2 = 2 * c.lane.off; let busy = false;
+  nearCars(c.x + dx * 55, c.y + dy * 55, 70, o => {
+    if (busy || o === c || o.gone || o.towedBy) return;
+    if (o.lane === opp && !o.turn) { if (o.s < so + 14 && o.s > so - 110) busy = true; return; }
+    const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = (o.x - c.x) * dy - (o.y - c.y) * dx;
+    if (Math.abs(lt - off2) < 5 && al > -14 && al < 110 && (o.moving || o.stopped || o.wreck || o.tank)) busy = true;
+  });
   if (busy) return false;
-  for (let k = 6; k < 90; k += 6) { const cc = cellAt(px + dx * k, py + dy * k); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4) return false; }
+  for (let k = 6; k < 90; k += 6) { const q = lanePos(opp, Math.max(0, so - k)), cc = cellAt(q.x, q.y); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4) return false; }
   return true;
 }
 // в своей полосе впереди ещё стоит препятствие
-function ownLaneBlocked(c, dx, dy) {
-  const lc = c.lane.c, px = c.lane.s.v ? lc : c.x, py = c.lane.s.v ? c.y : lc;
-  for (let k = -8; k < 40; k += 6) { const cc = cellAt(px + dx * k, py + dy * k); if (cc === 5) return true; }
-  let b = false; nearCars(px + dx * 14, py + dy * 14, 30, o => { if (b || o === c || o.gone) return; const al = (o.x - px) * dx + (o.y - py) * dy, lt = c.lane.s.v ? Math.abs(o.x - lc) : Math.abs(o.y - lc); if (lt < 5 && al > -10 && al < 40 && (o.stopped || o.wreck || (o.moving && o.v < 1 && o.wait > 4))) b = true; });
+function ownLaneBlocked(c) {
+  const l = c.lane;
+  for (let k = -8; k < 40; k += 6) { const q = lanePos(l, clamp(c.s + k, 0, l.e.len)); if (cellAt(q.x, q.y) === 5) return true; }
+  let b = false; const q = lanePos(l, Math.min(l.e.len, c.s + 14));
+  nearCars(q.x, q.y, 30, o => { if (b || o === c || o.gone) return; if (o.lane === l && !o.turn && o.s > c.s - 10 && o.s < c.s + 40 && (o.stopped || o.wreck || (o.moving && o.v < 1 && o.wait > 4 && !o.atLine))) b = true; });
   return b;
 }
 function stepOvertake(c, dt, dx, dy, clear, ahead) {
-  if (!c.lane || c.tank) return;
+  if (!c.lane || c.tank || c.turn) return;
+  const l = c.lane, opp = oppLane(l);
   if (c.over) {
     c.overT += dt;
-    // встречная появилась — возвращаемся и тормозим
-    let oncoming = false; nearCars(c.x + dx * 30, c.y + dy * 30, 40, o => { if (oncoming || o === c || o.gone || !o.moving) return; const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = Math.abs((o.x - c.x) * dy - (o.y - c.y) * dx); if (al > 4 && al < 50 && lt < 5 && o.dir === (c.dir + 2) % 4) oncoming = true; });
-    if (oncoming || (c.overT > 1.5 && !ownLaneBlocked(c, dx, dy)) || c.overT > 14) { c.over = 0; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
+    // встречная появилась или впереди перекрёсток — возвращаемся и тормозим
+    let oncoming = false; nearCars(c.x + dx * 30, c.y + dy * 30, 40, o => { if (oncoming || o === c || o.gone || !o.moving) return; const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = Math.abs((o.x - c.x) * dy - (o.y - c.y) * dx); if (al > 4 && al < 50 && lt < 5 && Math.cos(o.ang) * dx + Math.sin(o.ang) * dy < -.3) oncoming = true; });
+    if (oncoming || (c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > 14 || laneEnd(l) - c.s < 26) { c.over = 0; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
     return;
   }
-  if (c.wait < 2.5 || clear > 26 || c.turnT > 0 || c.panic) return;
-  const blockedBy = ahead ? (ahead.stopped || ahead.wreck || !ahead.moving || (ahead.v < 1 && ahead.wait > 4)) : true;
-  if (!blockedBy) return;
-  const opp = laneOf(c.lane.s, (c.dir + 2) % 4); if (!opp) return;
+  if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
+  // очередь у светофора не объезжаем; объезжаем стоящее, разбитое, брошенное
+  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine);
+  if (!obstacle) return;
+  if (!opp) return;
   // совсем глухо (стена, завал, вереница брошенных машин) — разворачиваемся на встречную и едем назад
-  if (c.wait > 12 && !laneBusy(opp, c.lane.s.v ? c.y : c.x, c)) { const ox = c.x, oy = c.y; placeOnLane(c, opp, c.lane.s.v ? c.y : c.x); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.turnT = 1.2; c.wait = 0; c.plan = -1; c.planAt = undefined; return; }
-  // не выезжаем на встречку у перекрёстка
-  for (const l of lanes) { if (l.s.v === c.lane.s.v) continue; const along0 = c.lane.s.v ? c.y : c.x, d = (l.c - along0) * (c.dir < 2 ? 1 : -1); if (d > -10 && d < 40 && c.lane.c >= l.a0 - 2 && c.lane.c <= l.a1 + 2) return; }
+  if (c.wait > 12) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } return; }
+  if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) return; // у перекрёстка на встречку не выезжаем
   if (!oppClear(c, opp, dx, dy)) return;
-  c.over = 1; c.overT = 0; c.latTgt = opp.c - c.lane.c; c.wait = 0; sfx.horn(c);
+  c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c);
 }

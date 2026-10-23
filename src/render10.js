@@ -15,7 +15,7 @@ function updateWorld2(dt) {
   for (const gn of gens) if (!genObjs.has(gn)) { const o = buildGenMesh(gn); scene.add(o); genObjs.set(gn, o); }
   for (const [gn, o] of genObjs) { if (!gens.includes(gn)) { scene.remove(o); genObjs.delete(gn); continue; } o.userData.lamp.material.color.set(gn.fuel > 0 ? 0x40ff60 : 0x602020); if (dt && gn.fuel > 0 && Math.random() < dt * 8) smokeParticle(o.position.x - 1.8, 5, o.position.z + .8, .35, false); }
   for (const cp of cps) if (!cpObjs.has(cp)) { const o = buildCpMesh(cp); scene.add(o); cpObjs.set(cp, o); }
-  for (const [cp, o] of cpObjs) { if (!cps.includes(cp)) { scene.remove(o); cpObjs.delete(cp); continue; } const open = cp.broken; o.userData.bar.rotation.z = cp.v ? (open ? 1.2 : 0) : 0; o.userData.bar.rotation.x = cp.v ? 0 : (open ? -1.2 : 0); o.userData.stripes.visible = !open; }
+  for (const [cp, o] of cpObjs) { if (!cps.includes(cp)) { scene.remove(o); cpObjs.delete(cp); continue; } const open = cp.broken; o.userData.bar.rotation.z = open ? 1.2 : 0; o.userData.stripes.visible = !open; }
   for (const m of medpoints) if (!medObjs.has(m)) { const o = buildMedMesh(m); scene.add(o); medObjs.set(m, o); }
   for (const [m, o] of medObjs) if (!medpoints.includes(m)) { scene.remove(o); medObjs.delete(m); }
   for (const f of factions) if (!facObjs.has(f)) { const o = buildFlag(f); if (o) { scene.add(o); facObjs.set(f, o); } }

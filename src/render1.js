@@ -42,128 +42,99 @@ function speckle(g, x, y, w, h, n, cols, s = 2) { for (let i = 0; i < n; i++) { 
 const GS = 1.5; // пикселей текстуры на единицу мира
 function paintGround(g) {
   g.save(); g.scale(GS, GS);
-  g.fillStyle = "#3b3e40"; g.fillRect(0, 0, W, H);
-  speckle(g, 0, 0, W, H, 160000, ["rgba(255,255,255,.04)", "rgba(0,0,0,.08)", "rgba(120,110,100,.06)"], .6);
-  for (let i = 0; i < 420; i++) { g.fillStyle = `rgba(${pick(["20,20,22", "70,70,72", "45,42,40"])},${rnd(.15, .35)})`; g.beginPath(); g.ellipse(rnd(0, W), rnd(0, H), rnd(4, 26), rnd(3, 12), rnd(0, 3), 0, TAU); g.fill(); }
-  // трещины
-  g.strokeStyle = "rgba(15,15,15,.35)"; g.lineWidth = .35;
-  for (let i = 0; i < 700; i++) { let x = rnd(0, W), y = rnd(0, H); g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += rnd(-6, 6); y += rnd(-6, 6); g.lineTo(x, y); } g.stroke(); }
-  const vs = streets.filter(s => s.v && s.p > 0 && s.p < W), hs = streets.filter(s => !s.v && s.p > 0 && s.p < H);
-  // осевые линии и полосы, кроме перекрёстков
-  const segs = (s, cross) => { const out = []; let a = s.a0; for (const c of cross) { if (!streetsCross(s, c)) continue; out.push([a, c.p - c.hw - 12]); a = c.p + c.hw + 12; } out.push([a, s.a1]); return out; };
-  const line = (s, off, from, to, dash, col, w) => { g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash); g.beginPath(); if (s.v) { g.moveTo(s.p + off, from); g.lineTo(s.p + off, to); } else { g.moveTo(from, s.p + off); g.lineTo(to, s.p + off); } g.stroke(); };
-  for (const s of [...vs, ...hs]) {
-    const cross = (s.v ? hs : vs).slice().sort((p, q) => p.p - q.p);
-    for (const [a, b] of segs(s, cross)) {
-      if (b <= a) continue;
-      if (s.wide) { line(s, -.7, a, b, [], "#d8b440", .7); line(s, .7, a, b, [], "#d8b440", .7); line(s, -s.hw / 2, a, b, [10, 12], "rgba(235,235,230,.8)", .7); line(s, s.hw / 2, a, b, [10, 12], "rgba(235,235,230,.8)", .7); }
-      else line(s, 0, a, b, [10, 10], "rgba(235,235,230,.75)", .7);
-    }
+  g.fillStyle = "#56763d"; g.fillRect(0, 0, W, H);
+  // клетки: пробегами по строкам одного цвета
+  const FIELD = ["#c9a85a", "#7a9a40", "#7a5a3a", "#a8b860"];
+  const colOf = i => {
+    const m = roadMask[i], c = grid[i];
+    if (m === 1) return "#3b3e40"; if (m === 2) return "#8f8f8a"; if (m === 3) return "#6d7a4c";
+    if (c === 9) return "#24404f"; if (c === 10) return "#7a7268";
+    const r = regionOf[i], b = r >= 0 ? blocks[r] : null, k = b ? b.kind : null;
+    if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : FIELD[pt.crop]; }
+    if (c === 7) return k === "old" || k === "square" ? "#9a8f7e" : "#a8a092";
+    if (c === 1) return "#8f8f8a";
+    if (c === 0) return k === "industry" ? "#6d6c66" : "#3f4244";
+    if (c === 3) return k === "suburb" ? "#56763d" : k === "old" || k === "square" ? "#9a8f7e" : k === "towers" || k === "plaza" ? "#a8a092" : "#8f8f8a";
+    return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" ? "#4b6e35" : "#56763d";
+  };
+  for (let gy = 0; gy < GH; gy++) { let x0 = 0, cur = colOf(gy * GW); for (let gx = 1; gx <= GW; gx++) { const col = gx < GW ? colOf(gy * GW + gx) : null; if (col !== cur) { g.fillStyle = cur; g.fillRect(x0 * CS, gy * CS, (gx - x0) * CS + .4, CS + .4); x0 = gx; cur = col; } } }
+  speckle(g, 0, 0, W, H, 140000, ["rgba(255,255,255,.04)", "rgba(0,0,0,.07)", "rgba(120,110,100,.06)"], .7);
+  // поля: полосы посевов вдоль своего участка
+  const runsPath = (test, x0, y0, x1, y1) => { const P = new Path2D(); for (let gy = Math.max(0, Math.floor(y0 / CS)); gy < Math.min(GH, Math.ceil(y1 / CS)); gy++) { let st = -1; for (let gx = Math.max(0, Math.floor(x0 / CS)); gx <= Math.min(GW, Math.ceil(x1 / CS)); gx++) { const ok = gx < GW && test(gy * GW + gx); if (ok && st < 0) st = gx; if (!ok && st >= 0) { P.rect(st * CS, gy * CS, (gx - st) * CS + .4, CS + .4); st = -1; } } } return P; };
+  for (const pt of patches) {
+    if (pt.kind !== "field") continue;
+    const R = 260, P = runsPath(i => patchOf[i] === pt.id && !roadMask[i] && grid[i] !== 3, pt.x - R, pt.y - R, pt.x + R, pt.y + R);
+    g.save(); g.clip(P); g.translate(pt.x, pt.y); g.rotate(pt.ang);
+    g.fillStyle = ["#b09048", "#668a34", "#654a2e", "#92a24e"][pt.crop]; for (let v = -R; v < R; v += 6) g.fillRect(-R, v, 2 * R, 2.6);
+    g.restore();
   }
-  g.setLineDash([]);
-  // зебры и стоп-линии на каждом въезде в перекрёсток
-  g.fillStyle = "rgba(236,236,230,.82)";
-  for (const v of vs) for (const h of hs) {
-    if (!streetsCross(v, h)) continue;
-    for (const sgn of [-1, 1]) {
-      const yy = h.p + sgn * (h.hw + 3) - (sgn < 0 ? 8 : 0);
-      for (let x = v.p - v.hw + 2; x < v.p + v.hw - 2; x += 3.2) g.fillRect(x, yy, 1.8, 8);
-      const xx = v.p + sgn * (v.hw + 3) - (sgn < 0 ? 8 : 0);
-      for (let y = h.p - h.hw + 2; y < h.p + h.hw - 2; y += 3.2) g.fillRect(xx, y, 8, 1.8);
-      g.fillRect(sgn < 0 ? v.p - v.hw : v.p, h.p + sgn * (h.hw + 13) - .5, v.hw, 1);
-      g.fillRect(v.p + sgn * (v.hw + 13) - .5, sgn < 0 ? h.p : h.p - h.hw, 1, h.hw);
+  for (const b of blocks) {
+    if (b.rural) continue;
+    // площади: плитка кольцами, на островке развязки — клумба; в парках — дорожки
+    if (b.kind === "plaza" || b.kind === "island" || b.kind === "square") {
+      const P = runsPath(i => regionOf[i] === b.id && grid[i] !== 3, b.x0, b.y0, b.x1, b.y1); g.save(); g.clip(P);
+      g.strokeStyle = "rgba(90,80,70,.35)"; g.lineWidth = .3; const R = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2;
+      for (let r = 4; r < R; r += 4) { g.beginPath(); g.arc(b.cx, b.cy, r, 0, TAU); g.stroke(); }
+      if (b.kind === "island") { g.fillStyle = "#4e7337"; g.beginPath(); g.arc(b.cx, b.cy, Math.min(26, Math.sqrt(b.n) * 2.6), 0, TAU); g.fill(); speckle(g, b.cx - 30, b.cy - 30, 60, 60, 900, ["#5a8040", "#e8d060", "#d86080", "#f0f0f0"], .9); }
+      g.restore();
+    }
+    if (b.paths) { g.strokeStyle = "#c2b493"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round"; for (const path of b.paths) { g.beginPath(); path.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); } }
+  }
+  for (const p of ponds) { g.fillStyle = "#b8ab8a"; g.beginPath(); g.ellipse(p.x, p.y, p.rx + 4, p.ry + 4, 0, 0, TAU); g.fill(); g.fillStyle = "#24404f"; g.beginPath(); g.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, TAU); g.fill(); }
+  paintContactShadows(g);
+  edPaintGround(g);
+  // дорожки от крыльца частного дома к тротуару
+  g.strokeStyle = "#9b958a"; g.lineWidth = 4; g.lineCap = "butt";
+  for (const b of buildings) if (b.kind === "house" && b.front) { const f = b.front; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(f.x + f.nx * (f.set + 4), f.y + f.ny * (f.set + 4)); g.stroke(); }
+  // дороги: тротуар, бордюр, асфальт — сначала у всех рёбер, потом поверх
+  const path = e => { g.beginPath(); e.pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
+  g.lineJoin = "round"; g.lineCap = "round";
+  for (const e of RE) { path(e); g.strokeStyle = e.rural ? "#76805a" : e.sw < SW ? "#9a8f7e" : "#8f8f8a"; g.lineWidth = e.rural ? e.hw * 2 + 7 : (e.hw + e.sw) * 2 + 5; g.stroke(); }
+  for (const n of RN) if (n.cul) { const e = n.ed[0]; g.fillStyle = e.rural ? "#76805a" : "#8f8f8a"; g.beginPath(); g.arc(n.x, n.y, e.hw + 6 + (e.rural ? 3 : e.sw + 2), 0, TAU); g.fill(); }
+  for (const e of RE) if (!e.rural) { path(e); g.strokeStyle = "#b9b8b0"; g.lineWidth = e.hw * 2 + 2.4; g.stroke(); }
+  for (const n of RN) if (n.cul && !n.ed[0].rural) { g.fillStyle = "#b9b8b0"; g.beginPath(); g.arc(n.x, n.y, n.ed[0].hw + 7.2, 0, TAU); g.fill(); }
+  for (const e of RE) { path(e); g.strokeStyle = e.rural ? "#45484a" : e.sw < SW ? "#5e5a54" : "#3b3e40"; g.lineWidth = e.hw * 2; g.stroke(); }
+  for (const n of RN) { if (n.cul) { g.fillStyle = n.ed[0].rural ? "#45484a" : "#3b3e40"; g.beginPath(); g.arc(n.x, n.y, n.ed[0].hw + 6, 0, TAU); g.fill(); } else if (n.ed.length >= 3 && !n.round) { g.fillStyle = n.ed.every(e => e.sw < SW) ? "#5e5a54" : "#3b3e40"; g.beginPath(); g.arc(n.x, n.y, Math.max(...n.ed.map(e => e.hw)), 0, TAU); g.fill(); } }
+  // заплатки и трещины на асфальте
+  for (let i = 0; i < 700 && RE.length; i++) { const e = pick(RE), p = edgePos(e, rnd(0, e.len)), o = rnd(-e.hw * .8, e.hw * .8), x = p.x - p.ty * o, y = p.y + p.tx * o; if (Math.random() < .4) { g.fillStyle = `rgba(${pick(["20,20,22", "70,70,72", "45,42,40"])},${rnd(.15, .3)})`; g.beginPath(); g.ellipse(x, y, rnd(3, 12), rnd(2, 6), Math.atan2(p.ty, p.tx), 0, TAU); g.fill(); } else { g.strokeStyle = "rgba(15,15,15,.35)"; g.lineWidth = .35; g.beginPath(); let cx = x, cy = y; g.moveTo(cx, cy); for (let k = 0; k < 5; k++) { cx += rnd(-5, 5); cy += rnd(-5, 5); g.lineTo(cx, cy); } g.stroke(); } }
+  // разметка: оси и полосы, только между перекрёстками
+  g.lineCap = "butt"; g.lineJoin = "round";
+  const along = (e, t0, t1, off) => { if (t1 - t0 < 4) return false; g.beginPath(); for (let t = t0, k = 0; ; t = Math.min(t1, t + 5), k++) { const p = edgePos(e, t), x = p.x - p.ty * off, y = p.y + p.tx * off; k ? g.lineTo(x, y) : g.moveTo(x, y); if (t >= t1) break; } return true; };
+  for (const e of RE) {
+    const t0 = e.ra + 2, t1 = e.len - e.rb - 2;
+    if (e.kind === "ring") { g.setLineDash([3, 5]); g.strokeStyle = "rgba(235,235,230,.55)"; g.lineWidth = .6; for (const o of [-e.hw + 2, e.hw - 2]) if (along(e, t0, t1, o)) g.stroke(); g.setLineDash([]); continue; }
+    if (e.hw >= 22) {
+      g.setLineDash([]); g.strokeStyle = "#d8b440"; g.lineWidth = .7;
+      if (!e.trees) for (const o of [-.8, .8]) if (along(e, t0, t1, o)) g.stroke();
+      g.setLineDash([10, 12]); g.strokeStyle = "rgba(235,235,230,.8)"; for (const o of [-e.hw / 2, e.hw / 2]) if (along(e, t0, t1, o)) g.stroke();
+    } else { g.setLineDash([10, 10]); g.strokeStyle = "rgba(235,235,230,.75)"; g.lineWidth = .7; if (along(e, t0, t1, 0)) g.stroke(); }
+    if (e.rural) { g.setLineDash([]); g.strokeStyle = "rgba(235,235,230,.6)"; g.lineWidth = .6; for (const o of [-e.hw + 1.5, e.hw - 1.5]) if (along(e, t0, t1, o)) g.stroke(); }
+    g.setLineDash([]);
+    // бульвар: газон с липами посередине
+    if (e.trees) { g.strokeStyle = "#4e6e36"; g.lineWidth = 7; g.lineCap = "round"; if (along(e, t0 + 6, t1 - 6, 0)) g.stroke(); g.strokeStyle = "#b9b8b0"; g.lineWidth = .8; g.lineCap = "butt"; for (const o of [-3.9, 3.9]) if (along(e, t0 + 6, t1 - 6, o)) g.stroke(); }
+  }
+  // у светофоров — зебры и стоп-линии; на второстепенных въездах — «зубы» уступи дорогу
+  g.fillStyle = "rgba(236,236,230,.85)";
+  for (const n of RN) {
+    if (n.ed.length < 3) continue;
+    for (const e of n.ed) {
+      const atA = e.a === n, r = atA ? e.ra : e.rb, inL = atA ? e.L[1] : e.L[0];
+      const tAt = k => atA ? k : e.len - k, p = edgePos(e, tAt(r)), ang = Math.atan2(p.ty, p.tx);
+      // полоса, въезжающая в узел, лежит справа по ходу — то есть слева от направления ребра, если ребро выходит из узла
+      const lo = atA ? -e.hw : 0;
+      if (n.sig) {
+        const pz = edgePos(e, tAt(r - 7));
+        g.save(); g.translate(pz.x, pz.y); g.rotate(ang); for (let o = -e.hw + 1.5; o < e.hw - 1.5; o += 3.2) g.fillRect(-4, o, 8, 1.8); g.restore();
+        if (inL) { const q = edgePos(e, tAt(r - .5)); g.save(); g.translate(q.x, q.y); g.rotate(ang); g.fillRect(-.5, lo, 1, e.hw); g.restore(); }
+      } else if (inL && (n.round ? e.kind !== "ring" : n.ed.some(f => f !== e && rankAt(f) > rankAt(e)))) {
+        const q = edgePos(e, tAt(r - 1)); g.save(); g.translate(q.x, q.y); g.rotate(ang); const dd = atA ? 1 : -1;
+        for (let o = lo + 1; o < lo + e.hw - 1; o += 3) { g.beginPath(); g.moveTo(-1.2 * dd, o); g.lineTo(1.2 * dd, o + 1.2); g.lineTo(-1.2 * dd, o + 2.4); g.fill(); }
+        g.restore();
+      }
     }
   }
   // люки
-  for (let i = 0; i < 60; i++) { const s = pick(vs.concat(hs)); const t = rnd(s.a0 + 30, s.a1 - 30), x = s.v ? s.p + rnd(-6, 6) : t, y = s.v ? t : s.p + rnd(-6, 6); g.fillStyle = "#2a2b2c"; g.beginPath(); g.arc(x, y, 2.4, 0, TAU); g.fill(); g.strokeStyle = "#4a4b4c"; g.lineWidth = .3; g.stroke(); }
-  // кварталы: тротуарная плитка, бордюр, газоны, площади
-  for (const b of blocks) {
-    g.fillStyle = "#8f8f8a"; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
-    g.strokeStyle = "rgba(60,60,58,.35)"; g.lineWidth = .25; g.beginPath();
-    for (let x = b.x0; x < b.x1; x += 6) { g.moveTo(x, b.y0); g.lineTo(x, b.y1); }
-    for (let y = b.y0; y < b.y1; y += 6) { g.moveTo(b.x0, y); g.lineTo(b.x1, y); }
-    g.stroke();
-    speckle(g, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, (b.x1 - b.x0) * (b.y1 - b.y0) / 20, ["rgba(0,0,0,.08)", "rgba(255,255,255,.07)"], .8);
-    g.strokeStyle = "#b9b8b0"; g.lineWidth = 1.2; g.strokeRect(b.x0 + .6, b.y0 + .6, b.x1 - b.x0 - 1.2, b.y1 - b.y0 - 1.2);
-    const ix0 = b.x0 + 8, iy0 = b.y0 + 8, iw = b.x1 - b.x0 - 16, ih = b.y1 - b.y0 - 16;
-    if (b.kind === "park") {
-      g.fillStyle = "#4b6e35"; g.fillRect(ix0, iy0, iw, ih);
-      speckle(g, ix0, iy0, iw, ih, iw * ih / 3, ["#557a3c", "#3f5f2c", "#62853f", "#46672f"], .9);
-      g.strokeStyle = "#a89f88"; g.lineWidth = 3; g.beginPath(); g.moveTo(ix0, iy0 + ih * rnd(.3, .7)); g.bezierCurveTo(ix0 + iw * .3, iy0 + rnd(0, ih), ix0 + iw * .7, iy0 + rnd(0, ih), ix0 + iw, iy0 + ih * rnd(.3, .7)); g.stroke();
-    } else if (b.kind === "plaza") {
-      g.fillStyle = "#a8a092"; g.fillRect(ix0, iy0, iw, ih);
-      g.strokeStyle = "rgba(90,80,70,.35)"; g.lineWidth = .3;
-      const cx = ix0 + iw / 2, cy = iy0 + ih / 2;
-      for (let r = 4; r < Math.max(iw, ih); r += 4) { g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke(); }
-    } else if (b.kind === "field") {
-      const base = ["#c9a85a", "#7a9a40", "#7a5a3a", "#a8b860"][b.crop || 0], dark = ["#b09048", "#668a34", "#654a2e", "#92a24e"][b.crop || 0];
-      g.fillStyle = base; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
-      g.fillStyle = dark; if (b.along === "x") { for (let y = b.y0 + 2; y < b.y1; y += 6) g.fillRect(b.x0 + 2, y, b.x1 - b.x0 - 4, 2.6); } else { for (let x = b.x0 + 2; x < b.x1; x += 6) g.fillRect(x, b.y0 + 2, 2.6, b.y1 - b.y0 - 4); }
-      g.strokeStyle = "#6a5a3a"; g.lineWidth = 2; g.strokeRect(b.x0 + 1, b.y0 + 1, b.x1 - b.x0 - 2, b.y1 - b.y0 - 2);
-    } else if (b.kind === "meadow" || b.kind === "bank") {
-      g.fillStyle = b.kind === "bank" ? "#5c7c42" : "#6f8f45"; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
-      speckle(g, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, (b.x1 - b.x0) * (b.y1 - b.y0) / 3, ["#7a9a4e", "#5e7e3a", "#86a258", "#4e6a34"], .9);
-      if (b.kind === "meadow") speckle(g, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, (b.x1 - b.x0) * (b.y1 - b.y0) / 60, ["#f2e9a0", "#f0f0f0", "#e8a0c0", "#f2c84a"], .9);
-    } else if (b.kind === "forest") {
-      g.fillStyle = "#3f5c2f"; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
-      speckle(g, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, (b.x1 - b.x0) * (b.y1 - b.y0) / 3, ["#46642f", "#36502a", "#4e6c38", "#5a5a3a"], .9);
-    } else if (b.kind === "hill") {
-      g.fillStyle = "#4f6d3a"; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
-      speckle(g, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, (b.x1 - b.x0) * (b.y1 - b.y0) / 3, ["#5a7a42", "#43612f", "#6a7a4a", "#8a8470", "#3e5a2c"], .9);
-    } else if (b.kind === "suburb") {
-      g.fillStyle = "#56763d"; g.fillRect(ix0, iy0, iw, ih);
-      speckle(g, ix0, iy0, iw, ih, iw * ih / 4, ["#5f8043", "#4b6a35", "#668a48"], .9);
-    } else if (b.lot) {
-      g.fillStyle = b.kind === "industry" ? "#6d6c66" : "#3f4244"; g.fillRect(ix0, iy0, iw, ih);
-      speckle(g, ix0, iy0, iw, ih, iw * ih / 6, ["rgba(0,0,0,.1)", "rgba(255,255,255,.05)"], .8);
-      if (b.kind === "lot") { g.strokeStyle = "rgba(230,230,225,.7)"; g.lineWidth = .5; for (let y = iy0 + 14; y < iy0 + ih - 10; y += 30) for (let x = ix0 + 2.5; x < ix0 + iw - 6; x += 11) { g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x, y + 8); g.stroke(); } }
-    } else { g.fillStyle = "#77766f"; g.fillRect(ix0 - 1, iy0 - 1, iw + 2, ih + 2); }
-  }
-  // исторический центр: брусчатка, лучи и кольца
-  if (oldTown) {
-    const { x: cx, y: cy, R } = oldTown;
-    g.fillStyle = "#8f8576"; g.beginPath(); g.arc(cx, cy, R, 0, TAU); g.fill();
-    g.save(); g.beginPath(); g.arc(cx, cy, R, 0, TAU); g.clip();
-    g.strokeStyle = "rgba(60,52,44,.35)"; g.lineWidth = .3;
-    for (let r = 4; r < R; r += 3) { g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke(); }
-    speckle(g, cx - R, cy - R, 2 * R, 2 * R, R * R / 3, ["rgba(0,0,0,.12)", "rgba(255,255,255,.08)"], .9);
-    g.strokeStyle = "rgba(200,190,170,.5)"; g.lineWidth = 16;
-    for (let k = 0; k < oldTown.spokes; k++) { const a = k / oldTown.spokes * TAU; g.beginPath(); g.moveTo(cx + Math.cos(a) * oldTown.rings[0], cy + Math.sin(a) * oldTown.rings[0]); g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); g.stroke(); }
-    for (const r of oldTown.rings) { g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke(); }
-    g.fillStyle = "#b9ad98"; g.beginPath(); g.arc(cx, cy, oldTown.rings[0], 0, TAU); g.fill();
-    g.restore();
-  }
-  if (bigPark) {
-    const p = bigPark;
-    g.fillStyle = "#4e7337"; g.fillRect(p.x0 + 10, p.y0 + 10, p.x1 - p.x0 - 20, p.y1 - p.y0 - 20);
-    speckle(g, p.x0, p.y0, p.x1 - p.x0, p.y1 - p.y0, (p.x1 - p.x0) * (p.y1 - p.y0) / 3, ["#567c3c", "#456a30", "#628545", "#3e5f2b"], .9);
-    g.strokeStyle = "#c2b493"; g.lineWidth = 6; g.lineCap = "round";
-    for (const path of p.paths || []) { g.beginPath(); path.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); }
-  }
-  for (const p of ponds) { g.fillStyle = "#b8ab8a"; g.beginPath(); g.ellipse(p.x, p.y, p.rx + 4, p.ry + 4, 0, 0, TAU); g.fill(); }
-  paintContactShadows(g);
-  edPaintGround(g);
-  // дорожки к домам частного сектора
-  for (const b of buildings) if (b.kind === "house") { g.fillStyle = "#9b958a"; const cx = (b.x0 + b.x1) / 2; g.fillRect(cx - 2, b.y1, 4, 6); }
-  // вода: глубина темнее к середине, песок у моря
-  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
-    const c = grid[gy * GW + gx], x = gx * CS + 4, y = gy * CS + 4;
-    if (c === 9) { g.fillStyle = "#24404f"; g.fillRect(gx * CS, gy * CS, CS + .5, CS + .5); }
-    else { const sd = shoreD(x, y), wd = waterD(x, y); if (sd < 14) { g.fillStyle = "#c9b98f"; g.fillRect(gx * CS, gy * CS, CS + .5, CS + .5); } else if (wd < 10 && c === 2) { g.fillStyle = wd < 4 ? "#8a7a52" : "#6a7a44"; g.fillRect(gx * CS, gy * CS, CS + .5, CS + .5); } }
-  }
-  for (const b of bridges) { g.fillStyle = "#3d4042"; g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); g.strokeStyle = "rgba(235,235,230,.75)"; g.lineWidth = .7; g.setLineDash([10, 10]); g.beginPath(); if (b.v) { g.moveTo((b.x0 + b.x1) / 2, b.y0); g.lineTo((b.x0 + b.x1) / 2, b.y1); } else { g.moveTo(b.x0, (b.y0 + b.y1) / 2); g.lineTo(b.x1, (b.y0 + b.y1) / 2); } g.stroke(); g.setLineDash([]); }
-  // круглая площадь в центре: плитка кольцами, под ней не видно разметки осевых улиц
-  if (plazaC) { g.fillStyle = "#a8a092"; g.beginPath(); g.arc(plazaC[0], plazaC[1], plazaR + 2, 0, TAU); g.fill(); g.strokeStyle = "rgba(90,80,70,.35)"; g.lineWidth = .3; for (let r = 4; r < plazaR; r += 4) { g.beginPath(); g.arc(plazaC[0], plazaC[1], r, 0, TAU); g.stroke(); } }
-  // изогнутые и диагональные дороги: тротуар, асфальт, разметка
-  for (const cv of curves) {
-    const path = () => { g.beginPath(); cv.pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
-    g.lineJoin = "round"; g.lineCap = cv.closed ? "butt" : "round"; g.setLineDash([]);
-    path(); g.strokeStyle = "#8f8f8a"; g.lineWidth = cv.hw * 2 + 13; g.stroke();
-    path(); g.strokeStyle = "#b9b8b0"; g.lineWidth = cv.hw * 2 + 2.4; g.stroke();
-    path(); g.strokeStyle = "#3b3e40"; g.lineWidth = cv.hw * 2; g.stroke();
-    path(); g.strokeStyle = "rgba(235,235,230,.75)"; g.lineWidth = .7; g.setLineDash([10, 10]); g.stroke(); g.setLineDash([]);
-    if (cv.hw >= 20) { for (const off of [-cv.hw / 2, cv.hw / 2]) { g.beginPath(); for (let t = 0; t <= cv.len; t += 6) { const p = curvePos(cv, t); const x = p.x - p.ty * off, y = p.y + p.tx * off; t ? g.lineTo(x, y) : g.moveTo(x, y); } g.strokeStyle = "rgba(235,235,230,.6)"; g.lineWidth = .6; g.setLineDash([10, 12]); g.stroke(); g.setLineDash([]); } }
-  }
+  for (let i = 0; i < 70 && RE.length; i++) { const e = pick(RE); if (e.rural) continue; const p = edgePos(e, rnd(e.ra + 10, Math.max(e.ra + 11, e.len - e.rb - 10))), o = rnd(-e.hw * .6, e.hw * .6); g.fillStyle = "#2a2b2c"; g.beginPath(); g.arc(p.x - p.ty * o, p.y + p.tx * o, 2.4, 0, TAU); g.fill(); g.strokeStyle = "#4a4b4c"; g.lineWidth = .3; g.stroke(); }
   g.lineJoin = "miter"; g.lineCap = "butt";
   g.restore();
 }
@@ -362,9 +333,10 @@ function buildCity() {
     }
     if (b.kind === "container") continue;
     // парапет и оборудование на крыше
-    for (const [px, pz, sx, sz] of [[0, -d / 2 + .6, w, 1.2], [0, d / 2 - .6, w, 1.2], [-w / 2 + .6, 0, 1.2, d], [w / 2 - .6, 0, 1.2, d]]) instBoxes.push([cx + px, by + b.h + 1.2, cz + pz, sx, 2.4, sz, 0x77756f, b]);
+    const rr = rotated ? b.rot : 0, rc = Math.cos(rr), rs = Math.sin(rr), at = (lx, lz) => [cx + lx * rc - lz * rs, cz + lx * rs + lz * rc];
+    for (const [px, pz, sx, sz] of [[0, -d / 2 + .6, w, 1.2], [0, d / 2 - .6, w, 1.2], [-w / 2 + .6, 0, 1.2, d], [w / 2 - .6, 0, 1.2, d]]) { const [qx, qz] = at(px, pz); instBoxes.push([qx, by + b.h + 1.2, qz, sx, 2.4, sz, 0x77756f, b, -rr]); }
     const n = Math.floor(w * d / 700) + 1;
-    for (let i = 0; i < n; i++) { const sx = rnd(3, 8), sz = rnd(3, 8), sy = rnd(2, 5); instBoxes.push([X(rnd(b.x0 + 6, b.x1 - 6)), by + b.h + sy / 2, Z(rnd(b.y0 + 6, b.y1 - 6)), sx, sy, sz, pick([0x8d8f90, 0x9c9a94, 0x6f7173, 0xb0aea6]), b]); }
+    for (let i = 0; i < n; i++) { const sx = rnd(3, 8), sz = rnd(3, 8), sy = rnd(2, 5), [qx, qz] = at(rnd(-w / 2 + 6, w / 2 - 6), rnd(-d / 2 + 6, d / 2 - 6)); instBoxes.push([qx, by + b.h + sy / 2, qz, sx, sy, sz, pick([0x8d8f90, 0x9c9a94, 0x6f7173, 0xb0aea6]), b]); }
     if (b.kind === "tower") {
       // верхушка небоскрёба: уступ, техэтаж и антенна
       const k = rnd(.55, .75), cw = w * k, cd = d * k, chh = rnd(14, 30);
@@ -372,7 +344,7 @@ function buildCity() {
       const crown = new THREE.Mesh(cg, [fm, fm, roofMat, roofMat, fm, fm]); crown.position.y = b.h + chh / 2; crown.castShadow = true; obj.add(crown);
       if (Math.random() < .6) { const ant = new THREE.Mesh(new THREE.CylinderGeometry(.4, .7, rnd(20, 45), 6), parapetMat); ant.position.y = b.h + chh + ant.geometry.parameters.height / 2; obj.add(ant); b.antenna = ant; }
       b.h += chh;
-    } else if (b.floors > 5 && Math.random() < .5) instBoxes.push([X(b.x0 + w * rnd(.25, .75)), by + b.h + 5, Z(b.y0 + d * rnd(.25, .75)), 10, 10, 12, 0x6a6862, b]); // выход на крышу
+    } else if (b.floors > 5 && Math.random() < .5) { const [qx, qz] = at(w * rnd(-.25, .25), d * rnd(-.25, .25)); instBoxes.push([qx, by + b.h + 5, qz, 10, 10, 12, 0x6a6862, b, -rr]); } // выход на крышу
     if (b.kind === "power" || b.kind === "water" || b.kind === "radio") decorateInfra(b, obj, w, d);
     if (b.kind === "hospital") {
       const cross = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshStandardMaterial({ map: canvasTex(128, 128, (g) => { g.fillStyle = "#fff"; g.beginPath(); g.arc(64, 64, 62, 0, TAU); g.fill(); g.fillStyle = "#d42020"; g.fillRect(48, 18, 32, 92); g.fillRect(18, 48, 92, 32); }), transparent: true, roughness: .8 }));
@@ -388,7 +360,8 @@ function buildCity() {
   roofStuff = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ roughness: .85 }), Math.max(1, instBoxes.length));
   const m = new THREE.Matrix4(), col = new THREE.Color();
   for (const b of buildings) { b.roofIdx = []; b.roofBox = []; }
-  instBoxes.forEach(([x, y, z, sx, sy, sz, c, b], i) => { m.makeScale(sx, sy, sz).setPosition(x, y, z); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); (b.roofBox = b.roofBox || []).push([x, y, z, sx, sy, sz]); });
+  const rq = new THREE.Quaternion(), ry = new THREE.Vector3(0, 1, 0), rp = new THREE.Vector3(), rsc = new THREE.Vector3();
+  instBoxes.forEach(([x, y, z, sx, sy, sz, c, b, rot], i) => { rq.setFromAxisAngle(ry, rot || 0); m.compose(rp.set(x, y, z), rq, rsc.set(sx, sy, sz)); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); (b.roofBox = b.roofBox || []).push([x, y, z, sx, sy, sz, rot || 0]); });
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
   buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); makeCarMeshes(cars.length + 300);
@@ -458,7 +431,7 @@ function placeLamps() {
   // упавший фонарь лежит на земле, его лампа гаснет
   const m = new THREE.Matrix4(), base = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), zero = new THREE.Matrix4().makeScale(0, 0, 0);
   lamps.forEach((l, i) => {
-    const ang = [Math.PI / 2, -Math.PI / 2, Math.PI, 0][l.f], dx = Math.cos(ang), dz = -Math.sin(ang);
+    const ang = l.a !== undefined ? -l.a : [Math.PI / 2, -Math.PI / 2, Math.PI, 0][l.f], dx = Math.cos(ang), dz = -Math.sin(ang);
     base.makeTranslation(X(l.x), gY(l.x, l.y), Z(l.y));
     if (l.down) base.multiply(m.makeRotationY(i * 1.7)).multiply(new THREE.Matrix4().makeRotationZ(l.down));
     lampPole.setMatrixAt(i, base);
@@ -536,7 +509,8 @@ function buildCityWalls() {
 function buildFences() {
   if (!fences.length) return;
   const m = new THREE.Matrix4(), f = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x8d7a5c, roughness: .9 }), fences.length);
-  fences.forEach(([x0, y0, x1, y1], i) => { const v = x0 === x1; m.makeScale(v ? .5 : x1 - x0, 4, v ? y1 - y0 : .5).setPosition(X((x0 + x1) / 2), gY((x0 + x1) / 2, (y0 + y1) / 2) - .5, Z((y0 + y1) / 2)); f.setMatrixAt(i, m); });
+  const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  fences.forEach(([x0, y0, x1, y1], i) => { const L = Math.hypot(x1 - x0, y1 - y0); q.setFromAxisAngle(up, -Math.atan2(y1 - y0, x1 - x0)); m.compose(new THREE.Vector3(X((x0 + x1) / 2), gY((x0 + x1) / 2, (y0 + y1) / 2) - .5, Z((y0 + y1) / 2)), q, new THREE.Vector3(L, 4, .5)); f.setMatrixAt(i, m); });
   f.castShadow = true; cityGroup.add(f);
 }
 

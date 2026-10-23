@@ -68,7 +68,7 @@ function buildCampMesh(c) {
 }
 /* КПП: будка, шлагбаум с противовесом, мешки, конусы, знак «СТОП», палатка-изолятор с крестом, маячок */
 function buildCpMesh(cp) {
-  const g = new THREE.Group(); g.position.set(X(cp.x), 0, Z(cp.y)); g.rotation.y = cp.v ? 0 : Math.PI / 2;
+  const g = new THREE.Group(); g.position.set(X(cp.x), 0, Z(cp.y)); g.rotation.y = cp.ang !== undefined ? Math.atan2(Math.cos(cp.ang), Math.sin(cp.ang)) : cp.v ? 0 : Math.PI / 2;
   // в локальных координатах проход идёт вдоль z, барьер вдоль x
   const booth = new THREE.Group(); booth.position.set(9.5, 0, 3);
   const bb = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 4), new THREE.MeshStandardMaterial({ color: 0xdfe3e6, roughness: .7 })); bb.position.y = 2.5; bb.castShadow = true; booth.add(bb);
@@ -89,7 +89,7 @@ function buildCpMesh(cp) {
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(10, 3), new THREE.MeshStandardMaterial({ map: canvasTex(256, 80, gg => { gg.fillStyle = "#1d3566"; gg.fillRect(0, 0, 256, 80); gg.fillStyle = "#fff"; gg.font = "bold 44px Oswald, Arial Narrow, sans-serif"; gg.textAlign = "center"; gg.fillText("КПП · ПРОВЕРКА", 128, 56); }), side: THREE.DoubleSide })); sign.position.set(0, 7.5, -1); g.add(sign);
   for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(.18, .18, 9, 6), steelMat2); p.position.set(sx * 5.2, 4.5, -1); g.add(p); }
   // изолятор: белая палатка с крестом, обнесённая лентой
-  const tx = cp.v ? cp.tent[0] - cp.x : cp.tent[1] - cp.y, tz = cp.v ? cp.tent[1] - cp.y : -(cp.tent[0] - cp.x);
+  const th = g.rotation.y, wx = cp.tent[0] - cp.x, wy = cp.tent[1] - cp.y, tx = wx * Math.cos(th) - wy * Math.sin(th), tz = wx * Math.sin(th) + wy * Math.cos(th);
   const iso = ridgeTent(14, 10, 6, crossTentMat); iso.position.set(tx, 0, tz); iso.rotation.y = Math.PI / 2; g.add(iso);
   const tapePts = []; for (let i = 0; i < 4; i++) { const a = i / 4 * TAU + Math.PI / 4, a2 = (i + 1) / 4 * TAU + Math.PI / 4; const p = new THREE.Mesh(new THREE.CylinderGeometry(.1, .1, 2.6, 5), steelMat2); p.position.set(tx + Math.cos(a) * 11, 1.3, tz + Math.sin(a) * 11); g.add(p); tapePts.push(new THREE.Vector3(tx + Math.cos(a) * 11, 2.2, tz + Math.sin(a) * 11), new THREE.Vector3(tx + Math.cos(a2) * 11, 2.2, tz + Math.sin(a2) * 11)); }
   g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(tapePts), new THREE.LineBasicMaterial({ color: 0xd42020 })));

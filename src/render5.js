@@ -91,7 +91,7 @@ function updateConstruction() {
         b.scaf = makeScaffold(b); cityGroup.add(b.scaf); b.obj.visible = true;
         if (b.mesh.userData.orig) { b.mesh.material = b.mesh.userData.orig; b.scorched = false; b.scorchK = 0; }
         for (const o of b.obj.children.slice()) { if (o.userData.shell) b.obj.remove(o); else o.visible = true; }
-        if (b.roofIdx && b.roofBox && roofStuff) { const mm = new THREE.Matrix4(); b.roofIdx.forEach((ri, k) => { const [x, y, z, sx, sy, sz] = b.roofBox[k]; mm.makeScale(sx, sy, sz).setPosition(x, y, z); roofStuff.setMatrixAt(ri, mm); }); roofStuff.instanceMatrix.needsUpdate = true; }
+        if (b.roofIdx && b.roofBox && roofStuff) { const mm = new THREE.Matrix4(); const qq = new THREE.Quaternion(), yy = new THREE.Vector3(0, 1, 0); b.roofIdx.forEach((ri, k) => { const [x, y, z, sx, sy, sz, r] = b.roofBox[k]; qq.setFromAxisAngle(yy, r || 0); mm.compose(new THREE.Vector3(x, y, z), qq, new THREE.Vector3(sx, sy, sz)); roofStuff.setMatrixAt(ri, mm); }); roofStuff.instanceMatrix.needsUpdate = true; }
         if (b.sign) b.sign.visible = true;
       }
       // этажи появляются по одному: высота растёт ступенями, на верхнем этаже пыль и искры сварки

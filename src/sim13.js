@@ -108,20 +108,20 @@ function inDanger(a) { for (const d of dangers) if (Math.hypot(d.x - a.x, d.y - 
 let cps = [];
 function addCheckpoint(x, y) {
   // ближайшая улица: барьер поперёк неё с проходом посередине
-  let best = null, bd = 90;
-  for (const s of streets) { if (s.gone || s.edge) continue; const lat = s.v ? x : y, along = s.v ? y : x; if (along < s.a0 + 20 || along > s.a1 - 20) continue; const d = Math.abs(lat - s.p); if (d < bd) { bd = d; best = s; } }
-  if (!best) return false;
-  const s = best, cx = s.v ? s.p : x, cy = s.v ? y : s.p, cells = [];
-  for (let o = -s.hw - 8; o <= s.hw + 8; o += CS) {
+  const q = gEdgeNear(x, y, 90, e => e.rural || e.kind === "ring"); if (!q) return false;
+  const e = q.e, t = clamp(q.t, Math.min(e.len / 2, e.ra + 18), Math.max(e.len / 2, e.len - e.rb - 18)), p = edgePos(e, t);
+  const tx = p.tx, ty = p.ty, nx = -ty, ny = tx, cx = p.x, cy = p.y, cells = [];
+  for (let o = -e.hw - 8; o <= e.hw + 8; o += CS / 2) {
     if (Math.abs(o) < 7) continue;
-    const px = s.v ? cx + o : cx, py = s.v ? cy : cy + o, gx = Math.floor(px / CS), gy = Math.floor(py / CS);
+    const px = cx + nx * o, py = cy + ny * o, gx = Math.floor(px / CS), gy = Math.floor(py / CS);
     if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx, c = grid[i];
-    if (c === 3 || c === 9 || c === 5) continue; grid[i] = 6; bhp[i] = 120; wallMask[i] = 1; cells.push(i);
+    if (c === 3 || c === 9 || c === 5 || c === 6) continue; grid[i] = 6; bhp[i] = 120; wallMask[i] = 1; cells.push(i);
   }
-  const cp = { x: cx, y: cy, v: s.v, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: s.v ? [cx + s.hw + 12, cy + 10] : [cx + 10, cy + s.hw + 12] };
-  sendPosts("police", cx, cy, [0, 1].map(i => freeNear(s.v ? cx + (i ? 10 : -10) : cx, s.v ? cy : cy + (i ? 10 : -10), 5)), { cp });
-  // будка справа от проезда, изолятор: клетки заняты
-  const bx = s.v ? cx + 9.5 : cx + 3, by = s.v ? cy + 3 : cy - 9.5;
+  // ось x модели КПП — поперёк улицы вправо от направления (ty, −tx)
+  const ang = Math.atan2(ty, tx), lx = ty, ly = -tx, cp = { x: cx, y: cy, ang, v: Math.abs(ty) > Math.abs(tx), hw: e.hw, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [cx + lx * (e.hw + 12) + tx * 10, cy + ly * (e.hw + 12) + ty * 10] };
+  sendPosts("police", cx, cy, [0, 1].map(i => freeNear(cx + tx * (i ? 10 : -10), cy + ty * (i ? 10 : -10), 5)), { cp });
+  // будка у проезда, изолятор: клетки заняты
+  const bx = cx + lx * 9.5 + tx * 3, by = cy + ly * 9.5 + ty * 3;
   cp.cells2 = blockFree(bx - 2, by - 2, bx + 2, by + 2).concat(blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7));
   cps.push(cp); barrDirty = true; fieldT = 0;
   logE("Развёрнут КПП: полиция проверяет проходящих на укусы, заражённых отправляют в изолятор", "good"); return true;
@@ -238,7 +238,7 @@ function hqRep(d, why) {
   const before = hq.rep; hq.rep = clamp(hq.rep + d, -5, 5);
   logE(`Доверие штаба ${d > 0 ? "выросло" : "упало"}: ${why}. Сейчас ${hq.rep > 0 ? "+" : ""}${hq.rep}`, d > 0 ? "good" : "bad");
   if (hq.rep >= 2 && d > 0 && before < 2) { radio("Штаб: хорошая работа, высылаем подкрепление"); for (let i = 0; i < 2; i++) spawnService("army", W / 2 + rnd(-200, 200), H / 2 + rnd(-150, 150), null); }
-  if (hq.rep >= 4 && d > 0 && !hq.tankGiven) { hq.tankGiven = true; radio("Штаб: передаём вам танк"); const e = edgeLanePoint(); addTank(e.l.s.v ? e.l.c : e.along, e.l.s.v ? e.along : e.l.c); }
+  if (hq.rep >= 4 && d > 0 && !hq.tankGiven) { hq.tankGiven = true; radio("Штаб: передаём вам танк"); const e = edgeLanePoint(); addTank(e.x, e.y); }
   if (hq.rep <= -2 && d < 0) { hq.withdrawnT = 180; radio("Штаб: ваши действия неприемлемы, армия отзывается на 3 минуты"); for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.post) { a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; a.withdraw = true; a.unit = null; } }
 }
 // отбой: армия уходит к краю карты, полиция и медики — на базу, там исчезают
