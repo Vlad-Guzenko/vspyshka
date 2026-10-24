@@ -52,13 +52,14 @@ function resolveCarOverlaps(dt) {
       const push = Math.min(h.depth, 2.5);
       if (cm && om) {
         const rel = Math.abs((c.v || 0) - (o.v || 0));
-        if (rel > 22 && (c.panic || o.panic)) { const f = (c.v || 0) >= (o.v || 0) ? c : o; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }
+        if (rel > 22 && (c.panic || o.panic)) { const heavy = x => x.service === "bus" || x.service === "ambulance" || x.service === "fire" || x.service === "army" || x.service === "dump" || x.service === "supply"; let f = (c.v || 0) >= (o.v || 0) ? c : o; if (heavy(f) && !heavy(f === c ? o : c)) f = f === c ? o : c; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }
         nudgeBack(c, h.nx, h.ny, push * .5); nudgeBack(o, -h.nx, -h.ny, push * .5);
         const cBehind = (o.x - c.x) * Math.cos(c.ang) + (o.y - c.y) * Math.sin(c.ang) > 0;
         if (cBehind) { c.v = Math.min(c.v, .8); c.jam = true; } else { o.v = Math.min(o.v, .8); o.jam = true; } // упёрлись: копится ожидание, машина ищет объезд
       } else {
         const m = cm ? c : o, s = cm ? o : c, sign = cm ? 1 : -1;
         if (m.panic && m.v > 16) { carCollide(m, s, m.v); return; }
+        if (s.service === "bus" || s.service === "ambulance") { if (m.panic) carCollide(m, s, Math.max(m.v, 20)); }
         nudgeBack(m, h.nx * sign, h.ny * sign, push); m.v = 0; m.jam = true;
       }
     });
@@ -102,24 +103,30 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
   const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine);
   if (!obstacle) return;
   if (!opp) return;
-  // совсем глухо (стена, завал, вереница брошенных машин) — разворачиваемся на встречную и едем назад
-  if (c.wait > 12) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } return; }
   if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) return; // у перекрёстка на встречку не выезжаем
   if (oppClear(c, opp, dx, dy)) { c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c); return; }
-  // встречная занята — в крайнем случае по тротуару справа, медленно и с сигналом
-  if (c.wait > 6 && sideClear(c)) { c.over = 2; c.overT = 0; c.latTgt = -(l.e.hw - l.off + 4); c.wait = 0; sfx.horn(c); logT("sidewalk", "Машина объезжает затор по тротуару", "", 30); }
+  // встречная занята — по тротуару справа, медленно и с сигналом
+  if (c.wait > 4) { const off = sideClear(c); if (off) { c.over = 2; c.overT = 0; c.latTgt = off; c.wait = 0; sfx.horn(c); logT("sidewalk", "Машина объезжает затор по тротуару", "", 30); return; } }
+  // совсем глухо (стена, завал, вереница брошенных машин, тротуар занят) — разворачиваемся на встречную и едем назад
+  if (c.wait > 12) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } }
 }
 // тротуар справа свободен на 70 м: только плитка, без деревьев, фонарей, домов и толпы
 function sideClear(c) {
-  const l = c.lane, off = -(l.e.hw - l.off + 4); let people = 0;
-  for (let k = 0; k < 70; k += 6) {
-    const q = lanePos(l, Math.min(l.e.len, c.s + k)), x = q.x + q.ty * off, y = q.y - q.tx * off, gi = Math.floor(y / CS) * GW + Math.floor(x / CS);
-    if (gi < 0 || gi >= GW * GH || roadMask[gi] !== 2 || grid[gi] !== 1) return false;
-    for (const lp of lamps) if (Math.abs(lp.x - x) < 4 && Math.abs(lp.y - y) < 4) return false;
-    for (const h of hydrants) if (Math.abs(h.x - x) < 3 && Math.abs(h.y - y) < 3) return false;
-  }
+  const l = c.lane; let people = 0;
   near(c.x, c.y, 40, a => { if (a.state === "alive" && !a.hidden) people++; });
-  return people < 6;
+  if (people >= 8) return 0;
+  // две полосы тротуара: у бордюра и у домов; берём ту, где в первые 30 м нет фонаря и гидранта
+  for (const extra of [3.2, 6.4]) {
+    const off = -(l.e.hw - l.off + extra); let ok = true;
+    for (let k = 0; k < 60 && ok; k += 6) {
+      const q = lanePos(l, Math.min(l.e.len, c.s + k)), x = q.x + q.ty * off, y = q.y - q.tx * off, gi = Math.floor(y / CS) * GW + Math.floor(x / CS);
+      const g = gi >= 0 && gi < GW * GH ? grid[gi] : 9;
+      if (roadMask[gi] === 1 || !(g === 1 || g === 2 || g === 7)) { ok = false; break; }
+      if (k < 32) { for (const lp of lamps) if (Math.abs(lp.x - x) < 3.2 && Math.abs(lp.y - y) < 3.2) { ok = false; break; } if (ok) for (const h of hydrants) if (Math.abs(h.x - x) < 2.6 && Math.abs(h.y - y) < 2.6) { ok = false; break; } }
+    }
+    if (ok) return off;
+  }
+  return 0;
 }
 // люди на тротуаре шарахаются от машины
 function sidewalkScatter(c, tx, ty) {

@@ -76,7 +76,7 @@ function truckFor(m, b) {
   return m.truck;
 }
 // сколько техники нужно: по объёму завала
-function fleetFor(b) { const r = ruinRubble(b); return { loaders: r > 90 ? 2 : 1, trucks: clamp(1 + Math.ceil(r / 40), 1, 4) }; }
+function fleetFor(b) { const r = ruinRubble(b); return { loaders: r > 120 ? 3 : 2, trucks: clamp(2 + Math.ceil(r / 35), 2, 5) }; }
 function clearRubbleAt(b, px, py) {
   const gx = Math.floor(px / CS), gy = Math.floor(py / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return false;
   const gi = gy * GW + gx; if (grid[gi] !== 8) return false;
@@ -110,7 +110,7 @@ function stepMachines(dt) {
     }
     const b = J.ruin;
     if (b && !b.siteCells && Math.hypot(m.x - (b.x0 + b.x1) / 2, m.y - (b.y0 + b.y1) / 2) < 110) fenceSite(b);
-    const scoop = (t) => { const d = Math.hypot(t[0] - m.x, t[1] - m.y); if (d > 24) { steerTo(m, t[0], t[1], 11, dt); return false; } m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > 1.1) { m.workT = 0; let n = 0; for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (clearRubbleAt(b, t[0] + ox * CS, t[1] + oy * CS)) n++; if (n) { fieldT = 0; gridDirty = true; return true; } } return false; };
+    const scoop = (t) => { const d = Math.hypot(t[0] - m.x, t[1] - m.y); if (d > 26) { steerTo(m, t[0], t[1], 11, dt); return false; } m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > 1.1) { m.workT = 0; let n = 0; for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const px = t[0] + ox * CS, py = t[1] + oy * CS; if (Math.hypot(px - m.x, py - m.y) <= 28 && clearRubbleAt(b, px, py)) n++; } if (n) { fieldT = 0; gridDirty = true; return true; } } return false; };
     // полный ковш — к самосвалу; самосвала нет — пока расчищаем проезжую часть, чтобы он смог подъехать
     if (m.carry) {
       const tr = truckFor(m, b);
@@ -127,7 +127,7 @@ function stepMachines(dt) {
     const t = nearestRubble(m, b);
     if (!t) {
       m.leave = true;
-      if (b) { b.clearAssigned = false; b.clearedT = simT; logE(b.kind === "tower" ? "Завал небоскрёба вывезен: площадка готова под стройку" : "Завал вывезен: площадка готова под стройку", "good"); }
+      if (b) { b.clearAssigned = false; b.clearedT = simT; if (typeof onSiteCleared === "function") onSiteCleared(b); logE(b.kind === "tower" ? "Завал небоскрёба вывезен: площадка готова под стройку" : "Завал вывезен: площадка готова под стройку", "good"); }
       continue;
     }
     if (scoop(t)) m.carry = 1;

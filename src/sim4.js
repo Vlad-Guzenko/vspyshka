@@ -98,7 +98,7 @@ function stepServiceCar(c, dt) {
   }
   if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.homeGoal && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 40) { if (c.passengers && c.passengers.length) hospitalIntake(c); c.gone = true; return; } if (c.leaveT > (c.homeGoal ? 180 : 60) || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
   // на месте: у цели; в пробке — только если цель уже близко, иначе ищем другой путь
-  if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.wait > 25 && d < 260) || (c.service === "dump" && c.wait > 10 && d < 220)) deployCrew(c); else if (c.wait > 40 && c.lane) { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }
+  if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.service === "dump" ? c.wait > 8 && d < 90 : c.wait > 25 && d < 260)) deployCrew(c); else if (c.wait > 40 && c.lane && c.service !== "dump") { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }
 }
 function serviceTarget(type) {
   if (type === "fire") {
@@ -154,16 +154,17 @@ function stepServices(dt) {
   }
   // завалы и выгоревшие остовы: с окраины едет экскаватор, к завалу — самосвал; снос — сначала экскаватор, самосвалы потом
   const loaders = machines.filter(m => m.kind === "loader" && !m.gone);
-  if (loaders.length < 4) {
+  const ruinN = buildings.filter(b => b.state === "ruin" || (b.gutted && b.state === "ok")).length;
+  if (loaders.length < Math.min(12, 4 + Math.floor(ruinN / 8))) {
     const quietB = b => { let z = 0; nearZ((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 120, () => z++); return z === 0; };
     const site = buildings.find(b => !b.clearAssigned && ((b.state === "ruin" && ruinRubble(b) > 0) || (b.gutted && b.state === "ok")) && quietB(b));
     if (site) {
       site.clearAssigned = true; const [gx, gy] = siteGoal(site), [ex, ey] = edgePointNear(gx, gy);
       if (site.state === "ruin") {
         const f = fleetFor(site); site.truckN = f.trucks;
-        addMachine("loader", ex, ey, { ruin: site }); if (f.loaders > 1) { const [ex2, ey2] = edgePointNear(gx + 400, gy - 300); addMachine("loader", ex2, ey2, { ruin: site }); }
+        addMachine("loader", ex, ey, { ruin: site }); for (let k = 1; k < f.loaders; k++) { const [ex2, ey2] = edgePointNear(gx + (k % 2 ? 500 : -500), gy + (k > 1 ? 400 : -400)); addMachine("loader", ex2, ey2, { ruin: site }); }
         spawnService("dump", gx, gy, null).job = { dump: site }; if (f.trucks > 2) { const t2 = spawnService("dump", gx, gy, null); t2.job = { dump: site }; }
-        site.dumpSentT = simT; logT("clear_go", f.loaders > 1 ? "К большому завалу выехали два экскаватора и колонна самосвалов" : "К завалу выехали экскаватор и самосвал", "good", 20);
+        site.dumpSentT = simT; logT("clear_go", f.loaders > 2 ? "К большому завалу выехали три экскаватора и колонна самосвалов" : "К завалу выехали два экскаватора и самосвалы", "good", 20);
       }
       else { addMachine("loader", ex, ey, { demo: site }); logT("demo_go", site.kind === "tower" ? "Выгоревший небоскрёб решено снести: выехал экскаватор" : "Выгоревший дом решено снести: выехал экскаватор", "good", 20); }
     }

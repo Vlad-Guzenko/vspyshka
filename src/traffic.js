@@ -176,7 +176,7 @@ function stepRoadCar(c, dt) {
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && !c.leaving && !c.deployed) {
-    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < 200) || (c.service === "dump" && c.svcT > 90 && gd < 320) || c.svcT > 300) { deployCrew(c); return; }
+    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < 200) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
     // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
     if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }

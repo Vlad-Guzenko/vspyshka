@@ -133,7 +133,7 @@ function stepPatrols(dt) {
     let tgt = null, bd = 220;
     for (const r of reports) { const d = Math.hypot(r.x - c.x, r.y - c.y); if (d < bd) { bd = d; tgt = r; } }
     for (const nz of noises) { if (simT - nz.t > 12) continue; const d = Math.hypot(nz.x - c.x, nz.y - c.y); if (d < bd) { bd = d; tgt = nz; } }
-    if (tgt) { c.patrol = false; c.goal = { x: tgt.x, y: tgt.y }; c.svcT = 0; if (c.siren) sfx.siren(c); logT("patrol_go", "Патруль услышал шум и едет на место", "good", 20); continue; }
+    if (tgt) { c.patrol = false; c.goal = { x: tgt.x, y: tgt.y }; c.svcT = 0; c.siren = "police"; sfx.siren(c); logT("patrol_go", "Патруль услышал шум и едет на место", "good", 20); continue; }
     if (c.patrolT > 240) { c.patrol = false; releaseUnit(c); }
   }
   patrolT -= dt; if (patrolT > 0) return; patrolT = 90;
@@ -202,7 +202,7 @@ function supplyUnload(c, dt) {
 /* ---------- гнёзда: в выгоревших остовах копятся зомби, пока остов не снесут ---------- */
 function stepNests(dt) {
   nestT -= dt; if (nestT > 0) return; nestT = 10;
-  const c = lastCounts || counts(); if (c.Z === 0 || c.Z > 60) return;
+  const c = lastCounts || counts(); if (c.Z === 0 || c.Z > 30) return;
   // не чаще одного зомби в десять секунд на весь город, из случайного остова
   const cand = buildings.filter(b => b.gutted && b.state === "ok" && !b.siteCells && (b.nest || 0) < 4 && (b.nestT = (b.nestT || 0) + 10) >= 40);
   if (!cand.length || Math.random() > .5) return;

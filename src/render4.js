@@ -28,6 +28,13 @@ function stepDebris(dt) {
 }
 function clearDebris() { debris = []; debN = 0; debMesh.count = 0; }
 // экскаватор убрал клетку завала: лежащие на ней обломки убираем
+// площадка вывезена: ни одного обломка вокруг, гребень упавшей башни и остов убраны
+function onSiteCleared(b) {
+  const [x0, y0, x1, y1] = rubbleBounds(null, b), wx0 = X(x0 - 24), wx1 = X(x1 + 24), wz0 = Z(y0 - 24), wz1 = Z(y1 + 24);
+  for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || d.sx === 0) continue; if (d.x >= wx0 && d.x <= wx1 && d.z >= wz0 && d.z <= wz1) { d.sx = d.sy = d.sz = 0; d.y = -50; d.rest = true; debDirty = true; } }
+  if (b.mound) { cityGroup.remove(b.mound); b.mound = null; }
+  if (b.obj && b.state === "ruin") b.obj.visible = false;
+}
 function onRubbleCleared(x, y) {
   const wx = X(Math.floor(x / CS) * CS + CS / 2), wz = Z(Math.floor(y / CS) * CS + CS / 2);
   for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || !d.rest || d.sx === 0) continue; if (Math.abs(d.x - wx) <= CS * .75 && Math.abs(d.z - wz) <= CS * .75) { d.sx = d.sy = d.sz = 0; d.y = -50; debDirty = true; } }
