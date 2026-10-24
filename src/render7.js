@@ -66,8 +66,10 @@ function makeToppleMound(b) {
   const g = new THREE.Group(), fm = new THREE.MeshStandardMaterial({ color: facadeColor(b), roughness: .9 }), mats = [fm, slabMat, innerMat, fm];
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
   // низ здания: стены обломаны неровно
-  const stump = new THREE.Group(); stump.position.set(X(cx), b.baseY || 0, Z(cy)); if (b.rot !== undefined) stump.rotation.y = -b.rot;
-  const savedRuin = b.ruinH; b.ruinH = Math.min(b.h * .3, rnd(6, 16)); stump.add(makeRuinShell(b)); b.ruinH = savedRuin; g.add(stump);
+  // остов строится во всю высоту дома (как для осевшей руины), поэтому утапливаем его в землю так, чтобы торчал только обломанный низ
+  const stumpH = Math.min(b.h * .3, rnd(6, 16));
+  const stump = new THREE.Group(); stump.position.set(X(cx), (b.baseY || 0) - (b.h - stumpH), Z(cy)); if (b.rot !== undefined) stump.rotation.y = -b.rot;
+  const savedRuin = b.ruinH; b.ruinH = stumpH; stump.add(makeRuinShell(b)); b.ruinH = savedRuin; g.add(stump);
   // гребень: куски перекрытий и фасада, выше у основания и ниже к концу
   const n = Math.ceil(z.L / 9);
   for (let i = 0; i < n; i++) {

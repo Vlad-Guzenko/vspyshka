@@ -282,6 +282,12 @@ function prepareGraph() {
     }
   }
 }
+function buildCrossMask() {
+  crossMask.fill(0);
+  const band = (e, t) => { const p = edgePos(e, t); for (let o = -e.hw; o <= e.hw; o += CS / 2) for (let s = -5; s <= 5; s += CS / 2) { const x = p.x - p.ty * o + p.tx * s, y = p.y + p.tx * o + p.ty * s, gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && roadMask[gy * GW + gx] === 1) crossMask[gy * GW + gx] = 1; } };
+  for (const n of RN) { if (n.ed.length < 3 || n.round) continue; for (const e of n.ed) { if (e.rural) continue; const r = e.a === n ? e.ra : e.rb; band(e, e.a === n ? r - 6 : e.len - r + 6); } }
+  for (const e of RE) if (!e.rural && e.kind !== "ring" && e.len > 260) band(e, e.len / 2);
+}
 function laneFrom(e, n) { return e.a === n ? e.L[0] : e.L[1]; }
 function laneStart(l) { return l.d > 0 ? l.e.ra : l.e.rb; }
 function laneEnd(l) { return l.e.len - (l.d > 0 ? l.e.rb : l.e.ra); }
@@ -347,7 +353,7 @@ function blockAt(x, y) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS);
 
 /* ---------- поиск пути по дорогам ---------- */
 // расстояние от каждого узла до цели по направленным полосам (с учётом перекрытых недавно рёбер)
-function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.hw >= 20 ? .85 : 1) + (simT - e.blockT < 90 ? 4000 : 0); }
+function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.hw >= 20 ? .85 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0); }
 function dijkstraTo(seeds) {
   const dist = new Float64Array(RN.length).fill(1e12), done = new Uint8Array(RN.length);
   for (const [n, d] of seeds) dist[n.id] = Math.min(dist[n.id], d);

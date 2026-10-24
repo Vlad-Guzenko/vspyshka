@@ -3,14 +3,14 @@ const SAVE_SLOTS = 3;
 const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
-const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front"];
-const A_SKIP = new Set(["unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
+const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT"];
+const A_SKIP = new Set(["busGoal", "onBus", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
 function serializeGame() {
   const bi = new Map(buildings.map((b, i) => [b, i]));
   const inCar = new Set(); for (const c of cars) if (c.service && !c.gone) for (const a of c.crew || []) if (a.unit === c) inCar.add(a);
   const agentsS = agents.map(a => {
     const o = {}; for (const k in a) if (!A_SKIP.has(k)) o[k] = a[k];
-    if (a.hideB) o.hideB = bi.get(a.hideB); if (a.player) o.player = false; if (inCar.has(a)) o.inCar = true; o.squad = 0;
+    if (a.hideB) o.hideB = bi.get(a.hideB); if (a.player) o.player = false; if (inCar.has(a)) o.inCar = true; o.squad = 0; if (a.onBus) o.hidden = false;
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
@@ -27,7 +27,7 @@ function serializeGame() {
     roads: { nodes: RN.map(n => [n.x, n.y, n.off || 0, n.cul ? 1 : 0]), edges: RE.map(e => [e.a.id, e.b.id, e.pts, e.hw, e.kind, e.oneway ? 1 : 0, e.rural ? 1 : 0, e.boulevard ? 1 : 0, e.trees ? 1 : 0, e.sw]), rounds },
     roadMask: b64(roadMask), regionOf: b64(Int16Array.from(regionOf, v => v)), patchOf: b64(patchOf), patches,
     blocks: blocks.map(b => ({ id: b.id, n: b.n, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, cx: b.cx, cy: b.cy, kind: b.kind, d: b.d, lot: b.lot, rural: b.rural, city: b.city, paths: b.paths, pond: b.pond })),
-    trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), lamps, fountains, fences, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
+    trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), hydrants, lamps, fountains, fences, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
     special: Object.fromEntries(Object.entries(special).map(([k, v]) => [k, { x: v.x, y: v.y, b: bi.get(v.b) }])),
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
@@ -46,11 +46,12 @@ function loadGame(S) {
   for (const [x, y, off, cul] of S.roads.nodes) { const n = rnNew(x, y); n.off = off; n.cul = !!cul; }
   for (const [a, b, pts, hw, kind, ow, rur, bv, tr, sw] of S.roads.edges) reNew(RN[a], RN[b], pts, hw, kind, !!ow, { rural: !!rur, boulevard: !!bv, trees: !!tr, sw: sw || SW });
   prepareGraph(); routeCache.clear(); exitRoute = null; turnCache.clear();
-  roadMask.set(unb64(S.roadMask, Uint8Array)); { const r = unb64(S.regionOf, Int16Array); for (let i = 0; i < regionOf.length; i++) regionOf[i] = r[i]; }
+  roadMask.set(unb64(S.roadMask, Uint8Array)); { const r = unb64(S.regionOf, Int16Array); for (let i = 0; i < regionOf.length; i++) regionOf[i] = r[i]; } buildCrossMask();
   patchOf.set(unb64(S.patchOf, Int16Array)); patches = S.patches || [];
   blocks = S.blocks; computeDistRoad();
   buildings = S.buildings.map(b => ({ ...b, h: b.floors * (b.kind === "house" ? 11 : 12), occ: [] }));
-  trees = S.trees; lamps = S.lamps; fountains = S.fountains; fences = S.fences; waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
+  siteMask.fill(0); for (const b of buildings) if (b.siteCells) for (let k = 0; k < b.siteCells.length; k += 2) siteMask[b.siteCells[k]] = 1;
+  trees = S.trees; hydrants = S.hydrants || []; lamps = S.lamps; fountains = S.fountains; fences = S.fences; waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
   special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));
   agents = S.agents.filter(o => !o.inCar || ["army", "police", "medic"].includes(o.role)).map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; a.squad = 0; a.unit = null; a.job = null; if (o.inCar) { delete a.inCar; if (a.role !== "army") { a.standDown = true; a.standT = 0; a.order = a.role === "police" ? { x: special.police.x, y: special.police.y } : { x: special.hospital.x, y: special.hospital.y }; } } if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
   cars = S.cars.map(o => { const c = { ...newCar(), ...o, turn: null, next: null }; c.lane = o.lane >= 0 && RL[o.lane] ? RL[o.lane] : null; if (!c.lane) { c.moving = false; if (!c.stopped) c.lane = null; } return c; });

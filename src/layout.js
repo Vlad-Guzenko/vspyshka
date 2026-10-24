@@ -448,7 +448,7 @@ const SPECIAL = {
   hospital: { w: 66, d: 46, set: 10, floors: 7, style: 5, ok: k => k === "apt" || k === "towers", d0: 1 },
   mall: { w: 84, d: 56, set: 12, floors: 3, style: 7, ok: k => k === "apt" || k === "towers", d0: 1, av: true },
   police: { w: 44, d: 32, set: 6, floors: 3, style: 6, ok: k => k === "apt" || k === "towers" || k === "suburb", d0: 1 },
-  fire: { w: 44, d: 34, set: 14, floors: 2, style: 20, ok: k => k === "apt" || k === "suburb" || k === "industry", d0: 2 },
+  fire: { w: 46, d: 30, set: 2, floors: 2, style: 20, lot: [72, 56, 0], ok: k => k === "apt" || k === "suburb" || k === "industry", d0: 2 },
   power: { w: 50, d: 36, set: 10, floors: 3, style: 15, lot: [80, 64, 0], ok: k => k === "industry" || k === "suburb" || k === "apt", d0: 2 },
   water: { w: 40, d: 30, set: 10, floors: 2, style: 15, lot: [66, 54, 0], ok: k => k === "industry" || k === "suburb" || k === "apt", d0: 2 },
   radio: { w: 22, d: 22, set: 14, floors: 2, style: 6, lot: [52, 52, 2], ok: k => k === "suburb" || k === "apt" || k === "industry" || k === "park", d0: 2 },
@@ -594,6 +594,12 @@ function streetFurniture() {
         if (cellAt(x, y) !== 1) continue;
         lamps.push({ x, y, a: Math.atan2(-ny, -nx), f: 0 });
       }
+    }
+    // гидранты: у бордюра, через каждые ~140 м, не рядом с фонарём
+    if (e.hw >= 15 && e.kind !== "ring") for (let t = (e.ra || 0) + 46 + rnd(0, 30); t < e.len - (e.rb || 0) - 20; t += rnd(130, 170)) {
+      const side = Math.random() < .5 ? 1 : -1, p = edgePos(e, t), nx = -p.ty * side, ny = p.tx * side, x = p.x + nx * (e.hw + 1.8), y = p.y + ny * (e.hw + 1.8);
+      if (cellAt(x, y) !== 1 || lamps.some(l => Math.abs(l.x - x) < 6 && Math.abs(l.y - y) < 6)) continue;
+      hydrants.push({ x, y, a: Math.atan2(p.ty, p.tx) });
     }
     if (e.boulevard && e.hw >= 22) {
       e.trees = true;

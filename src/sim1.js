@@ -52,12 +52,12 @@ function genCity(layout = "random") {
   layoutKey = layout === "random" || !LAYOUTS[layout] ? pick(Object.keys(LAYOUTS).filter(k => !LAYOUTS[k].hidden)) : layout; L = LAYOUTS[layoutKey];
   for (let attempt = 0; attempt < 4; attempt++) {
     grid.fill(2); bhp.fill(0); TH.fill(0); underRubble.fill(0);
-    buildings = []; trees = []; cars = []; lamps = []; fountains = []; fences = []; special = {}; blocks = []; waters = []; bridges = []; walls = [];
+    buildings = []; trees = []; cars = []; lamps = []; fountains = []; fences = []; special = {}; blocks = []; waters = []; bridges = []; walls = []; hydrants = [];
     RN = []; RE = []; RL = []; rounds = []; presets = []; zoneAt = () => null; oldTown = null; bigPark = null; ponds = []; routeCache.clear(); exitRoute = null;
     prepareWater();
     LAYOUT_GEN[L.gen || layoutKey]();
     markRural(); finishGraph();
-    rasterRoads(); computeRegions(); fillCity();
+    rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;
   }
   fillTerrain(); sinkPonds(); flattenRoads(); finishTerrain();
@@ -77,7 +77,12 @@ const underRubble = new Uint8Array(GW * GH);
 const fZ = new Int16Array(GW * GH), fH = new Int16Array(GW * GH), fE = new Int16Array(GW * GH), fInf = new Int16Array(GW * GH), fC = new Int16Array(GW * GH);
 const RING = 16, ring = Array.from({ length: RING }, () => []);
 const NB4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-function bfs(field, sources) {
+// зебры: клетки проезжей части, где пешеходам можно переходить
+const crossMask = new Uint8Array(GW * GH);
+// стоимость клетки для пешехода: тротуар, газон, площадь — 1; проезжая часть вне зебры — 8; завал — непроходим (зомби карабкаются)
+// mode: 0 пешеход, 1 зомби (карабкается по завалам, дорог не боится), 2 техника и танк (по дорогам и завалам, тротуар хуже)
+function walkCost(j, mode) { const c = grid[j]; if (c === 8) return mode ? 3 : 0; if (c === 6) return mode === 2 ? 0 : 9; if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8; return mode === 2 && roadMask[j] !== 1 ? 2 : 1; }
+function bfs(field, sources, mode) {
   field.fill(FAR);
   let pending = 0;
   for (const s of sources) {
@@ -95,7 +100,8 @@ function bfs(field, sources) {
         if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
         const j = ny * GW + nx, c = grid[j];
         if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) continue;
-        const nd = d + (c === 6 ? 9 : c === 8 ? 3 : 1);
+        let wc; if (c === 8) { if (!mode) continue; wc = 3; } else if (c === 6) { if (mode === 2) continue; wc = 9; } else if (c === 0 && roadMask[j] === 1 && !crossMask[j]) wc = mode ? 1 : 8; else wc = mode === 2 && roadMask[j] !== 1 ? 2 : 1;
+        const nd = d + wc;
         if (nd < field[j]) { field[j] = nd; ring[nd % RING].push(j); pending++; }
       }
     }

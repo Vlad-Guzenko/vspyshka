@@ -72,16 +72,20 @@ function releaseUnit(c) {
   // экипаж садится, машина уезжает
   if (c.leaving) return;
   releaseJob(c.job); c.stopped = false;
-  c.leaving = true; c.moving = true; c.deployed = false; c.v = 0;
-  c.goal = null; c.next = null; c.route = null;
+  c.leaving = true; c.moving = true; c.deployed = false; c.v = 0; c.next = null; c.route = null;
+  const home = c.service === "fire" ? special.fire : c.service === "police" ? special.police : c.service === "ambulance" ? special.hospital : null;
+  c.goal = home && home.b && home.b.state === "ok" ? { x: home.x, y: home.y } : null; c.homeGoal = !!c.goal;
 }
 function stepServiceCar(c, dt) {
   if (c.wreck) { if (!c.wreckRel) { c.wreckRel = true; releaseJob(c.job); for (const a of c.crew) { a.unit = null; a.job = null; a.done = false; } c.crew = []; c.stopped = true; c.stopT = simT; } return; }
   if (c.leaving && !c.moving) c.moving = true;
   if (c.deployed && !SERVICE[c.service].crew) {
     if (c.service === "tow") { const w = c.job && c.job.tow; if (w && !w.gone && !w.towedBy) { w.towedBy = c; w.stopped = false; w.moving = false; clearCarCells(w); logT("tow", w.wreck ? "Эвакуатор забрал разбитую машину" : "Эвакуатор увёз брошенную машину", "good", 20); } releaseUnit(c); }
-    else if (c.service === "dump") { const r = c.job && c.job.ruin; if (!machines.some(m => m.job && m.job.ruin === r)) releaseUnit(c); }
+    else if (c.service === "dump") { const r = c.job && c.job.dump; if (!machines.some(m => !m.gone && m.job && (m.job.ruin === r || m.job.demo === r))) releaseUnit(c); }
     else if (c.service === "mixer") { const b = c.job && c.job.build; if (!b || b.state !== "construct") releaseUnit(c); }
+    else if (c.service === "bus") stepBusStop(c, dt);
+    else if (c.service === "supply") supplyUnload(c, dt);
+    else if (c.roam) roamStopDone(c, dt);
     return;
   }
   if (c.deployed) {
@@ -92,8 +96,9 @@ function stepServiceCar(c, dt) {
     if (alive.every(a => a.done && Math.hypot(a.x - c.x, a.y - c.y) < 10)) { for (const a of alive) a.state = "saved"; releaseUnit(c); }
     return;
   }
-  if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.leaveT > 60 || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
-  if (!c.leaving && c.goal && (Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 50 || c.wait > 25)) deployCrew(c);
+  if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.homeGoal && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 40) { if (c.passengers && c.passengers.length) hospitalIntake(c); c.gone = true; return; } if (c.leaveT > (c.homeGoal ? 180 : 60) || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
+  // на месте: у цели; в пробке — только если цель уже близко, иначе ищем другой путь
+  if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.wait > 25 && d < 260) || (c.service === "dump" && c.wait > 10 && d < 220)) deployCrew(c); else if (c.wait > 40 && c.lane) { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }
 }
 function serviceTarget(type) {
   if (type === "fire") {
@@ -109,9 +114,9 @@ function serviceTarget(type) {
     // завалы, упавшие фонари, разбитые машины подальше от зомби
     const quiet = (x, y) => { let z = 0; nearZ(x, y, 120, () => z++); return z === 0; };
 
-    for (const b of buildings) if (b.state === "construct" && simT - (b.lastWork || 0) > 30 && simT - (b.assignedT || -99) > 60 && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.assignedT = simT; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { ruin: b } }; }
-    for (const b of buildings) if (b.state === "ruin" && !b.clearAssigned && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.clearAssigned = true; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { ruin: b } }; }
-    for (const b of buildings) if (b.gutted && b.state === "ok" && !b.clearAssigned && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.clearAssigned = true; return { x: (b.x0 + b.x1) / 2, y: b.y1 + 8, job: { gut: b } }; }
+    for (const b of buildings) if (b.state === "construct" && simT - (b.lastWork || 0) > 30 && simT - (b.assignedT || -99) > 60 && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.assignedT = simT; const g = siteGoal(b); return { x: g[0], y: g[1], job: { ruin: b } }; }
+    // строители — только когда завал вывезен и техника уехала
+    for (const b of buildings) if (b.state === "ruin" && !b.clearAssigned && (!b.clearedT || simT - b.clearedT > 12) && !machines.some(m => !m.gone && m.job && m.job.ruin === b) && ruinRubble(b) === 0 && quiet((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)) { b.clearAssigned = true; const g = siteGoal(b); return { x: g[0], y: g[1], job: { ruin: b } }; }
     for (const l of lamps) if (l.down && !l.fixAssigned && quiet(l.x, l.y)) { l.fixAssigned = true; return { x: l.x, y: l.y, job: { lamp: l } }; }
   }
   return null;
@@ -119,6 +124,7 @@ function serviceTarget(type) {
 function activeUnits(type) { return cars.filter(c => c.service === type && !c.gone && !c.wreck && !c.leaving && !c.abandonedSvc).length; }
 function stepServices(dt) {
   for (const c of cars) if (c.service) stepServiceCar(c, dt);
+  stepServices2(dt);
   reports = reports.filter(r => simT - r.t < 40);
   dispatchT -= dt;
   if (!settings.services || dispatchT > 0) return;
@@ -143,9 +149,30 @@ function stepServices(dt) {
     const t = serviceTarget("repair");
     if (t) {
       const c = spawnService("repair", t.x, t.y, null); c.job = t.job;
-      // к завалу едут погрузчик и самосвал
-      if (t.job.ruin && t.job.ruin.state === "ruin") { const p = nearestLanePoint(t.x, t.y); const lx = p ? p.x : t.x, ly = p ? p.y : t.y; addMachine("loader", lx, ly, { ruin: t.job.ruin }); spawnService("dump", t.x, t.y, null).job = { ruin: t.job.ruin }; logT("loader", "К завалу выехали погрузчик и самосвал", "good", 20); }
+      if (t.job.ruin) logT("builders_go", t.job.ruin.kind === "tower" ? "Строители выехали восстанавливать небоскрёб" : "Строители выехали восстанавливать дом", "good", 20);
     }
+  }
+  // завалы и выгоревшие остовы: с окраины едет экскаватор, к завалу — самосвал; снос — сначала экскаватор, самосвалы потом
+  const loaders = machines.filter(m => m.kind === "loader" && !m.gone);
+  if (loaders.length < 4) {
+    const quietB = b => { let z = 0; nearZ((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 120, () => z++); return z === 0; };
+    const site = buildings.find(b => !b.clearAssigned && ((b.state === "ruin" && ruinRubble(b) > 0) || (b.gutted && b.state === "ok")) && quietB(b));
+    if (site) {
+      site.clearAssigned = true; const [gx, gy] = siteGoal(site), [ex, ey] = edgePointNear(gx, gy);
+      if (site.state === "ruin") {
+        const f = fleetFor(site); site.truckN = f.trucks;
+        addMachine("loader", ex, ey, { ruin: site }); if (f.loaders > 1) { const [ex2, ey2] = edgePointNear(gx + 400, gy - 300); addMachine("loader", ex2, ey2, { ruin: site }); }
+        spawnService("dump", gx, gy, null).job = { dump: site }; if (f.trucks > 2) { const t2 = spawnService("dump", gx, gy, null); t2.job = { dump: site }; }
+        site.dumpSentT = simT; logT("clear_go", f.loaders > 1 ? "К большому завалу выехали два экскаватора и колонна самосвалов" : "К завалу выехали экскаватор и самосвал", "good", 20);
+      }
+      else { addMachine("loader", ex, ey, { demo: site }); logT("demo_go", site.kind === "tower" ? "Выгоревший небоскрёб решено снести: выехал экскаватор" : "Выгоревший дом решено снести: выехал экскаватор", "good", 20); }
+    }
+  }
+  // самосвалы по кругу: пока есть завал, у экскаватора один грузится, второй уже едет
+  for (const m of loaders) {
+    const b = m.job && m.job.ruin; if (!b || m.leave) continue;
+    const n = cars.filter(c => c.service === "dump" && !c.gone && !c.leaving && !c.wreck && c.job && c.job.dump === b).length;
+    if (n < (b.truckN || 2) && simT - (b.dumpSentT || 0) > 20 && ruinRubble(b) > 0) { b.dumpSentT = simT; const [gx, gy] = siteGoal(b); spawnService("dump", gx, gy, null).job = { dump: b }; }
   }
   // армия: вводится, когда полиция не справляется
   const c = counts();
@@ -180,7 +207,7 @@ function thinkCrew(a, dt, zn, zd) {
     let burning = null; near(a.x, a.y, 40, b => { if (!burning && b !== a && b.onFire > 0 && b.state !== "saved") burning = b; });
     let tx, ty, done = false;
     if (burning) { tx = burning.x; ty = burning.y; if (Math.hypot(tx - a.x, ty - a.y) < 18) { burning.onFire = 0; a.spray = .3; a.sprayAt = [tx, ty]; } }
-    else if (job && job.b) { const b = job.b; tx = clamp(a.x, b.x0 - 14, b.x1 + 14); ty = clamp(a.y, b.y0 - 14, b.y1 + 14); if (b.fire <= 0 || b.state !== "ok") { done = true; b.fireAssigned = false; } else if (Math.hypot((b.x0 + b.x1) / 2 - a.x, (b.y0 + b.y1) / 2 - a.y) < Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 45) { b.fire -= dt * (settings.noWater ? .3 : 2.2); if (settings.noWater) logT("nowater", "Пожарные: нет воды в гидрантах, тушим из бака", "bad", 40); a.spray = .3; a.sprayAt = [(b.x0 + b.x1) / 2 + rnd(-10, 10), (b.y0 + b.y1) / 2 + rnd(-10, 10), b.h * .5]; if (b.fire <= 0) { b.fire = 0; logT("ext", "Пожарные потушили здание", "good", 10); } return [0, 0, 0]; } }
+    else if (job && job.b) { const b = job.b; tx = clamp(a.x, b.x0 - 14, b.x1 + 14); ty = clamp(a.y, b.y0 - 14, b.y1 + 14); if (b.fire <= 0 || b.state !== "ok") { done = true; b.fireAssigned = false; } else if (Math.hypot((b.x0 + b.x1) / 2 - a.x, (b.y0 + b.y1) / 2 - a.y) < Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 45) { b.fire -= dt * fireRate(a); if (settings.noWater) logT("nowater", "Пожарные: нет воды в гидрантах, тушим из бака", "bad", 40); a.spray = .3; a.sprayAt = [(b.x0 + b.x1) / 2 + rnd(-10, 10), (b.y0 + b.y1) / 2 + rnd(-10, 10), b.h * .5]; if (b.fire <= 0) { b.fire = 0; logT("ext", "Пожарные потушили здание", "good", 10); } return [0, 0, 0]; } }
     else if (job && job.car) { const c = job.car; tx = c.x; ty = c.y; if (c.burnT <= 0) { done = true; c.fireAssigned = false; } else if (Math.hypot(tx - a.x, ty - a.y) < 30) { c.burnT -= dt * 4; a.spray = .3; a.sprayAt = [c.x, c.y]; for (const f of fires) if (Math.hypot(f.x - c.x, f.y - c.y) < 14) f.l -= dt * 4; return [0, 0, 0]; } }
     else if (job && job.f) { const f = job.f; tx = f.x; ty = f.y; if (f.l <= 0) { done = true; f.assigned = false; } else if (Math.hypot(tx - a.x, ty - a.y) < f.r + 25) { f.l -= dt * 3; f.r = Math.max(2, f.r - dt * .5); a.spray = .3; a.sprayAt = [f.x, f.y]; return [0, 0, 0]; } }
     else done = true;
@@ -207,7 +234,7 @@ function thinkCrew(a, dt, zn, zd) {
     if (job && job.lamp) { const l = job.lamp; if (!l.down) fin(); else if (Math.hypot(l.x - a.x, l.y - a.y) < 8) { a.workT = (a.workT || 0) + dt; a.tool = .3; if (a.workT > 6) { l.down = 0; gridDirty = true; fin(); } return [0, 0, 0]; } else return goTo(a, l.x, l.y, 8); }
     if (job && job.gut) {
       const b = job.gut;
-      if (b.gutted && b.state === "ok") { if (Math.hypot(clamp(a.x, b.x0, b.x1) - a.x, clamp(a.y, b.y0, b.y1) - a.y) > 14) return goTo(a, (b.x0 + b.x1) / 2, b.y1 + 8, 8); b.gutted = false; b.clearAssigned = false; startConstruct(b); b.prog = .3; spawnService("mixer", (b.x0 + b.x1) / 2, b.y1 + 10, null).job = { build: b }; logE(b.kind === "tower" ? "Ремонтники взялись за выгоревший небоскрёб" : "Ремонтники восстанавливают выгоревший дом", "good"); for (const m of a.unit.crew) { m.buildB = b; m.job = null; } }
+      if (b.gutted && b.state === "ok") { if (Math.hypot(clamp(a.x, b.x0, b.x1) - a.x, clamp(a.y, b.y0, b.y1) - a.y) > 14) return goTo(a, (b.x0 + b.x1) / 2, b.y1 + 8, 8); b.gutted = false; b.clearAssigned = false; startConstruct(b); b.prog = .3; spawnService("mixer", siteGoal(b)[0], siteGoal(b)[1], null).job = { build: b }; logE(b.kind === "tower" ? "Ремонтники взялись за выгоревший небоскрёб" : "Ремонтники восстанавливают выгоревший дом", "good"); for (const m of a.unit.crew) { m.buildB = b; m.job = null; } }
       else { a.job = null; if (b.state === "construct") a.buildB = b; else fin(); }
     }
     if (job && job.ruin) {
@@ -217,7 +244,7 @@ function thinkCrew(a, dt, zn, zd) {
       for (let y = b.y0 - 30; y < b.y1 + 30; y += CS) for (let x = b.x0 - 30; x < b.x1 + 30; x += CS) if (cellAt(x, y) === 8) { const d = Math.hypot(x - a.x, y - a.y); if (d < cd) { cd = d; cell = [x, y]; } }
       if (cell === -1) {
         // завал разобран — начинаем строить заново
-        if (b.state === "ruin" || b.state === "construct") { if (b.state === "ruin") { startConstruct(b); spawnService("mixer", (b.x0 + b.x1) / 2, b.y1 + 10, null).job = { build: b }; logE(b.kind === "tower" ? "Ремонтники начали восстанавливать небоскрёб" : "Ремонтники начали восстанавливать дом", "good"); } for (const m of a.unit.crew) { m.buildB = b; m.job = null; } }
+        if (b.state === "ruin" || b.state === "construct") { if (b.state === "ruin") { startConstruct(b); spawnService("mixer", siteGoal(b)[0], siteGoal(b)[1], null).job = { build: b }; logE(b.kind === "tower" ? "Ремонтники начали восстанавливать небоскрёб" : "Ремонтники начали восстанавливать дом", "good"); } for (const m of a.unit.crew) { m.buildB = b; m.job = null; } }
         else { fin(); logT("ruin", "Завал разобран", "good", 20); }
       }
       else if (cd < 10) { a.workT = (a.workT || 0) + dt; if (a.workT > 2.5) { a.workT = 0; const gi = Math.floor(cell[1] / CS) * GW + Math.floor(cell[0] / CS); grid[gi] = insideFoot(b, cell[0], cell[1]) ? 7 : (underRubble[gi] || 1); underRubble[gi] = 0; if (typeof onRubbleCleared === "function") onRubbleCleared(cell[0], cell[1]); fieldT = 0; gridDirty = true; } return [0, 0, 0]; }
@@ -235,6 +262,13 @@ function thinkCrew(a, dt, zn, zd) {
 /* ---------- путь к цели: поле расстояний в коробке вокруг цели и агента, кэш по клетке цели ---------- */
 // люди не проходят сквозь дома, машины, деревья и заграждения; завалы медленные. Поле хранится только для коробки
 const pathCache = new Map(); let pathBudgetT = -1, pathBudget = 0;
+// можно ли спокойному пешеходу идти по прямой: отрезок не должен резать проезжую часть вне зебры и завал
+function walkOk(a, tx, ty) {
+  if (a.role === "zombie" || a.panic > .4 || a.role === "army" || a.unit) return true;
+  const d = Math.hypot(tx - a.x, ty - a.y), n = Math.max(1, Math.ceil(d / 8));
+  for (let i = 1; i <= n; i++) { const x = a.x + (tx - a.x) * i / n, y = a.y + (ty - a.y) * i / n, j = clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1); if (grid[j] === 8 || (roadMask[j] === 1 && !crossMask[j] && grid[j] === 0)) return false; }
+  return true;
+}
 function bfsBox(e, sx, sy) {
   const { x0, y0, w, h, f } = e; f.fill(FAR);
   const si = (clamp(Math.floor(sy / CS), y0, y0 + h - 1) - y0) * w + (clamp(Math.floor(sx / CS), x0, x0 + w - 1) - x0);
@@ -248,9 +282,10 @@ function bfsBox(e, sx, sy) {
       for (const [dx, dy] of NB4) {
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const c = grid[(ny + y0) * GW + nx + x0];
+        const gi = (ny + y0) * GW + nx + x0, c = grid[gi];
         if (c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10) continue;
-        const j = ny * w + nx, nd = d + (c === 8 ? 3 : c === 0 ? 2 : 1);
+        const md = e.mode; let wc; if (c === 8) { if (!md) continue; wc = 3; } else if (c === 6) { if (md === 2) continue; wc = 9; } else if (c === 0 && roadMask[gi] === 1 && !crossMask[gi]) wc = md ? 1 : 8; else wc = md === 2 && roadMask[gi] !== 1 ? 2 : 1;
+        const j = ny * w + nx, nd = d + wc;
         if (nd < f[j]) { f[j] = nd; ring[nd % RING].push(j); pending++; }
       }
     }
@@ -290,6 +325,7 @@ function pathField(a, tx, ty) {
   const x1 = clamp(Math.max(gx, rx0 + 39) + m, 0, GW - 1), y1 = clamp(Math.max(gy, ry0 + 39) + m, 0, GH - 1);
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   if (!e || e.w !== w || e.h !== h) e = { x0, y0, w, h, f: new Int16Array(w * h), t: 0 }; else { e.x0 = x0; e.y0 = y0; }
+  e.mode = a.role === "zombie" ? 1 : a.kind !== undefined || a.tank ? 2 : 0;
   pathCache.set(key, e);
   let sx = tx, sy = ty; if (blocked(tx, ty)) { const [fx, fy] = freeNear(tx, ty, 8); sx = fx; sy = fy; }
   bfsBox(e, sx, sy); e.t = simT;
@@ -301,7 +337,7 @@ function goTo(a, tx, ty, sp) {
   const ux = (tx - a.x) / d, uy = (ty - a.y) / d;
   // прямо, если близко и впереди свободно или цель видна; иначе по полю расстояний вокруг домов и заграждений
   const ahead = blocked(a.x + ux * 8, a.y + uy * 8);
-  if (a.stuck < .6 && !ahead && (d < 30 || (d < 120 && los(a.x, a.y, tx, ty)))) return [ux, uy, sp];
+  if (a.stuck < .6 && !ahead && (d < 30 || (d < 120 && los(a.x, a.y, tx, ty))) && walkOk(a, tx, ty)) return [ux, uy, sp];
   const e = pathField(a, tx, ty), dir = e ? boxDir(e, a.x, a.y) : null;
   if (dir) return [dir[0] + ux * .1, dir[1] + uy * .1, sp];
   if (ahead || a.stuck > .6) { const w = wander(a, .016); return [w[0] + ux * .5, w[1] + uy * .5, sp]; }

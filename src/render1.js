@@ -346,13 +346,15 @@ function buildCity() {
       b.h += chh;
     } else if (b.floors > 5 && Math.random() < .5) { const [qx, qz] = at(w * rnd(-.25, .25), d * rnd(-.25, .25)); instBoxes.push([qx, by + b.h + 5, qz, 10, 10, 12, 0x6a6862, b, -rr]); } // выход на крышу
     if (b.kind === "power" || b.kind === "water" || b.kind === "radio") decorateInfra(b, obj, w, d);
-    if (b.kind === "hospital") {
-      const cross = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshStandardMaterial({ map: canvasTex(128, 128, (g) => { g.fillStyle = "#fff"; g.beginPath(); g.arc(64, 64, 62, 0, TAU); g.fill(); g.fillStyle = "#d42020"; g.fillRect(48, 18, 32, 92); g.fillRect(18, 48, 92, 32); }), transparent: true, roughness: .8 }));
-      cross.rotation.x = -Math.PI / 2; cross.position.set(0, b.h + .15, 0); obj.add(cross);
+    if (b.kind === "hospital") hospitalExtras(b, obj, w, d);
+    if (b.kind === "fire") {
+      // три гаражных бокса с красными воротами на фасаде, перед ними асфальтовая площадка для выезда
+      const doors = new THREE.Mesh(new THREE.PlaneGeometry(w * .9, 9.6), new THREE.MeshStandardMaterial({ map: canvasTex(512, 128, g => { g.fillStyle = "#e8e2d6"; g.fillRect(0, 0, 512, 128); for (let k = 0; k < 3; k++) { const x = 24 + k * 162; g.fillStyle = "#2a2a2a"; g.fillRect(x - 4, 12, 142, 116); g.fillStyle = "#b8231a"; g.fillRect(x, 16, 134, 112); g.fillStyle = "rgba(255,255,255,.3)"; for (let y = 24; y < 124; y += 14) g.fillRect(x, y, 134, 2.5); g.fillStyle = "#f4f4f0"; g.fillRect(x + 10, 58, 114, 9); g.fillStyle = "#1c1c1c"; g.font = "bold 22px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.fillText(String(k + 1), x + 67, 50); } }), roughness: .7 }));
+      doors.position.set(0, 4.9, d / 2 + .25); obj.add(doors);
     }
-    if (b.kind === "police" || b.kind === "hospital" || b.kind === "mall" || b.kind === "power" || b.kind === "water" || b.kind === "radio") {
-      const label = b.kind === "police" ? "ПОЛИЦИЯ" : b.kind === "hospital" ? "БОЛЬНИЦА" : b.kind === "power" ? "ТЭЦ-1" : b.kind === "water" ? "ВОДОКАНАЛ" : b.kind === "radio" ? "РАДИОЦЕНТР" : "ТЦ «ГОРОД»";
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w * .7, 70), 9), new THREE.MeshStandardMaterial({ map: canvasTex(512, 64, g => { g.fillStyle = b.kind === "police" ? "#1d3566" : b.kind === "hospital" ? "#c81e1e" : "#222"; g.fillRect(0, 0, 512, 64); g.fillStyle = "#fff"; g.font = "bold 40px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.fillText(label, 256, 47); }), emissive: 0xffffff, emissiveIntensity: .25, roughness: .5 }));
+    if (b.kind === "police" || b.kind === "hospital" || b.kind === "mall" || b.kind === "power" || b.kind === "water" || b.kind === "radio" || b.kind === "fire") {
+      const label = b.kind === "police" ? "ПОЛИЦИЯ" : b.kind === "hospital" ? "БОЛЬНИЦА" : b.kind === "power" ? "ТЭЦ-1" : b.kind === "water" ? "ВОДОКАНАЛ" : b.kind === "radio" ? "РАДИОЦЕНТР" : b.kind === "fire" ? "ПОЖАРНАЯ ЧАСТЬ" : "ТЦ «ГОРОД»";
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w * .7, 70), 9), new THREE.MeshStandardMaterial({ map: canvasTex(512, 64, g => { g.fillStyle = b.kind === "police" ? "#1d3566" : b.kind === "hospital" || b.kind === "fire" ? "#c81e1e" : "#222"; g.fillRect(0, 0, 512, 64); g.fillStyle = "#fff"; g.font = "bold 40px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.fillText(label, 256, 47); }), emissive: 0xffffff, emissiveIntensity: .25, roughness: .5 }));
       sign.position.set(0, Math.min(b.h - 4, 20), d / 2 + .3); sign.material.emissiveMap = sign.material.map; obj.add(sign); b.sign = sign;
     }
   }
@@ -364,7 +366,7 @@ function buildCity() {
   instBoxes.forEach(([x, y, z, sx, sy, sz, c, b, rot], i) => { rq.setFromAxisAngle(ry, rot || 0); m.compose(rp.set(x, y, z), rq, rsc.set(sx, sy, sz)); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); (b.roofBox = b.roofBox || []).push([x, y, z, sx, sy, sz, rot || 0]); });
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
-  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); makeCarMeshes(cars.length + 300);
+  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); buildHydrants(); makeCarMeshes(cars.length + 300);
   cityGroup.traverse(o => { if (o.isInstancedMesh) o.frustumCulled = false; });
 }
 let roofStuff = null;
@@ -647,6 +649,14 @@ function paintChain(g, w, h) {
   g.fillStyle = "#f2c81e"; g.fillRect(w / 2 - 14, h / 2 - 16, 28, 28); g.strokeStyle = "#222"; g.lineWidth = 2; g.strokeRect(w / 2 - 14, h / 2 - 16, 28, 28);
   g.fillStyle = "#222"; g.beginPath(); g.moveTo(w / 2 + 4, h / 2 - 12); g.lineTo(w / 2 - 6, h / 2 + 1); g.lineTo(w / 2, h / 2 + 1); g.lineTo(w / 2 - 4, h / 2 + 10); g.lineTo(w / 2 + 7, h / 2 - 3); g.lineTo(w / 2 + 1, h / 2 - 3); g.closePath(); g.fill();
 }
+// строительный забор: синий профлист с жёлто-чёрной полосой внизу
+function paintSite(g, w, h) {
+  g.fillStyle = "#2f6db3"; g.fillRect(0, 0, w, h);
+  for (let x = 0; x < w; x += 10) { g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(x, 0, 3, h); g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(x + 5, 0, 2, h); }
+  g.fillStyle = "#f2c81e"; g.fillRect(0, h - 16, w, 7); g.fillStyle = "#1c1c1c"; for (let x = 0; x < w; x += 24) g.fillRect(x, h - 16, 12, 7);
+  dirtOn(g, w, h, .2);
+}
+const texSite = canvasTex(256, 128, paintSite);
 const texConcrete = canvasTex(256, 256, paintConcrete), texStencil = canvasTex(256, 256, (g, w, h) => paintConcrete(g, w, h, true)), texWire = canvasTex(256, 64, paintWire), texSand = canvasTex(256, 256, paintSand), texJersey = canvasTex(256, 256, paintJersey), texChain = canvasTex(128, 128, paintChain);
 const barrBox = new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), barrPlane = new THREE.PlaneGeometry(1, 1).translate(0, .5, 0);
 function mkInst(geo, mat, shadow) { const m = new THREE.InstancedMesh(geo, mat, barrMax); m.castShadow = shadow; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; scene.add(m); return m; }
@@ -657,7 +667,8 @@ const wallStencil = mkInst(barrBox, new THREE.MeshStandardMaterial({ map: texSte
 const wallPost = mkInst(new THREE.CylinderGeometry(.5, .55, 1, 8).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x5a5c58, roughness: .7, metalness: .3 }), true);
 const wallWire = mkInst(barrPlane, new THREE.MeshStandardMaterial({ map: texWire, transparent: true, alphaTest: .4, side: THREE.DoubleSide, roughness: .6, metalness: .5 }), false);
 const fenceMesh = mkInst(barrPlane, new THREE.MeshStandardMaterial({ map: texChain, transparent: true, alphaTest: .4, side: THREE.DoubleSide, roughness: .6, metalness: .4 }), false);
-const barrAll = [barr, barrJersey, wallPanel, wallStencil, wallPost, wallWire, fenceMesh];
+const sitePanel = mkInst(barrBox, new THREE.MeshStandardMaterial({ map: texSite, roughness: .55, metalness: .35 }), true);
+const barrAll = [barr, barrJersey, wallPanel, wallStencil, wallPost, wallWire, fenceMesh, sitePanel];
 function updateBarricades() {
   if (!barrDirty) return; barrDirty = false;
   const m = new THREE.Matrix4(), col = new THREE.Color(), q = new THREE.Quaternion(), qx = new THREE.Quaternion(), qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), p = new THREE.Vector3(), s = new THREE.Vector3();
@@ -665,7 +676,7 @@ function updateBarricades() {
   const put = (o, x, y, z, sx, sy, sz, rot, k) => { const i = n.get(o); if (i >= barrMax) return; p.set(x, y, z); s.set(sx, sy, sz); m.compose(p, rot ? qz : qx, s); o.setMatrixAt(i, m); o.setColorAt(i, col.setScalar(k)); n.set(o, i + 1); };
   for (let i = 0; i < grid.length; i++) {
     if (grid[i] !== 6) continue;
-    const gx = i % GW, gy = (i / GW) | 0, wall = wallMask[i], el = elecMask[i], hp = clamp(bhp[i] / (wall ? 300 : el ? 60 : 35), .25, 1), r = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
+    const gx = i % GW, gy = (i / GW) | 0, wall = wallMask[i], el = elecMask[i], hp = clamp(bhp[i] / (wall ? 300 : el ? 60 : siteMask[i] ? 40 : 35), .25, 1), r = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
     const x = X(gx * CS + 4), y = gY(gx * CS + 4, gy * CS + 4), z = Z(gy * CS + 4), k = .55 + .45 * hp;
     // линия идёт вдоль соседей: по x, по z, или угол
     const hx = (gx > 0 && grid[i - 1] === 6) || (gx < GW - 1 && grid[i + 1] === 6), hy = (gy > 0 && grid[i - GW] === 6) || (gy < GH - 1 && grid[i + GW] === 6);
@@ -683,6 +694,11 @@ function updateBarricades() {
       else put(wallPanel, x, y, z, alongZ ? th : CS * 1.02, hgt, alongZ ? CS * 1.02 : th, false, k);
       put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), 1, hgt + 1.6, 1, false, k);
       if (hp > .5) put(wallWire, x, y + hgt + .2, z, CS * 1.02, 2.6, 1, alongZ, k);
+    } else if (siteMask[i]) {
+      const hgt = 8 * hp, th = .45;
+      if (corner) { put(sitePanel, x, y, z, CS * 1.02, hgt, th, false, k); put(sitePanel, x, y, z, th, hgt, CS * 1.02, false, k); }
+      else put(sitePanel, x, y, z, alongZ ? th : CS * 1.02, hgt, alongZ ? CS * 1.02 : th, false, k);
+      put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), .6, hgt + .5, .6, false, k);
     } else if (el) {
       const hgt = 9 * hp;
       put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, alongZ, k);

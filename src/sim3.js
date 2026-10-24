@@ -85,11 +85,12 @@ function insideFoot(b, x, y) {
   return Math.abs(lx) <= b.w / 2 && Math.abs(lz) <= b.d / 2;
 }
 function setRubble(i) { if (grid[i] !== 8) underRubble[i] = grid[i]; grid[i] = 8; }
-function collapse(b) {
+function collapse(b, demo) {
   b.state = "collapsing"; b.cT = 0;
-  // высокий дом после удара сбоку валится в сторону от взрыва
+  // высокий дом после удара сбоку валится в сторону от взрыва; при сносе экскаватором оседает на месте
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-  b.topple = b.hitX !== undefined && b.h > 36 && b.kind !== "house" && Math.random() < .8;
+  b.topple = !demo && b.hitX !== undefined && b.h > 36 && b.kind !== "house" && Math.random() < .8;
+  if (demo) { b.gutted = false; b.gutT = 0; b.hitX = undefined; }
   if (b.topple) {
     if (b.kind === "tower") firsts.topple = true;
     const d = Math.hypot(cx - b.hitX, cy - b.hitY);
@@ -98,8 +99,8 @@ function collapse(b) {
   }
   for (const o of (b.occ || []).slice()) { leaveShelter(o, true); if (Math.random() < .7) { kill(o, false); o.reanimate = false; o.crushed = true; } }
   b.ruinH = b.kind === "house" ? rnd(2, 5) : Math.min(b.h * .5, rnd(5, 26));
-  b.fire = Math.max(b.fire, 30);
-  const m = Math.min(b.h * .22, 34);
+  b.fire = demo ? 0 : Math.max(b.fire, 30);
+  const m = demo ? 10 : Math.min(b.h * .22, 34);
   // завал засыпает всех вокруг
   near((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + m, a => {
     if (a.state !== "alive" || a.x < b.x0 - m || a.x > b.x1 + m || a.y < b.y0 - m || a.y > b.y1 + m) return;
@@ -115,7 +116,7 @@ function collapse(b) {
   for (const l of lamps) if (l.x > b.x0 - m && l.x < b.x1 + m && l.y > b.y0 - m && l.y < b.y1 + m) l.down = l.down || rnd(1.2, 1.5) * (Math.random() < .5 ? 1 : -1);
   fieldT = 0; gridDirty = true; barrDirty = true;
   addDanger(cx, cy, Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + m + 20, 300);
-  logE(b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", "bad");
+  logE(demo ? (b.kind === "tower" ? "Выгоревший небоскрёб снесли" : "Выгоревший дом снесли") : b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", demo ? "good" : "bad");
   fxCollapse(b); sfx.collapse(b); interest((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 10);
 }
 // рухнувшая вбок башня ложится на соседей: полоса завалов, домино, раздавленные машины
@@ -224,7 +225,9 @@ function stepTanks(dt) {
     }
     // едет к зомби по улицам, давит всё на пути
     let mx = 0, my = 0;
-    if (!best || bd > 120) { const d = fieldDir(fZ, t.x, t.y, false); if (d && fieldVal(fZ, t.x, t.y) < 400) { mx = d[0]; my = d[1]; } }
+    // сначала к точке, куда послали (в обход домов), потом охота на зомби по полю расстояний
+    if (t.goal) { const gd = Math.hypot(t.goal.x - t.x, t.goal.y - t.y); if (gd < 40 || (best && bd < 100)) t.goal = null; else { const e = pathField(t, t.goal.x, t.goal.y), dir = e ? boxDir(e, t.x, t.y) : null; mx = dir ? dir[0] : (t.goal.x - t.x) / gd; my = dir ? dir[1] : (t.goal.y - t.y) / gd; } }
+    if (!(mx || my) && (!best || bd > 120)) { const d = fieldDir(fZ, t.x, t.y, false); if (d && fieldVal(fZ, t.x, t.y) < 400) { mx = d[0]; my = d[1]; } }
     const sp = mx || my ? 13 : 0;
     t.v += (sp - t.v) * Math.min(1, dt * 1.5);
     if (mx || my) { const want = Math.atan2(my, mx); let dd = want - t.ang; dd -= Math.round(dd / TAU) * TAU; t.ang += clamp(dd, -dt * .9, dt * .9); t.turret += clamp(dd, -dt * .9, dt * .9) * 0; }

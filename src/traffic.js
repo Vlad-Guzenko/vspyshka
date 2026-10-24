@@ -41,7 +41,7 @@ function chooseNext(c) {
   if (n.exit) return null;
   const opts = exitsOf(l);
   if (!opts.length) return oppLane(l);
-  const R = c.goal && !c.leaving ? routeTo(c.goal.x, c.goal.y) : null;
+  const R = c.goal ? routeTo(c.goal.x, c.goal.y) : null;
   if (R || c.flee || c.leaving) {
     const dist = R ? R.dist : exitDist();
     let best = null, bd = 1e18;
@@ -49,7 +49,7 @@ function chooseNext(c) {
     if (best && bd < 1e11) return best;
   }
   let tot = 0;
-  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; tot += k; return k; });
+  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed) k *= .02; tot += k; return k; });
   let r = Math.random() * tot; for (let i = 0; i < opts.length; i++) { r -= w[i]; if (r <= 0) return opts[i]; }
   return opts[0];
 }
@@ -75,6 +75,8 @@ function canEnter(c, l, m) {
   }
   // на перекрёстке уже кто-то едет и наши пути пересекаются — пропускаем
   if (n.occ.length) { const mine = makeTurn(l, m); for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false; }
+  // на следующей полосе нет завала
+  for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)); if (cellAt(q.x, q.y) === 8) return false; }
   // на следующей полосе есть место
   const s1 = laneStart(m); let room = true;
   const p = lanePos(m, s1 + 6);
@@ -163,7 +165,9 @@ function carTarget(c, clear, slow) {
   let target = clear < 13 ? 0 : clear < 40 ? c.spd * (clear - 13) / 27 : c.spd;
   if (slow) target = Math.min(target, slow);
   c.v += clamp(target - c.v, -70 * (c.dt || .033), 22 * (c.dt || .033));
-  if (c.v < 1) c.wait += c.dt || .033; else c.wait = 0;
+  // стоим — или нас в этом кадре упёрло в соседа (скорость тогда срезается уже после разгона)
+  if (c.v < 1 || c.jam) c.wait += c.dt || .033; else c.wait = 0;
+  c.jam = false;
 }
 function stepRoadCar(c, dt) {
   c.dt = dt;
@@ -172,9 +176,10 @@ function stepRoadCar(c, dt) {
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && !c.leaving && !c.deployed) {
-    c.svcT = (c.svcT || 0) + dt; if (c.svcT > 70) { deployCrew(c); return; }
+    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < 200) || (c.service === "dump" && c.svcT > 90 && gd < 320) || c.svcT > 300) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
-    if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && c.s < sG + 16) { deployCrew(c); return; } }
+    // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
+    if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }
   }
   if (!c.next && sE - c.s < 70 && !l.to.exit) c.next = chooseNext(c);
   const A = scanAhead(c, c.x, c.y, tx, ty, l);
@@ -191,7 +196,8 @@ function stepRoadCar(c, dt) {
   c.atLine = false;
   if (!l.to.exit && sE - c.s < 34 && (!c.next || !canEnter(c, l, c.next))) { clear = Math.min(clear, sE - c.s + 13); c.atLine = sE - c.s < 6; }
   if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.next = null; }
-  const slow = c.next && sE - c.s < 30 && (c.next.e === l.e || Math.abs(turnAngle(l, c.next)) > .45) ? 10 : 0;
+  let slow = c.next && sE - c.s < 30 && (c.next.e === l.e || Math.abs(turnAngle(l, c.next)) > .45) ? 10 : 0;
+  if (c.over === 2) { slow = 8; sidewalkScatter(c, tx, ty); }
   carTarget(c, clear, slow);
   if (A.people && c.wait > 1.5 && Math.random() < dt * .6) sfx.horn(c);
   carHitPeople(c, tx, ty, dt);
@@ -243,7 +249,7 @@ function newCar() {
   return { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
 }
 function spawnTraffic(n) {
-  const pool = RL.filter(l => laneEnd(l) - laneStart(l) > 30), tot = pool.reduce((a, l) => a + l.e.len, 0);
+  const pool = RL.filter(l => laneEnd(l) - laneStart(l) > 30 && !l.e.closed), tot = pool.reduce((a, l) => a + l.e.len, 0);
   for (let i = 0; i < n && pool.length; i++) {
     let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= l.e.len; if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();

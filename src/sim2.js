@@ -49,8 +49,8 @@ function newAgent(role, x, y) {
   agents.push(a); return a;
 }
 function arm(a, mag, reserve) { a.armed = true; a.mag = mag; a.magMax = mag; a.ammo = reserve; }
-function randomFree() { for (let k = 0; k < 400; k++) { const x = rnd(10, W - 10), y = rnd(10, H - 10), c = cellAt(x, y); if (c === 0 || c === 1 || c === 2 || c === 7) return [x, y]; } return [W / 2, H / 2]; }
-function freeNear(x, y, r = 30) { for (let k = 0; k < 200; k++) { const xx = x + rnd(-r, r), yy = y + rnd(-r, r); if (!blocked(xx, yy)) return [xx, yy]; } return randomFree(); }
+function randomFree() { for (let k = 0; k < 400; k++) { const x = rnd(10, W - 10), y = rnd(10, H - 10), c = cellAt(x, y); if (c === 1 || c === 2 || c === 7 || (c === 0 && roadMask[Math.floor(y / CS) * GW + Math.floor(x / CS)] !== 1)) return [x, y]; } return [W / 2, H / 2]; }
+function freeNear(x, y, r = 30) { for (let k = 0; k < 200; k++) { const xx = x + rnd(-r, r), yy = y + rnd(-r, r); if (!blocked(xx, yy) && cellAt(xx, yy) !== 8 && (k > 120 || roadMask[Math.floor(yy / CS) * GW + Math.floor(xx / CS)] !== 1)) return [xx, yy]; } return randomFree(); }
 
 /* ---------- пространственная сетка соседей ---------- */
 const HC = 32, HW = Math.ceil(W / HC), HH = Math.ceil(H / HC);
@@ -193,15 +193,18 @@ function sightR(a) { const night = settings.night && !(a && litAt(a.x, a.y)); re
 function wander(a, dt) {
   // прогулка вдоль улиц: идём по прямой, на перекрёстках иногда сворачиваем, иногда стоим
   a.wanderT -= dt;
-  const ahead = blocked(a.x + a.wx * 9, a.y + a.wy * 9);
-  if (a.idleT > 0) { a.idleT -= dt; return [0, 0, 0]; }
+  // спокойный пешеход не сходит с тротуара на проезжую часть (кроме зебры): перед кромкой дороги поворачивает
+  const calm = a.panic < .3 && a.role !== "zombie", onRoad = (x, y) => { const i = clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1); return grid[i] === 0 && roadMask[i] === 1 && !crossMask[i]; };
+  const hi = clamp(Math.floor(a.y / CS), 0, GH - 1) * GW + clamp(Math.floor(a.x / CS), 0, GW - 1), here = calm && grid[hi] === 0 && roadMask[hi] === 1;
+  const ahead = blocked(a.x + a.wx * 9, a.y + a.wy * 9) || (calm && !here && onRoad(a.x + a.wx * 9, a.y + a.wy * 9));
+  if (a.idleT > 0) { a.idleT -= dt; if (here) a.idleT = 0; else return [0, 0, 0]; }
   if (a.wanderT <= 0 || ahead || (a.wx === 0 && a.wy === 0)) {
-    if (!ahead && a.wanderT <= 0 && Math.random() < .18 && a.role === "civ") { a.idleT = rnd(2, 7); a.wanderT = rnd(3, 8); return [0, 0, 0]; }
+    if (!ahead && !here && a.wanderT <= 0 && Math.random() < .18 && a.role === "civ") { a.idleT = rnd(2, 7); a.wanderT = rnd(3, 8); return [0, 0, 0]; }
     let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9);
     // мирные не лезут на завалы и пепелища, если стоят не на них
     if (a.role === "civ" && cellAt(a.x, a.y) !== 8) { const safe = opts.filter(([dx, dy]) => cellAt(a.x + dx * 12, a.y + dy * 12) !== 8 && cellAt(a.x + dx * 24, a.y + dy * 24) !== 8); if (safe.length) opts = safe; }
     // спокойный пешеход идёт по тротуару и редко переходит дорогу
-    if (a.panic < .3 && a.role !== "zombie") { const walk = opts.filter(([dx, dy]) => cellAt(a.x + dx * 14, a.y + dy * 14) !== 0); if (walk.length && Math.random() < .88) opts = walk; }
+    if (calm) { const walk = opts.filter(([dx, dy]) => !onRoad(a.x + dx * 12, a.y + dy * 12) && !onRoad(a.x + dx * 24, a.y + dy * 24)); if (walk.length) opts = walk; else if (here) { const off = opts.filter(([dx, dy]) => !onRoad(a.x + dx * 24, a.y + dy * 24)); if (off.length) opts = off; } }
     const fwd = opts.find(([dx, dy]) => dx === Math.sign(Math.round(a.wx)) && dy === Math.sign(Math.round(a.wy)));
     const back = opts.filter(([dx, dy]) => !(dx === -Math.round(a.wx) && dy === -Math.round(a.wy)));
     const ch = fwd && !ahead && Math.random() < .6 ? fwd : pick(back.length ? back : opts.length ? opts : NB4);
@@ -257,6 +260,7 @@ function thinkHuman(a, dt) {
   if (a.cpWait > 0) { a.cpWait -= dt; if (a.cpWait <= 0) a.cpWait = -1; return [0, 0, 0]; } // стоит на проверке
   if (a.cpWait < 0 && (!a.cpAt || Math.hypot(a.cpAt.x - a.x, a.cpAt.y - a.y) > 20)) a.cpWait = 0;
   if (a.bcastT > 0) a.bcastT -= dt;
+  if (a.busGoal) { const r = busBoard(a, dt); if (r) return r; } // идёт к автобусу или скорой и садится
   if (a.standDown && a.order && a.role !== "army" && a.role !== "police") return goTo(a, a.order.x, a.order.y, 9); // отбой: медики едут на базу
   if (a.onFire > 0) { if (a.wanderT > .6) a.wanderT = .6; const w = wander(a, dt); a.idleT = 0; return [w[0] + rnd(-.5, .5), w[1] + rnd(-.5, .5), 15]; } // горящий мечется
   let zd = 1e9, zn = null, fx = 0, fy = 0;
@@ -336,7 +340,7 @@ function thinkHuman(a, dt) {
     let tgt = null, td = 1e9;
     near(a.x, a.y, 30, b => { if (b.state === "alive" && b.bitten && b !== a && !b.hidden) { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < td) { td = d; tgt = b; } } });
     let hurtP = null; near(a.x, a.y, 60, b => { if (!hurtP && b !== a && b.state === "alive" && !b.hidden && b.role === "civ" && !b.bitten && (b.hp < 60 || b.burn > .15)) hurtP = b; });
-    if (!tgt && hurtP) { if (Math.hypot(hurtP.x - a.x, hurtP.y - a.y) < 6) { hurtP.grabT = .3; if (a.cd <= 0) { a.cd = 2; hurtP.hp = Math.min(100, hurtP.hp + 25); hurtP.burn = Math.max(0, (hurtP.burn || 0) - .15); hurtP.bleed = 0; logT("treat", "Медики оказали помощь раненому", "good", 20); } return [0, 0, 0]; } return goTo(a, hurtP.x, hurtP.y, 10); }
+    if (!tgt && hurtP) { if (Math.hypot(hurtP.x - a.x, hurtP.y - a.y) < 6) { hurtP.grabT = .3; if (a.cd <= 0) { a.cd = 2; hurtP.hp = Math.min(100, hurtP.hp + 25); hurtP.burn = Math.max(0, (hurtP.burn || 0) - .15); hurtP.bleed = 0; logT("treat", "Медики оказали помощь раненому", "good", 20); sendToHospital(a, hurtP); } return [0, 0, 0]; } return goTo(a, hurtP.x, hurtP.y, 10); }
     if (tgt && td < 7) {
       tgt.grabT = Math.max(tgt.grabT, .3);
       if (a.cd <= 0) {
@@ -400,8 +404,9 @@ function move(a, mx, my, sp, dt) {
   let slow = cellAt(a.x, a.y) === 8 ? .55 : 1; // по завалам приходится карабкаться
   if (hasHills) slow *= slopeK(a.x, a.y, a.x + a.vx * dt, a.y + a.vy * dt); // в гору медленнее
   const nx = a.x + a.vx * dt * slow, ny = a.y + a.vy * dt * slow;
-  if (!blocked(nx, a.y) && !vehicleAt(nx, a.y) && cellAt(nx, a.y) !== 9) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
-  if (!blocked(a.x, ny) && !vehicleAt(a.x, ny) && cellAt(a.x, ny) !== 9) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
+  const noRub = a.role !== "zombie" && cellAt(a.x, a.y) !== 8;
+  if (!blocked(nx, a.y) && !vehicleAt(nx, a.y) && cellAt(nx, a.y) !== 9 && !(noRub && cellAt(nx, a.y) === 8)) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
+  if (!blocked(a.x, ny) && !vehicleAt(a.x, ny) && cellAt(a.x, ny) !== 9 && !(noRub && cellAt(a.x, ny) === 8)) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
   a.speed = Math.hypot(a.vx, a.vy);
   a.stuck = sp > 2 && a.speed < 1.5 ? (a.stuck || 0) + dt : 0;
   if (a.stuck > 2 && !a.hidden && !a.onRoof && blocked(a.x, a.y)) { const [fx, fy] = freeNear(a.x, a.y, 12); a.x = fx; a.y = fy; a.stuck = 0; }
@@ -430,7 +435,7 @@ function step(dt) {
     hasMedics = false;
     for (const a of agents) {
       if (a.role === "medic" && a.state === "alive") hasMedics = true; if (a.state !== "alive") continue; if (a.role === "zombie") Z.push(a); else if (!a.hidden && !a.post) { Hm.push(a); if (a.bitten) I.push(a); } }
-    bfs(fZ, Z); bfs(fH, Hm); if (hasMedics) bfs(fInf, I); if (evac) bfs(fE, [evac]); if (camps.length) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })));
+    bfs(fZ, Z); bfs(fH, Hm, 1); if (hasMedics) bfs(fInf, I); if (evac) bfs(fE, [evac]); if (camps.length) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })));
   }
   for (const a of agents) {
     if (a.state === "saved") continue;
@@ -442,7 +447,8 @@ function step(dt) {
     a.cd -= dt; a.aimT -= dt; a.panic = Math.max(0, a.panic - dt * .05);
     if (a.hidden) {
       if (a.role === "bandit" && a.lootT > 0) { a.lootT -= dt; if (a.lootT <= 0) { a.hidden = false; a.loot = null; a.bag = pick(["#3a2a1e", "#1e1e22", "#8a6a2a"]); logT("loot", "Мародёры вынесли добычу", "bad", 25); } }
-      if (!a.hideB && !a.detained && !(a.role === "bandit" && a.lootT > 0)) { a.hidden = false; a.onRoof = false; } // никто не остаётся невидимым без укрытия
+      if (!a.hideB && !a.detained && !a.onBus && !(a.role === "bandit" && a.lootT > 0)) { a.hidden = false; a.onRoof = false; } // никто не остаётся невидимым без укрытия
+      if (a.onBus && (a.onBus.gone || !cars.includes(a.onBus))) { a.hidden = false; a.onBus = null; }
       if (a.bitten && a.role !== "zombie") { a.incT -= dt; if (a.incT <= 0) { turn(a); a.riseT = 0; if (a.detained) a.detained.detained--; } }
       if (a.onRoof && a.hideB) { a.x = a.rx; a.y = a.ry; a.dir += dt * .3; }
       a.speed = 0; continue;
@@ -583,7 +589,7 @@ function newCitySim(n) {
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
   for (const k in lastLog) delete lastLog[k];
-  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); resetSquads(); placeMetros();
+  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
   assignHomes();
   const p0 = pickPatientZero(); pickHeroes(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;

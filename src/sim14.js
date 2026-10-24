@@ -57,7 +57,7 @@ function stepResponse(dt) {
   }
   // 4. ликвидация: танки с окраины и авиаудары по плотным скоплениям вдали от людей
   if (alert >= 4) {
-    if (scenOk("tank") && tanks.filter(t => t.hp > 0).length < (alert >= 5 ? 4 : 2) && since("tank") > 60) { respLog.tank = simT; addTank(...edgePointNear(cl.x, cl.y)); scenUse("tank"); logE("Штаб направил танк", "good"); sfx.radio(); }
+    if (scenOk("tank") && tanks.filter(t => t.hp > 0).length < (alert >= 5 ? 4 : 1) && since("tank") > 60 && (alert >= 5 || cl.total >= 40)) { respLog.tank = simT; addTank(...edgePointNear(cl.x, cl.y)); scenUse("tank"); logE("Штаб направил танк", "good"); sfx.radio(); }
     if (scenOk("strike") && since("strike") > 35 && cl.n >= 12 && civNear(cl.x, cl.y, 75) === 0 && !strikes.length) { respLog.strike = simT; strikes.push({ x: cl.x, y: cl.y, t: 3 }); scenUse("strike"); logE("Авиация бьёт по скоплению зомби", "bad"); radio("Штаб: штурмовик на боевом курсе, всем отойти"); }
   }
   // 5. город потерян: вторая волна вертолётов без пауз, армия отходит к лагерям

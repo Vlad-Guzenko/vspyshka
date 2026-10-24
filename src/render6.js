@@ -21,25 +21,38 @@ function updateMachines() {
     let o = machineObjs.get(m);
     if (!o) { o = buildLoader(); scene.add(o); machineObjs.set(m, o); }
     o.position.set(X(m.x), gY(m.x, m.y), Z(m.y)); o.rotation.y = -m.ang;
-    const lift = m.bucket > 0 ? .5 + Math.sin(simT * 4) * .35 : .15;
-    o.userData.arm.rotation.z = lift; o.userData.bucket.rotation.z = -lift * 1.3 + (m.bucket > 0 ? Math.sin(simT * 4 + 1) * .4 : 0);
+    // ковш: черпает у земли, при погрузке поднимается над бортом и опрокидывается
+    const ph = (m.workT || 0) / (m.loading ? 1.2 : 1.1), lift = m.loading ? .9 - Math.sin(Math.min(1, ph) * Math.PI) * .25 : m.bucket > 0 ? .5 + Math.sin(simT * 4) * .35 : .15;
+    o.userData.arm.rotation.z = lift; o.userData.bucket.rotation.z = m.loading ? -lift * 1.3 + Math.sin(Math.min(1, ph) * Math.PI) * 1.4 : -lift * 1.3 + (m.bucket > 0 ? Math.sin(simT * 4 + 1) * .4 : 0);
   }
   for (const [m, o] of machineObjs) if (!machines.includes(m)) { scene.remove(o); machineObjs.delete(m); }
   // кузов самосвала, барабан бетономешалки, стрела эвакуатора
   for (const c of cars) {
-    if (!c.service || !(c.service === "dump" || c.service === "mixer" || c.service === "tow")) continue;
+    if (!c.service || !(c.service === "dump" || c.service === "mixer" || c.service === "tow" || c.service === "fire")) continue;
     let o = carExtras.get(c);
     if (!o) {
       o = new THREE.Group();
-      if (c.service === "dump") { const bed = new THREE.Group(); bed.position.set(-9, 5.6, 0); o.add(bed); addBox(bed, steelMat, 14, 4, 8, 7, 2, 0); o.userData.bed = bed; }
+      if (c.service === "dump") {
+        const orange = new THREE.MeshStandardMaterial({ color: 0xd8761c, roughness: .55, metalness: .25 }), dark = new THREE.MeshStandardMaterial({ color: 0x2e2e2e, roughness: .8 });
+        addBox(o, dark, 22, 1.2, 5, -4, 3.2, 0); // рама
+        for (const z of [-3.6, 3.6]) for (const x of [-9, -13]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 1.3, 12).rotateX(Math.PI / 2), dark); wh.position.set(x, 1.6, z); wh.castShadow = true; o.add(wh); }
+        const bed = new THREE.Group(); bed.position.set(-15, 4.2, 0); o.add(bed); // кузов качается вокруг задней оси
+        addBox(bed, orange, 18, .8, 8.4, 9, .4, 0); addBox(bed, orange, 18, 4.2, .5, 9, 2.5, -4.2); addBox(bed, orange, 18, 4.2, .5, 9, 2.5, 4.2); addBox(bed, orange, .6, 4.6, 8.4, 17.7, 2.7, 0); addBox(bed, orange, .5, 3.6, 8.4, .4, 2.2, 0);
+        for (const x of [4, 9, 14]) addBox(bed, orange, .5, 4.4, 9, x, 2.6, 0); // рёбра бортов
+        const heap = new THREE.Mesh(new THREE.BoxGeometry(14, 3, 7), new THREE.MeshStandardMaterial({ color: 0x6f6a62, roughness: 1 })); heap.position.set(9, 2.2, 0); heap.visible = false; bed.add(heap);
+        const cyl = new THREE.Mesh(new THREE.CylinderGeometry(.6, .7, 6, 8), steelMat); cyl.position.set(-2, 4.5, 0); cyl.rotation.z = .5; o.add(cyl);
+        o.userData.bed = bed; o.userData.heap = heap;
+      }
       if (c.service === "mixer") { const drum = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 4.2, 12, 14).rotateZ(Math.PI / 2 - .25), new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: .5, metalness: .3 })); drum.position.set(-4, 9, 0); drum.castShadow = true; o.add(drum); const stripe = new THREE.Mesh(new THREE.TorusGeometry(3.9, .4, 6, 18).rotateY(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd2552a })); stripe.position.set(-4, 9, 0); o.add(stripe); o.userData.drum = drum; o.userData.stripe = stripe; }
       if (c.service === "tow") { const boom = addBox(o, steelMat, 12, 1, 1, -9, 8, 0); boom.rotation.z = -.35; addBox(o, steelMat, 2, 6, 6, -6, 6, 0); }
+      if (c.service === "fire") { const base = new THREE.Group(); base.position.set(-6, 7.2, 0); o.add(base); addBox(base, steelMat, 3, 1.4, 3, 0, 0, 0); const lad = new THREE.Group(); base.add(lad); const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: .6, roughness: .4 }); for (const s of [-1, 1]) addBox(lad, rail, 22, .35, .35, 11, .6, s * 1.1); for (let x = 1; x < 22; x += 2.2) addBox(lad, rail, .3, .3, 2.2, x, .6, 0); const ext = new THREE.Group(); ext.position.set(10, .9, 0); lad.add(ext); for (const s of [-1, 1]) addBox(ext, rail, 20, .3, .3, 10, 0, s * .8); ext.scale.x = .3; o.userData.ladder = lad; o.userData.ext = ext; }
       scene.add(o); carExtras.set(c, o);
     }
     o.visible = !c.gone;
     o.position.set(X(c.x), gY(c.x, c.y), Z(c.y)); o.rotation.y = -c.ang;
     if (o.userData.drum) { o.userData.drum.rotation.x += .05; o.userData.stripe.rotation.x = o.userData.drum.rotation.x; }
-    if (o.userData.bed) o.userData.bed.rotation.z = c.deployed ? Math.min(.6, (o.userData.bed.rotation.z || 0) + .004) : Math.max(0, o.userData.bed.rotation.z - .02);
+    if (o.userData.heap) { const k = Math.min(1, (c.load || 0) / DUMP_CAP); o.userData.heap.visible = k > 0; o.userData.heap.scale.y = Math.max(.25, k); o.userData.heap.position.y = 1.4 + 1.6 * k; }
+    if (o.userData.ladder) { const up = c.deployed && c.job && c.job.b && c.job.b.fire > 0 && c.job.b.floors >= 3, L = o.userData.ladder, E = o.userData.ext; L.rotation.z += ((up ? -.95 : 0) - L.rotation.z) * .04; E.scale.x += ((up ? 1 : .3) - E.scale.x) * .04; }
   }
   if (carExtras.size) { const live = new Set(cars); for (const [c, o] of carExtras) if (c.gone || !live.has(c)) { scene.remove(o); carExtras.delete(c); } }
 }

@@ -55,11 +55,11 @@ function resolveCarOverlaps(dt) {
         if (rel > 22 && (c.panic || o.panic)) { const f = (c.v || 0) >= (o.v || 0) ? c : o; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }
         nudgeBack(c, h.nx, h.ny, push * .5); nudgeBack(o, -h.nx, -h.ny, push * .5);
         const cBehind = (o.x - c.x) * Math.cos(c.ang) + (o.y - c.y) * Math.sin(c.ang) > 0;
-        if (cBehind) c.v = Math.min(c.v, 1); else o.v = Math.min(o.v, 1);
+        if (cBehind) { c.v = Math.min(c.v, .8); c.jam = true; } else { o.v = Math.min(o.v, .8); o.jam = true; } // упёрлись: копится ожидание, машина ищет объезд
       } else {
         const m = cm ? c : o, s = cm ? o : c, sign = cm ? 1 : -1;
         if (m.panic && m.v > 16) { carCollide(m, s, m.v); return; }
-        nudgeBack(m, h.nx * sign, h.ny * sign, push); m.v = 0;
+        nudgeBack(m, h.nx * sign, h.ny * sign, push); m.v = 0; m.jam = true;
       }
     });
   }
@@ -94,7 +94,7 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
     c.overT += dt;
     // встречная появилась или впереди перекрёсток — возвращаемся и тормозим
     let oncoming = false; nearCars(c.x + dx * 30, c.y + dy * 30, 40, o => { if (oncoming || o === c || o.gone || !o.moving) return; const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = Math.abs((o.x - c.x) * dy - (o.y - c.y) * dx); if (al > 4 && al < 50 && lt < 5 && Math.cos(o.ang) * dx + Math.sin(o.ang) * dy < -.3) oncoming = true; });
-    if (oncoming || (c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > 14 || laneEnd(l) - c.s < 26) { c.over = 0; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
+    if ((oncoming && c.over === 1) || (c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > 14 || laneEnd(l) - c.s < 26) { c.over = 0; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
     return;
   }
   if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
@@ -105,6 +105,23 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
   // совсем глухо (стена, завал, вереница брошенных машин) — разворачиваемся на встречную и едем назад
   if (c.wait > 12) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } return; }
   if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) return; // у перекрёстка на встречку не выезжаем
-  if (!oppClear(c, opp, dx, dy)) return;
-  c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c);
+  if (oppClear(c, opp, dx, dy)) { c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c); return; }
+  // встречная занята — в крайнем случае по тротуару справа, медленно и с сигналом
+  if (c.wait > 6 && sideClear(c)) { c.over = 2; c.overT = 0; c.latTgt = -(l.e.hw - l.off + 4); c.wait = 0; sfx.horn(c); logT("sidewalk", "Машина объезжает затор по тротуару", "", 30); }
+}
+// тротуар справа свободен на 70 м: только плитка, без деревьев, фонарей, домов и толпы
+function sideClear(c) {
+  const l = c.lane, off = -(l.e.hw - l.off + 4); let people = 0;
+  for (let k = 0; k < 70; k += 6) {
+    const q = lanePos(l, Math.min(l.e.len, c.s + k)), x = q.x + q.ty * off, y = q.y - q.tx * off, gi = Math.floor(y / CS) * GW + Math.floor(x / CS);
+    if (gi < 0 || gi >= GW * GH || roadMask[gi] !== 2 || grid[gi] !== 1) return false;
+    for (const lp of lamps) if (Math.abs(lp.x - x) < 4 && Math.abs(lp.y - y) < 4) return false;
+    for (const h of hydrants) if (Math.abs(h.x - x) < 3 && Math.abs(h.y - y) < 3) return false;
+  }
+  near(c.x, c.y, 40, a => { if (a.state === "alive" && !a.hidden) people++; });
+  return people < 6;
+}
+// люди на тротуаре шарахаются от машины
+function sidewalkScatter(c, tx, ty) {
+  near(c.x + tx * 14, c.y + ty * 14, 18, a => { if (a.state !== "alive" || a.hidden || a.role === "zombie") return; a.panic = Math.max(a.panic, .5); const lt = -(a.x - c.x) * ty + (a.y - c.y) * tx; a.vx += (-ty) * (lt < 0 ? -1 : 1) * 6; a.vy += tx * (lt < 0 ? -1 : 1) * 6; });
 }

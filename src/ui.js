@@ -161,13 +161,15 @@ function useTool(e, x, y) {
   if (tool === "watch") { const a = agentAt(e); if (a) { followA = a; camS.dist = Math.min(camS.dist, 160); camS.pitch = Math.min(camS.pitch, .55); } return; }
   if (tool === "infect") { const a = agentAt(e, a => a.state === "alive" && a.role !== "zombie" && !a.bitten); if (a) { a.bitten = true; a.incT = settings.inc * rnd(.7, 1.3); bites++; logE("Заражён ещё один человек", "bad"); } return; }
   if (tool === "zombie") { if (!blocked(x, y)) { const a = newAgent("zombie", x, y); turn(a); a.riseT = 0; } return; }
-  if (tool === "police") {
-    const [px, py] = freeNear(x, y, 10);
-    cars.push({ x: px, y: py, ang: rnd(0, TAU), col: "#e9e9ee", police: true, wreck: false, boomT: 0, burnT: 0 });
-    for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(px, py, 16); newAgent("police", ax, ay); }
-    logE("Прибыл полицейский патруль", "good"); sfx.siren(); return;
+  if (tool === "police") { spawnService("police", x, y, special.police); logE(special.police && special.police.b && special.police.b.state === "ok" ? "Патруль выехал из участка" : "Патруль выехал с окраины", "good"); sfx.siren(); return; }
+  if (tool === "army") {
+    // ближайший свободный отряд идёт к точке; если такого нет — колонна выезжает с окраины
+    let best = null, bd = 320;
+    for (const s of squads.values()) { if (s.state !== "hold") continue; const L = agentById(s.leader); if (!L || L.state !== "alive") continue; const d = Math.hypot(L.x - x, L.y - y); if (d < bd) { bd = d; best = s; } }
+    if (best) { best.holdAt = { x, y }; best.holdT = 150; logE("Ближайший отряд направлен к точке", "good"); }
+    else { spawnService("army", x, y, null); logE("Отряд военных выехал с окраины", "good"); }
+    sfx.radio(); return;
   }
-  if (tool === "army") { const g = []; for (let i = 0; i < 6; i++) { const [ax, ay] = freeNear(x, y, 20); g.push(newAgent("army", ax, ay)); } newSquad(g); logE("Прибыл отряд военных", "good"); sfx.radio(); return; }
   if (tool === "medic") { for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(x, y, 14); newAgent("medic", ax, ay); } logE("Прибыли медики", "good"); return; }
   if (tool === "evac") {
     if (blocked(x, y)) return;
@@ -185,7 +187,7 @@ function useTool(e, x, y) {
   }
   if (tool === "lab") { scientists += 3; logE(`В лабораторию прибыли учёные, всего ${scientists}`, "good"); return; }
   if (tool === "vaccinate") { if (!vaccineReady) { warn(`<b>Вакцина ещё не готова:</b> ${Math.floor(research * 100)}%. Ускорь её учёными.`); return; } addTent(x, y); return; }
-  if (tool === "tank") { const [tx, ty] = freeNear(x, y, 20); addTank(tx, ty); logE("Прибыл танк", "good"); sfx.radio(); }
+  if (tool === "tank") { const [ex, ey] = edgePointNear(x, y); const t = addTank(ex, ey); t.goal = { x, y }; logE("Танк входит в город с окраины", "good"); sfx.radio(); }
   if (tool === "depot") { if (blocked(x, y)) { warn("<b>Здесь нельзя:</b> выбери свободное место на улице или площади."); return; } addDepot(x, y); sfx.radio(); }
   if (tool === "boom") { boom(x, y, 48, false); logT("boom", "Взрыв", "bad", 5); }
   if (tool === "meteor") callMeteor(x, y);
@@ -428,7 +430,7 @@ function frame(now) {
   updateCity(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
-  updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt);
+  updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);
   uiT -= dt; if (uiT <= 0) { uiT = .25; updateUI(); }
