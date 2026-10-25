@@ -70,6 +70,7 @@ function loadGame(S) {
   for (const j of wallJobs) for (const m of j.mouths) { const e = RE.find(e => e.id === m.e); if (e) e.quar = j.id; }
   if (threat) for (const c of threat.cols) c.cp = c.cp >= 0 ? cps[c.cp] || null : null;
   for (const cp of cps) if (cp.e !== undefined) { const e = RE.find(e => e.id === cp.e); if (e) e.checkCp = cp; }
+  postMask.fill(0); for (const cp of cps) if (cp.road) for (const i of cp.cells.concat(cp.shutCells || [])) postMask[i] = 1;
   for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) { let best = null, bd = 1e9; for (const c of cps) { const d = Math.hypot(c.x - a.x, c.y - a.y); if (d < bd) { bd = d; best = c; } } a.detained = best; } if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
   resetSquads(); fires.forEach(f => { f.assigned = false; });
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }

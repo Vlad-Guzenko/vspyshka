@@ -13,20 +13,22 @@ function compass(dx, dy) { const a = Math.atan2(-dy, dx), k = Math.round(a / (Ma
 const entryEdge = en => RE.find(e => e.id === en.e) || null;
 // точка на трассе въезда: k > 0 — от въезда наружу, k < 0 — в город
 function entryPoint(en, k) { const e = entryEdge(en); if (!e) return [en.x + en.tx * k, en.y + en.ty * k]; const t = clamp(en.t + k * (en.dir || 1), 0, e.len), p = edgePos(e, t); return [p.x, p.y, t, p]; }
-// заграждение поперёк трассы: бетонные блоки на всю ширину (gap — проход посередине, в метрах от оси)
-function roadBlock(en, k, gap = 0) {
+// блокпост на въезде (addRoadPost в sim13.js). Один пост может держать сразу несколько «владельцев»: рубеж против орды,
+// пост для беженцев, внешнее оцепление. У каждого свои ограничения; пост снимают, когда уходит последний
+function roadBlock(en, k, opts, tag) {
   const e = entryEdge(en); if (!e) return null;
-  const [x, y, t, p] = entryPoint(en, k), nx = -p.ty, ny = p.tx, cells = [], prev = {};
-  for (let o = -e.hw - 6; o <= e.hw + 6; o += CS / 2) {
-    if (Math.abs(o) < gap) continue;
-    const gx = Math.floor((x + nx * o) / CS), gy = Math.floor((y + ny * o) / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
-    const i = gy * GW + gx; if (i in prev || !fenceable(grid[i])) continue;
-    prev[i] = grid[i]; grid[i] = 6; bhp[i] = 300; wallMask[i] = 1; cells.push(i);
-  }
-  barrDirty = true; fieldT = 0;
-  return { cells, prev, x, y, t, e: e.id };
+  const [, , t] = entryPoint(en, k);
+  let cp = e.checkCp && e.checkCp.road && !e.checkCp.broken ? e.checkCp : null;
+  if (!cp) cp = addRoadPost(e, t, { outDir: en.dir || 1, kind: opts.kind, noTent: opts.noTent, fed: opts.fed });
+  cp.own = cp.own || {}; cp.own[tag] = { closeIn: !!opts.closeIn, closeOut: !!opts.closeOut };
+  postFlags(cp); return cp;
 }
-function liftBlock(bl) { if (!bl) return; for (const i of bl.cells) if (grid[i] === 6 && wallMask[i] && !quarMask[i]) { grid[i] = bl.prev[i]; wallMask[i] = 0; bhp[i] = 0; } barrDirty = true; fieldT = 0; }
+function postFlags(cp) { const o = Object.values(cp.own || {}); cp.closeIn = o.some(x => x.closeIn); cp.closeOut = o.some(x => x.closeOut); routeCache.clear(); exitRoute = null; }
+function liftBlock(cp, tag) {
+  if (!cp) return;
+  if (cp.own && tag) { delete cp.own[tag]; if (Object.keys(cp.own).length) { if (tag[0] === "h") shutPost(cp, false); postFlags(cp); return; } }
+  removeRoadPost(cp);
+}
 function stepThreats(dt) {
   if (!threat) resetThreats();
   threat.noise *= Math.exp(-dt / 150);
@@ -69,12 +71,17 @@ function stepHordes(dt) {
     let alive = 0, nearLine = 0; for (const a of agents) if (a.state === "alive" && a.role === "zombie" && a.horde === h.id) { alive++; if (Math.hypot(a.x - en.x, a.y - en.y) < 400) nearLine++; }
     h.alive = alive;
     if (nearLine) h.arrived = true;
+    if (h.line && simT >= h.emergeT) {
+      let dmin = 1e9; for (const a of agents) if (a.horde === h.id && a.state === "alive" && a.role === "zombie") dmin = Math.min(dmin, Math.hypot(a.x - h.line.x, a.y - h.line.y));
+      if (!h.line.shut && dmin < 700) { shutPost(h.line, true); logE("Орда в двухстах метрах: блокпост на въезде закрыт, проезд заложен блоками", "bad"); }
+      else if (h.line.shut && dmin > 950) { shutPost(h.line, false); logT("hopen" + h.id, "Орда отошла: блокпост на въезде снова пропускает машины", "good", 30); }
+    }
     // рубеж поредел (погибли, укушены) — штаб досылает ещё один грузовик, но не больше двух раз за орду
     if (h.line && h.linePt && settings.services && simT > h.reinfT && (h.reinfN || 0) < 2) {
       h.reinfT = simT + 10;
       let held = 0; near(h.linePt[0], h.linePt[1], 140, a => { if (a.state === "alive" && a.role === "army") held++; });
       for (const c of cars) if (c.hordeLine === h.id && !c.deployed && !c.gone && !c.wreck && !c.leaving) held += c.crewN || 4;
-      if (held < 3) { h.reinfN = (h.reinfN || 0) + 1; h.reinfT = simT + 90; sendPosts("army", h.linePt[0] - en.tx * 30, h.linePt[1] - en.ty * 30, h.posts, { crewN: 4, hordeLine: h.id }); radio("Штаб: рубеж на въезде редеет, высылаем подкрепление"); }
+      if (held < 3) { h.reinfN = (h.reinfN || 0) + 1; h.reinfT = simT + 90; sendPosts("army", h.linePt[0] - en.tx * 30, h.linePt[1] - en.ty * 30, h.posts, { crewN: 4, hordeLine: h.id, cp: h.line || null }); radio("Штаб: рубеж на въезде редеет, высылаем подкрепление"); }
     }
     // тишину у въезда считают, только когда орда уже подошла; если за семь минут так и не дошла — значит, разбрелась по полям
     if (h.left === 0 && simT >= h.emergeT && (h.arrived || simT - h.emergeT > 420)) { h.quietT = nearLine ? 0 : h.quietT + dt; if (h.quietT > 90 || alive === 0) { h.done = true; hordeFields.delete(h.id); liftHordeLine(h); logE(alive ? "Орда рассеялась, рубеж на въезде снят" : "Орда отбита, рубеж на въезде снят", "good"); } }
@@ -83,12 +90,12 @@ function stepHordes(dt) {
 // рубеж: заграждение поперёк трассы за въездом, армейский пост за ним, прожектор; пригороды на пути орды уходят в город
 function hordeDefense(h, en) {
   if (!settings.services) return;
-  const block = roadBlock(en, 40);
-  const [bx, by, , p] = entryPoint(en, 18), nx = -p.ty, ny = p.tx;
-  const posts = [-1, -.35, .35, 1].map(k => freeNear(bx + nx * k * (en.hw + 4) - en.tx * 6, by + ny * k * (en.hw + 4) - en.ty * 6, 6));
-  sendPosts("army", bx - en.tx * 30, by - en.ty * 30, posts, { crewN: 4, hordeLine: h.id });
-  h.linePt = [bx, by]; h.posts = posts; h.reinfN = 0; h.reinfT = simT + 60;
-  const [fx, fy] = freeNear(bx - en.tx * 16 + nx * (en.hw + 10), by - en.ty * 16 + ny * (en.hw + 10), 8); floods.push({ x: fx, y: fy, on: true, horde: h.id });
+  // армейский блокпост на трассе: пока орда далеко — машины досматривают и пропускают, когда подходит — проезд закладывают блоками
+  const block = roadBlock(en, 40, { kind: "army", noTent: true }, "h" + h.id); if (!block) return;
+  const posts = postSpots(block, 4), back = -(en.dir || 1), nx = -block.ty, ny = block.tx;
+  sendPosts("army", block.x + block.tx * back * 30, block.y + block.ty * back * 30, posts, { crewN: 4, hordeLine: h.id, cp: block });
+  h.linePt = [block.x, block.y]; h.posts = posts; h.reinfN = 0; h.reinfT = simT + 60;
+  const [fx, fy] = freeNear(block.x + block.tx * back * 14 - nx * block.side * (block.hw + 10), block.y + block.ty * back * 14 - ny * block.side * (block.hw + 10), 8); floods.push({ x: fx, y: fy, on: true, horde: h.id });
   h.line = block;
   // жители посёлков и дач на пути орды — в город
   for (const a of agents) {
@@ -99,7 +106,7 @@ function hordeDefense(h, en) {
   logE("Штаб: въезд перекрыт, на рубеже армейский пост; жители пригородов уходят в город", "good");
 }
 function liftHordeLine(h) {
-  liftBlock(h.line); h.line = null;
+  liftBlock(h.line, "h" + h.id); h.line = null;
   floods = floods.filter(f => f.horde !== h.id);
 }
 // поведение зомби орды: пока людей не видно и не слышно — идёт к своему въезду
@@ -144,10 +151,12 @@ function stepRefugees(dt) {
     threat.cols.push(col);
     if (policy === "check") {
       // пост на въезде: полиция проверяет людей и машины; полосы открыты — машины встают на досмотр сами
-      const e = entryEdge(en), [x, y, t, p] = entryPoint(en, 30);
-      const cp = addGateCheckpoint(x, y, -en.tx, -en.ty); cp.t = t; cp.e = e.id; cp.refugee = true; if (e) e.checkCp = cp; col.cp = cp;
-      dpsCrew(en, cp);
-    } else col.block = roadBlock(en, 60);
+      const cp = roadBlock(en, 30, { kind: "police" }, "r" + col.en + "_" + threat.cols.length); if (cp) { cp.refugee = true; col.cp = cp; col.tag = "r" + col.en + "_" + threat.cols.length; dpsCrew(en, cp); staffPost(cp, "police", 2); }
+    } else {
+      // въезд закрыт: шлагбаум в город опущен, из города выпускают
+      col.tag = "r" + col.en + "_" + threat.cols.length; col.block = roadBlock(en, 60, { kind: "police", closeIn: true }, col.tag);
+      if (col.block) { dpsCrew(en, col.block); staffPost(col.block, "police", 2); }
+    }
     logE(`Беженцы ${side}: колонна из ${nCars} машин и около ${nPeople} пеших`, "bad");
     radio(policy === "check" ? `Штаб: беженцев ${side} принимаем через проверку на въезде, укушенных — в изолятор` : `Штаб: въезд ${side} закрыт, беженцев в город не пускать`);
     sfx.radio();
@@ -176,12 +185,12 @@ function stepRefugees(dt) {
       let crowd = 0; const [bx, by] = entryPoint(en, 60); near(bx, by, 60, a => { if (a.state === "alive" && a.refCol === threat.cols.indexOf(col) + 1) crowd++; });
       cityNoise(dt * crowd * .01);
       col.crowdT = crowd >= 10 ? col.crowdT + dt : Math.max(0, col.crowdT - dt);
-      if (col.crowdT > 60) { col.breached = true; liftBlock(col.block); col.block = null; logE("Беженцы прорвали заграждение на въезде и идут в город без проверки", "bad"); interest(bx, by, 6); }
+      if (col.crowdT > 60) { col.breached = true; liftBlock(col.block, col.tag); col.block = null; logE("Беженцы прорвали заграждение на въезде и идут в город без проверки", "bad"); interest(bx, by, 6); }
     }
     // колонна прошла: все вышли и через 6 минут никого из неё у въезда
     if (col.carsLeft === 0 && col.peopleLeft === 0 && simT - col.t0 > 360) {
       let at = 0; near(en.x, en.y, 200, a => { if (a.state === "alive" && a.refCol === threat.cols.indexOf(col) + 1) at++; });
-      if (!at || simT - col.t0 > 900) { col.done = true; for (const c of cars) if (c.dps && Math.hypot(c.x - en.x, c.y - en.y) < 90) c.dpsOut = false; liftBlock(col.block); col.block = null; if (col.cp) { cps = cps.filter(c => c !== col.cp); const e = RE.find(e => e.id === col.cp.e); if (e && e.checkCp === col.cp) e.checkCp = null; if (col.cp.cells2) unblock(col.cp.cells2); for (const a of agents) if (a.cp === col.cp && a.state === "alive") { a.cp = null; a.order = null; if (a.dpsHome) { a.standDown = true; a.standT = simT; a.order = { x: a.dpsHome[0], y: a.dpsHome[1] }; } else if (special.police) { a.standDown = true; a.standT = simT; a.order = { x: special.police.x, y: special.police.y }; } } } }
+      if (!at || simT - col.t0 > 900) { col.done = true; for (const c of cars) if (c.dps && Math.hypot(c.x - en.x, c.y - en.y) < 90) c.dpsOut = false; liftBlock(col.block, col.tag); col.block = null; if (col.cp) { liftBlock(col.cp, col.tag); } }
     }
   }
 }
@@ -194,7 +203,7 @@ function dpsCrew(en, cp) {
   for (const s of [1, -1]) {
     const [x, y] = freeNear(dps.x, dps.y, 10), a = newAgent("police", x, y);
     const [px, py] = freeNear(cp.x + nx * s * 9 + cp.tx * 6, cp.y + ny * s * 9 + cp.ty * 6, 5);
-    a.order = { x: px, y: py }; a.cp = cp; a.dpsHome = [dps.x, dps.y];
+    a.order = { x: px, y: py }; a.cp = cp; a.dpsHome = [dps.x, dps.y]; a.vest = "#c8e04a";
   }
   logT("dps", "Наряд ДПС с поста встал на досмотр беженцев", "good", 20);
 }
@@ -235,11 +244,9 @@ function stepFederal(dt) {
     for (const n of exits) {
       const e = n.ed[0]; if (!e) continue;
       const en = { e: e.id, t: e.a === n ? Math.min(60, e.len / 2) : Math.max(e.len - 60, e.len / 2), dir: e.a === n ? -1 : 1, x: n.x, y: n.y, tx: 0, ty: 0, hw: e.hw };
-      const bl = roadBlock(en, 0); if (bl) threat.fed.blocks.push(bl);
-      // посты федеральных войск со стороны города; их машина приезжает снаружи и уезжает
-      const p = edgePos(e, en.t), nx = -p.ty, ny = p.tx, dir = e.a === n ? 1 : -1;
-      const posts = [-.6, .6].map(k => freeNear(p.x + nx * k * e.hw + p.tx * dir * 12, p.y + ny * k * e.hw + p.ty * dir * 12, 6));
-      const c = sendPosts("army", p.x + p.tx * dir * 30, p.y + p.ty * dir * 30, posts, { crewN: 2, fed: true });
+      const bl = roadBlock(en, 0, { kind: "fed", noTent: true, fed: true, closeOut: true }, "fed"); if (!bl) continue; threat.fed.blocks.push(bl);
+      // посты федеральных войск; их машина приезжает снаружи и уезжает
+      const c = staffPost(bl, "army", 2, { fed: true });
       const lp = nearestLanePoint(n.x, n.y); if (lp) placeOnLane(c, lp.l, lp.s);
     }
     logE("Федеральный центр: город оцеплен, все выезды закрыты", "bad");
@@ -256,12 +263,17 @@ function stepFederal(dt) {
     }
   } else if (F.phase === "strike" && nuke && nuke.over) { F.phase = "lifting"; F.liftT = simT + 60; }
   if (F.phase === "lifting" && simT > F.liftT) {
-    for (const bl of F.blocks) liftBlock(bl);
+    for (const bl of F.blocks) liftBlock(bl, "fed");
     for (const a of agents) if (a.fed && a.state === "alive") { a.fed = false; a.order = null; a.withdraw = true; a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; }
     threat.fed = null; threat.fedDone = true; logE("Внешнее оцепление снято", "good");
   }
 }
 // строка часов: ультиматум и подходящие орды
+// через сколько секунд орда будет у въезда: ещё не вышла из-за горизонта плюс путь полями
+function hordeEta(h) {
+  const en = entries[h.en]; if (!en) return 0;
+  return Math.max(0, h.emergeT - simT) + Math.hypot(en.x - h.x, en.y - h.y) / (settings.fast ? 18 : 6);
+}
 function threatLabel() {
   if (!threat) return "";
   let s = "";

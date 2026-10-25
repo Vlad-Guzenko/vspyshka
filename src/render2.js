@@ -21,7 +21,8 @@ const PARTS = {
   glasses: new THREE.BoxGeometry(.16, .26, 1.3),
   lhair: new THREE.BoxGeometry(.6, 1.5, 1.25).translate(-.1, -.5, 0),
 };
-const HAT_COL = { cap: null, beanie: null, hood: null, bandana: "#8a2222", police: "#1a2a4a", helmet: "#4d5634", fire: "#d8b020", hard: "#f08a1c" };
+const HAT_COL = { cap: null, beanie: null, hood: null, bandana: "#8a2222", police: "#1a2a4a", helmet: "#4d5634", fire: "#d8b020", hard: "#f08a1c", helmetBlk: "#1c1d20", fireRed: "#b8261a", fireWhite: "#e8e8e4" };
+const isHelmet = h => h === "helmet" || h === "fire" || h === "hard" || h === "helmetBlk" || h === "fireRed" || h === "fireWhite";
 const personMat = new THREE.MeshStandardMaterial({ roughness: .82 });
 const skinMat = new THREE.MeshStandardMaterial({ roughness: .6 });
 const gunMat = new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: .5, metalness: .6 });
@@ -130,14 +131,14 @@ function updatePeople(dt) {
     part(pm.torso, i, upper, 0, HIP - .05, 0, 0, 0); pm.torso.setColorAt(i, colorOf(a, a.cloth));
     const headTilt = z && !dead ? Math.sin(ph * .3 + a.id) * .3 : 0;
     part(pm.head, i, upper, .05, SHO + .85, 0, zt === "screamer" && a.shriek > 0 ? -.7 : z ? .25 : 0, headTilt); pm.head.setColorAt(i, colorOf(a, a.skin, "skin"));
-    const helmet = a.hat === "helmet" || a.hat === "fire" || a.hat === "hard";
+    const helmet = isHelmet(a.hat);
     part(pm.hair, i, upper, -.05, SHO + .95, 0, -.15, headTilt, helmet ? 1.12 : 1); pm.hair.setColorAt(i, colorOf(a, a.hair));
     // головные уборы, жилеты, бороды, очки, длинные волосы
     if (a.hat && !far) {
       const hc = HAT_COL[a.hat] === null ? colorOf(a, a.hat === "hood" ? a.cloth : a.pants).clone() : colorOf(a, HAT_COL[a.hat]).clone();
       if (a.hat === "cap" || a.hat === "police" || a.hat === "hard") { part(pm.cap, ci, upper, -.05, SHO + 1.2, 0, 0, headTilt); pm.cap.setColorAt(ci++, hc); if (a.hat !== "hard") { part(pm.visor, vi, upper, -.05, SHO + 1.2, 0, 0, headTilt); pm.visor.setColorAt(vi++, hc); } }
       else if (a.hat === "bandana") { part(pm.cap, ci, upper, -.05, SHO + 1.05, 0, 0, headTilt, .95); pm.cap.setColorAt(ci++, hc); }
-      else { part(pm.dome, di, upper, -.05, SHO + .95, 0, 0, headTilt, a.hat === "helmet" || a.hat === "fire" ? 1.15 : a.hat === "hood" ? 1.2 : 1.05); pm.dome.setColorAt(di++, hc); }
+      else { part(pm.dome, di, upper, -.05, SHO + .95, 0, 0, headTilt, isHelmet(a.hat) && a.hat !== "hard" ? 1.15 : a.hat === "hood" ? 1.2 : 1.05); pm.dome.setColorAt(di++, hc); }
     }
     if (a.vest && !far) { part(pm.vest, vsi, upper, 0, HIP - .05, 0, 0, 0); pm.vest.setColorAt(vsi++, colorOf(a, a.vest)); }
     if (a.beard && !helmet && !far) { part(pm.beard, bdi, upper, .5, SHO + .55, 0, 0, headTilt); pm.beard.setColorAt(bdi++, colorOf(a, a.hair)); }

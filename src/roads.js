@@ -362,7 +362,7 @@ function dijkstraTo(seeds) {
     if (u < 0) break; done[u] = 1;
     const n = RN[u];
     // в узел n можно приехать по полосе, которая ведёт в n
-    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n) continue; const m = l.from, nd = bd + edgeCost(e); if (nd < dist[m.id]) dist[m.id] = nd; }
+    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n) continue; const m = l.from, nd = bd + edgeCost(e) + (e.checkCp && typeof postLaneShut === "function" && postLaneShut(e.checkCp, l) ? 6000 : 0); if (nd < dist[m.id]) dist[m.id] = nd; }
   }
   return dist;
 }

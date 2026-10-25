@@ -412,11 +412,13 @@ function buildTrees() {
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
   trees.forEach((t, i) => {
     const ty = gY(t.x, t.y);
-    m.makeScale(1, t.h * .55, 1).setPosition(X(t.x), ty, Z(t.y)); treeTrunk.setMatrixAt(i, m);
+    // в симуляции дерево занимает свою клетку, а рисуем его в натуральную величину: городские деревья 6–12 м
+    const th = t.h * 1.45, trr = t.r * 1.3;
+    m.makeScale(1.25, th * .55, 1.25).setPosition(X(t.x), ty, Z(t.y)); treeTrunk.setMatrixAt(i, m);
     for (let k = 0; k < 3; k++) {
-      const r = t.r * rnd(.6, .9);
+      const r = trr * rnd(.6, .9);
       q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
-      m.compose(new THREE.Vector3(X(t.x) + rnd(-t.r, t.r) * .4, ty + t.h * rnd(.6, .85), Z(t.y) + rnd(-t.r, t.r) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r));
+      m.compose(new THREE.Vector3(X(t.x) + rnd(-trr, trr) * .4, ty + th * rnd(.6, .85), Z(t.y) + rnd(-trr, trr) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r));
       treeCrown.setMatrixAt(i * 3 + k, m); col.setHSL(rnd(.22, .3), rnd(.35, .5), rnd(.2, .3)); treeCrown.setColorAt(i * 3 + k, col);
     }
   });
@@ -432,7 +434,7 @@ function buildTrees() {
     // лес растёт на пологих склонах ниже снега
     const hh = gY(x, y), sl = Math.hypot(gY(x + 8, y) - gY(x - 8, y), gY(x, y + 8) - gY(x, y - 8)) / 16;
     if (hh > 330 || sl > .55) continue;
-    out.push([x, y, rnd(8, 15) * (hh > 180 ? .7 : 1), rnd(18, 34) * (hh > 180 ? .7 : 1), hh]);
+    out.push([x, y, rnd(10, 19) * (hh > 180 ? .7 : 1), rnd(26, 50) * (hh > 180 ? .7 : 1), hh]);
   }
   const ot = new THREE.InstancedMesh(treeTrunk.geometry, treeTrunk.material, Math.max(1, out.length)), oc = new THREE.InstancedMesh(crownGeo, treeCrown.material, Math.max(1, out.length * 2));
   out.forEach(([x, y, r, h, hh], i) => {
@@ -452,9 +454,9 @@ function radialTex(stops) { return canvasTex(128, 128, (g) => { const gr = g.cre
 const glowTex = radialTex([[0, "rgba(255,255,255,1)"], [.25, "rgba(255,255,255,.6)"], [1, "rgba(255,255,255,0)"]]);
 function buildLamps() {
   const n = Math.max(1, lamps.length);
-  lampPole = new THREE.InstancedMesh(new THREE.CylinderGeometry(.3, .45, 24, 6).translate(0, 12, 0), new THREE.MeshStandardMaterial({ color: 0x2f3336, roughness: .6, metalness: .5 }), n);
-  lampArm = new THREE.InstancedMesh(new THREE.BoxGeometry(6, .5, .5).translate(3, 0, 0), lampPole.material, n);
-  lampHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(3, .8, 1.6), new THREE.MeshStandardMaterial({ color: 0x9a9a92, emissive: 0xffd9a0, emissiveIntensity: 0 }), n);
+  lampPole = new THREE.InstancedMesh(new THREE.CylinderGeometry(.35, .55, 34, 6).translate(0, 17, 0), new THREE.MeshStandardMaterial({ color: 0x2f3336, roughness: .6, metalness: .5 }), n);
+  lampArm = new THREE.InstancedMesh(new THREE.BoxGeometry(8, .5, .5).translate(4, 0, 0), lampPole.material, n);
+  lampHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(3.4, .9, 1.8), new THREE.MeshStandardMaterial({ color: 0x9a9a92, emissive: 0xffd9a0, emissiveIntensity: 0 }), n);
   lampPools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffc98a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }), n);
   lampPole.castShadow = lampArm.castShadow = true;
   lampPools.renderOrder = 2;
@@ -470,9 +472,9 @@ function placeLamps() {
     if (l.down) base.multiply(m.makeRotationY(i * 1.7)).multiply(new THREE.Matrix4().makeRotationZ(l.down));
     lampPole.setMatrixAt(i, base);
     q.setFromAxisAngle(up, ang);
-    lampArm.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(0, 23.5, 0), q, one)));
-    lampHeads.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(dx * 5.5, 23.2, dz * 5.5), q, one)));
-    lampPools.setMatrixAt(i, l.down ? zero : m.makeScale(70, 1, 70).setPosition(X(l.x) + dx * 6, gY(l.x, l.y) + .15, Z(l.y) + dz * 6));
+    lampArm.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(0, 33.5, 0), q, one)));
+    lampHeads.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(dx * 7.5, 33.1, dz * 7.5), q, one)));
+    lampPools.setMatrixAt(i, l.down ? zero : m.makeScale(84, 1, 84).setPosition(X(l.x) + dx * 8, gY(l.x, l.y) + .15, Z(l.y) + dz * 8));
   });
   for (const o of [lampPole, lampArm, lampHeads, lampPools]) o.instanceMatrix.needsUpdate = true;
 }
@@ -681,6 +683,10 @@ function updateBarricades() {
       put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, alongZ, k);
       if (corner) put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, true, k);
       put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), .7, hgt + .6, .7, false, k);
+    } else if (postMask[i]) {
+      // блокпост: бетонные блоки-«джерси» в шахматном порядке, без проволоки
+      const hgt = 5.2 * hp, j = ((r >> 8) % 100) / 100 - .5;
+      put(barrJersey, x + (alongZ ? j * .8 : 0), y, z + (alongZ ? 0 : j * .8), (alongZ ? .55 : 1.02) * CS, hgt, (alongZ ? 1.02 : .55) * CS, false, k);
     } else {
       // баррикада: мешки с песком или дорожные блоки, слегка вразнобой
       const jersey = r % 3 === 0, hgt = (jersey ? 5.2 : 6.5) * hp, th = jersey ? .5 : .62, j = ((r >> 8) % 100) / 100 - .5;

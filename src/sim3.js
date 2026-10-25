@@ -77,6 +77,14 @@ function damageBuilding(b, dmg, sx, sy) {
   b.hp -= dmg; b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
   if (b.hp < b.maxHp * .55 && Math.random() < .6) b.fire = Math.max(b.fire, rnd(30, 70));
   if (b.hp <= 0) collapse(b);
+  b.bigHit = false; // отметка сильного удара живёт только в пределах этого удара
+}
+// повреждение без обрушения: каменный дом от взрыва рядом, снаряда или упавшего соседа теряет окна и прочность, может загореться,
+// но стоит — ниже доли floor прочность не опускается (дальше его может выжечь пожар, но и тогда остаётся остов)
+function hurtBuilding(b, dmg, sx, sy, floor = .2) {
+  if (b.state !== "ok") return;
+  b.hp = Math.max(b.hp - dmg, Math.min(b.hp, b.maxHp * floor)); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
+  if (b.hp < b.maxHp * .55 && Math.random() < .5) b.fire = Math.max(b.fire, rnd(25, 60));
 }
 // клетка внутри дома, с учётом поворота
 function insideFoot(b, x, y) {
@@ -98,7 +106,9 @@ function collapse(b, demo) {
   b.state = "collapsing"; b.cT = 0; b.rubble0 = undefined; b.cT0 = simT; // cT0: когда рухнул — площадку считать вывезенной заново
   // высокий дом после удара сбоку валится в сторону от взрыва; при сносе экскаватором оседает на месте
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-  b.topple = !demo && b.hitX !== undefined && b.h > 36 && b.kind !== "house" && Math.random() < .8;
+  // настоящие дома почти всегда складываются вниз, на своё пятно; набок изредка ложится только очень высокая башня
+  // и только от метеорита или ядерного удара
+  b.topple = !demo && b.bigHit && b.hitX !== undefined && b.h > 100 && b.kind !== "house" && Math.random() < .35;
   if (demo) { b.gutted = false; b.gutT = 0; b.hitX = undefined; }
   if (b.topple) {
     if (b.kind === "tower") firsts.topple = true;
@@ -129,7 +139,7 @@ function collapse(b, demo) {
   logE(demo ? (b.kind === "tower" ? "Выгоревший небоскрёб снесли" : "Выгоревший дом снесли") : b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", demo ? "good" : "bad");
   fxCollapse(b); sfx.collapse(b); interest((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 10);
 }
-// рухнувшая вбок башня ложится на соседей: полоса завалов, домино, раздавленные машины
+// рухнувшая вбок башня ложится на соседей: полоса завалов, раздавленные машины; соседние дома повреждены, но стоят
 function toppleImpact(b) {
   b.impacted = true;
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, ca = Math.cos(b.fallAng), sa = Math.sin(b.fallAng);
@@ -151,7 +161,11 @@ function toppleImpact(b) {
     if (o === b || o.state !== "ok") continue;
     const ox = clamp(px + ca * L * .6, o.x0, o.x1), oy = clamp(py + sa * L * .6, o.y0, o.y1);
     let hit = false; for (let k = 0; k < L && !hit; k += 6) { const x = px + ca * k, y = py + sa * k; if (x > o.x0 - half * .6 && x < o.x1 + half * .6 && y > o.y0 - half * .6 && y < o.y1 + half * .6) hit = true; }
-    if (hit) { damageBuilding(o, 160 + b.floors * 18, px, py); logT("domino", "Падающая башня обрушила соседний дом", "bad", 8); }
+    if (hit) {
+      // частный дом под башней раздавлен, каменный — повреждён и горит, но стоит: домино не бывает
+      if (o.kind === "house") damageBuilding(o, 160 + b.floors * 18, px, py); else hurtBuilding(o, 160 + b.floors * 18, px, py, .15);
+      logT("domino", "Упавшая башня повредила соседний дом", "bad", 8);
+    }
   }
   fieldT = 0; gridDirty = true; barrDirty = true; interest(px + ca * L / 2, py + sa * L / 2, 10);
   fxToppleImpact(b); sfx.boom(px + ca * L * .5, py + sa * L * .5, true);
@@ -187,15 +201,17 @@ function stepBuildings(dt) {
   }
 }
 // взрыв ломает всё вокруг: здания, машины, фонари, деревья
-// каменный дом от взрыва машины или снаряда не падает: копоть на фасаде и иногда пожар; роняют только бомба и метеорит,
-// бензовоз — лишь частный дом вплотную; частные дома ломаются и от малых взрывов
+// каменный дом от взрыва машины, снаряда, авиабомбы, заправки или бензовоза не падает: копоть, выбитые окна, пожар;
+// роняют только метеорит и ядерный удар. Частные дома ломаются и от малых взрывов
 function blastWorld(x, y, R, big) {
   for (const b of buildings) {
     const dx = Math.max(b.x0 - x, 0, x - b.x1), dy = Math.max(b.y0 - y, 0, y - b.y1), d = Math.hypot(dx, dy);
     if (d >= R) continue;
     const k = 1 - d / R;
-    if (big && R >= 70) damageBuilding(b, 280 * k + 40, x, y);
-    else if (big || b.kind === "house") damageBuilding(b, (big ? 110 : R * 1.2) * k + (big ? 10 : 0), x, y);
+    if (big && R >= 100) { b.bigHit = true; damageBuilding(b, 280 * k + 40, x, y); }
+    else if (b.kind === "house") damageBuilding(b, (big ? 110 : R * 1.2) * k + (big ? 10 : 0), x, y);
+    // авиабомба, заправка, бензовоз: каменный дом рядом стоит — выбиты окна, повреждения, пожар
+    else if (big) hurtBuilding(b, (R >= 70 ? 200 : 110) * k + 10, x, y);
     else if (b.state === "ok") { b.scorch = Math.max(b.scorch, clamp(k * .5)); if (d < 8 && Math.random() < .2) { b.fire = Math.max(b.fire, rnd(20, 40)); first("bfire", "Горит здание", "bad"); } }
   }
   for (const c of cars) {
@@ -277,7 +293,7 @@ function fireShell(t, target) {
   fxCannon(t, hx, hy); sfx.cannon(t);
   noises.push({ x: t.x, y: t.y, t: simT, r: 450 });
   // фугас выбивает кусок стены, но дом валится лишь после многих попаданий
-  setTimeout0(.12, () => { boom(hx, hy, 26, false); if (hitB) damageBuilding(hitB, 25, t.x, t.y); });
+  setTimeout0(.12, () => { boom(hx, hy, 26, false); if (hitB) { if (hitB.kind === "house") damageBuilding(hitB, 25, t.x, t.y); else hurtBuilding(hitB, 25, t.x, t.y, .3); } });
   first("tank", "Танк открыл огонь", "good");
 }
 // отложенные события в игровом времени

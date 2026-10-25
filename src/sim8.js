@@ -88,14 +88,90 @@ function clearRubbleAt(b, px, py) {
   if (typeof onRubbleCleared === "function") onRubbleCleared(px, py, b);
   return true;
 }
+
+/* ---------- трал: технику к площадке привозят и увозят на низкорамном прицепе ----------
+   Трал едет по дорогам, у площадки сгружает экскаватор и уезжает. Работа кончилась — экскаватор вызывает трал,
+   съезжает к дороге, заезжает на платформу, и трал увозит его. Пока экскаватор на платформе, он едет вместе с тралом */
+const LOWBOY_DECK = -1.5; // центр платформы от центра машины, в единицах модели
+function deckPos(c) { const k = (c.len || 2.83) * 18 / 51, ca = Math.cos(c.ang), sa = Math.sin(c.ang); return [c.x + ca * LOWBOY_DECK * k, c.y + sa * LOWBOY_DECK * k]; }
+function rearOf(c, extra = 10) { const ca = Math.cos(c.ang), sa = Math.sin(c.ang), r = (c.len || 2.83) * 9 + extra; return [c.x - ca * r, c.y - sa * r]; }
+function deliverMachine(kind, job, gx, gy, delay) {
+  const [ex, ey] = edgePointNear(gx, gy), m = addMachine(kind, ex, ey, job);
+  m.carried = true; m.wantTruckT = simT + (delay || 0);
+  return m;
+}
+// трал выезжает за экскаватором: доставка (m.carried — ещё за краем карты) или вывоз (m.pickupBy)
+function sendLowboy(m, gx, gy, pickup) {
+  const c = spawnService("lowboy", gx, gy, null);
+  if (pickup) { c.pickup = m; m.pickupBy = c; m.pickT = simT; } else { c.cargo = m; m.onTruck = c; }
+  return c;
+}
+function lowboyStep(c, dt) {
+  // привёз: опускает сходни, экскаватор съезжает назад и встаёт за прицепом
+  if (c.cargo) {
+    c.unloadT = (c.unloadT || 0) + dt;
+    if (c.unloadT > 5) {
+      const m = c.cargo, [rx, ry] = rearOf(c, 14), [fx, fy] = freeNear(rx, ry, 24);
+      m.carried = false; m.onTruck = null; m.x = fx; m.y = fy; m.ang = c.ang + Math.PI; m.v = 0; m.progT = simT;
+      c.cargo = null; releaseUnit(c);
+      logT("lowboy", "Трал сгрузил экскаватор у площадки и уехал", "", 25);
+    }
+    return;
+  }
+  // приехал за экскаватором: ждёт, пока тот заедет на платформу; не дождался за две минуты — уезжает пустым
+  if (c.pickup) {
+    const m = c.pickup; c.waitPickT = (c.waitPickT || 0) + dt;
+    if (m.gone || c.waitPickT > 120) { if (!m.gone) { m.pickupBy = null; m.pickFail = (m.pickFail || 0) + 1; } c.pickup = null; releaseUnit(c); return; }
+    if (m.carried && m.onTruck === c) { c.loadT = (c.loadT || 0) + dt; if (c.loadT > 4) { c.pickup = null; c.cargo2 = m; releaseUnit(c); logT("lowboy2", "Экскаватор погрузили на трал и увезли", "", 25); } }
+  }
+}
+// экскаватор, работа которого кончилась: вызвать трал, подъехать к дороге, заехать на платформу; без трала — своим ходом
+function machineGoHome(m, dt) {
+  if (m.carried) return true;
+  if (!m.pickupBy && settings.services && !(m.pickFail >= 2)) { const q = nearestLanePoint(m.x, m.y); sendLowboy(m, q ? q.x : m.x, q ? q.y : m.y, true); logT("lowboycall", "Экскаватор закончил работу и ждёт трал", "", 30); }
+  const c = m.pickupBy;
+  if (c && !c.gone && !c.wreck && !c.leaving) {
+    if (c.deployed) {
+      const [rx, ry] = rearOf(c, 6), d = Math.hypot(rx - m.x, ry - m.y);
+      if (d > 8) { steerTo(m, rx, ry, 7, dt); return true; }
+      // по сходням на платформу
+      m.carried = true; m.onTruck = c; return true;
+    }
+    // пока трал едет — ждём у ближайшей дороги
+    const q = m.roadQ || (m.roadQ = nearestLanePoint(m.x, m.y));
+    if (q && Math.hypot(q.x - m.x, q.y - m.y) > 26) steerTo(m, q.x, q.y, 9, dt); else m.v *= .5;
+    return true;
+  }
+  if (c && (c.gone || c.wreck || c.leaving)) { m.pickupBy = null; m.pickFail = (m.pickFail || 0) + 1; }
+  return false;
+}
+// техника на платформе едет вместе с тралом; трал уехал за край — техника тоже; трал разбит — техника остаётся рядом
+function stepCarried(m) {
+  if (!m.carried) return false;
+  if (!m.onTruck) {
+    // ещё за краем карты: трал выезжает в свой черёд
+    if (simT >= (m.wantTruckT || 0) && settings.services) { const J = m.job || {}, b = J.ruin || J.demo; const [gx, gy] = b ? siteGoal(b) : [m.x, m.y]; sendLowboy(m, gx, gy, false); }
+    else if (!settings.services) m.carried = false;
+    return true;
+  }
+  const c = m.onTruck;
+  if (c.wreck) { m.carried = false; m.onTruck = null; const [fx, fy] = freeNear(c.x, c.y, 30); m.x = fx; m.y = fy; return false; }
+  if (c.gone) { m.gone = true; return true; }
+  const [dx, dy] = deckPos(c); m.x = dx; m.y = dy; m.ang = c.ang; m.v = 0;
+  // застрял у завала в нескольких кварталах: сгружает там, дальше экскаватор своим ходом
+  if (c.cargo === m && !c.deployed && !c.leaving && c.goal && c.wait > 25 && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 400) deployCrew(c);
+  return true;
+}
 function stepMachines(dt) {
   for (const m of machines) {
     if (m.gone) continue;
     m.bucket = Math.max(0, m.bucket - dt);
     if (m.kind !== "loader") continue;
+    if (stepCarried(m)) continue;
     // зомби ближе 60 — экскаватор глушит работу и ждёт; сторож прогресса не считает это застреванием
     if (!m.leave) { let zc = 0; nearZ(m.x, m.y, 60, () => zc++); if (zc) { m.v *= .3; m.progT = simT; m.workT = 0; continue; } }
     // домой: к ближайшему выезду
+    if (m.leave && machineGoHome(m, dt)) continue;
     if (m.leave) { const e = m.exit || (m.exit = edgePointNear(m.x, m.y)); m.leaveT = (m.leaveT || 0) + dt; steerTo(m, e[0], e[1], 14, dt); if (Math.hypot(e[0] - m.x, e[1] - m.y) < 30 || m.leaveT > 90 || m.x < 12 || m.y < 12 || m.x > W - 12 || m.y > H - 12) m.gone = true; continue; }
     const J = m.job || {};
     // снос выгоревшего остова: подъезжает к стене, бьёт ковшом, дом оседает

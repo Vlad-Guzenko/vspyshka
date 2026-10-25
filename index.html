@@ -216,6 +216,12 @@ body{padding:0}
 .squad{top:88px;right:344px}
 .objective{left:224px;top:50px}
 #mini{left:224px;bottom:44px}
+body.miniBig #mini{width:480px;height:320px}
+.tmarks{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5}
+.tmark{position:absolute;pointer-events:auto;cursor:pointer;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px;padding:3px 9px 3px 7px;border-radius:12px;background:rgba(120,14,10,.88);color:#fff;font:600 12px var(--f-body);white-space:nowrap;border:1px solid rgba(255,120,110,.75);box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.tmark i{display:inline-block;width:0;height:0;border-left:8px solid #fff;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.tmark.ref{background:rgba(110,86,10,.88);border-color:rgba(242,200,70,.75)}
+body.fps .tmarks,.stage.cine .tmarks{display:none}
 .camhelp{right:344px;bottom:44px;max-width:calc(100% - 600px)}
 .banner{top:58px}
 .radio{top:100px}
@@ -972,7 +978,7 @@ function dijkstraTo(seeds) {
     if (u < 0) break; done[u] = 1;
     const n = RN[u];
     // в узел n можно приехать по полосе, которая ведёт в n
-    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n) continue; const m = l.from, nd = bd + edgeCost(e); if (nd < dist[m.id]) dist[m.id] = nd; }
+    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n) continue; const m = l.from, nd = bd + edgeCost(e) + (e.checkCp && typeof postLaneShut === "function" && postLaneShut(e.checkCp, l) ? 6000 : 0); if (nd < dist[m.id]) dist[m.id] = nd; }
   }
   return dist;
 }
@@ -2095,12 +2101,24 @@ function stepRoadCar(c, dt) {
   // пост пропуска карантина: перед шлагбаумом машина встаёт на досмотр (службы — коротко, с сиреной — без остановки);
   // без людей на посту или во время прорыва проверять некому
   const ckp = l.e.checkCp;
-  if (ckp && !ckp.broken && !(ckp.openT > 0) && ckp.staff > 0 && c.cpChecked !== ckp && !(c.service && c.siren) && ckp.t !== undefined) {
-    const d = laneSOfT(l, ckp.t) - c.s;
-    if (d > -3 && d < 45) {
-      clear = Math.min(clear, Math.max(0, d) + 9);
-      if (d < 10 && c.v < 1.5) { c.checkT = (c.checkT || 0) + dt; if (c.checkT > (c.service ? 1.5 : 6)) { c.cpChecked = ckp; c.checkT = 0; ckp.checked++; cpCheckBus(c, ckp); if (c.refugee) refugeeCarCheck(c, ckp); logT("cpcar", ckp.refugee ? "Пост на въезде: машину беженцев досмотрели" : "Пост пропуска: машину досмотрели и пропустили", "", 30); } }
+  if (ckp && !ckp.broken && ckp.t !== undefined) {
+    const d = laneSOfT(l, ckp.t) - c.s, k = l.d > 0 ? 0 : 1;
+    // закрытое направление: службы проезжают (шлагбаум поднимают), остальные встают и разворачиваются; беженцы бросают машины
+    if (ckp.road && postLaneShut(ckp, l) && !c.service) {
+      if (d > -3 && d < 45) {
+        clear = Math.min(clear, Math.max(0, d) + 9);
+        if (d < 16 && c.v < 1.5 && !c.refugee) { c.shutT = (c.shutT || 0) + dt; if (c.shutT > 5 && turnBackAtPost(c, l, ckp)) return; }
+      }
+    } else if (ckp.staff > 0 && !(ckp.openT > 0) && c.cpChecked !== ckp && !(c.service && c.siren)) {
+      if (d > -3 && d < 45) {
+        clear = Math.min(clear, Math.max(0, d) + 9);
+        // из города выпускают быстрее: смотрят документы, а не багажник
+        const need = c.service ? 1.5 : ckp.road && postLaneOut(ckp, l) ? 3 : 6;
+        if (d < 10 && c.v < 1.5) { c.checkT = (c.checkT || 0) + dt; if (c.checkT > need) { c.cpChecked = ckp; c.checkT = 0; ckp.checked++; if (ckp.boomT) ckp.boomT[k] = simT + 4; cpCheckBus(c, ckp); if (c.refugee) refugeeCarCheck(c, ckp); logT("cpcar", ckp.refugee ? "Пост на въезде: машину беженцев досмотрели" : "Пост пропуска: машину досмотрели и пропустили", "", 30); } }
+      }
     }
+    // проезжающим поднимают шлагбаум
+    if (ckp.boomT && d > -4 && d < 14 && (c.cpChecked === ckp || c.service || !(ckp.staff > 0))) ckp.boomT[k] = Math.max(ckp.boomT[k], simT + 2);
   }
   // машина беженцев: у цели высаживает людей; у закрытого въезда долго стоит — люди бросают её и идут пешком
   if (c.refugee && ((c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 60) || (c.wait > 15 && cityK(c.x, c.y) < .5) || c.wait > 40)) { refugeeCarArrive(c); return; }
@@ -2178,7 +2196,7 @@ function spawnTraffic(n) {
   for (let i = 0; i < n && pool.length; i++) {
     let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= wt(l); if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();
-    if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
+    if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.7; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
     else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
     const s = rnd(laneStart(lane) + 12, laneEnd(lane) - 12);
     placeOnLane(c, lane, s);
@@ -2964,7 +2982,7 @@ function newCitySim(n) {
   genCity(); buildCrossings();
   agents = []; stats = []; events = []; firsts = {}; noises = []; simT = 0; bites = 0; deaths = 0; zkills = 0; saved = 0; cured = 0;
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
-  research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); quarMask.fill(0); zoneOf.fill(0); zoneSeq = 0; wallJobs = []; gangsSpawned = 0; computeDoors();
+  research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); postMask.fill(0); quarMask.fill(0); zoneOf.fill(0); zoneSeq = 0; wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
   for (const k in lastLog) delete lastLog[k];
   resetExtras(); resetBuild(); resetWorld2(); resetThreats(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
@@ -3055,6 +3073,14 @@ function damageBuilding(b, dmg, sx, sy) {
   b.hp -= dmg; b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
   if (b.hp < b.maxHp * .55 && Math.random() < .6) b.fire = Math.max(b.fire, rnd(30, 70));
   if (b.hp <= 0) collapse(b);
+  b.bigHit = false; // отметка сильного удара живёт только в пределах этого удара
+}
+// повреждение без обрушения: каменный дом от взрыва рядом, снаряда или упавшего соседа теряет окна и прочность, может загореться,
+// но стоит — ниже доли floor прочность не опускается (дальше его может выжечь пожар, но и тогда остаётся остов)
+function hurtBuilding(b, dmg, sx, sy, floor = .2) {
+  if (b.state !== "ok") return;
+  b.hp = Math.max(b.hp - dmg, Math.min(b.hp, b.maxHp * floor)); b.scorch = Math.max(b.scorch, clamp(1 - b.hp / b.maxHp));
+  if (b.hp < b.maxHp * .55 && Math.random() < .5) b.fire = Math.max(b.fire, rnd(25, 60));
 }
 // клетка внутри дома, с учётом поворота
 function insideFoot(b, x, y) {
@@ -3076,7 +3102,9 @@ function collapse(b, demo) {
   b.state = "collapsing"; b.cT = 0; b.rubble0 = undefined; b.cT0 = simT; // cT0: когда рухнул — площадку считать вывезенной заново
   // высокий дом после удара сбоку валится в сторону от взрыва; при сносе экскаватором оседает на месте
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-  b.topple = !demo && b.hitX !== undefined && b.h > 36 && b.kind !== "house" && Math.random() < .8;
+  // настоящие дома почти всегда складываются вниз, на своё пятно; набок изредка ложится только очень высокая башня
+  // и только от метеорита или ядерного удара
+  b.topple = !demo && b.bigHit && b.hitX !== undefined && b.h > 100 && b.kind !== "house" && Math.random() < .35;
   if (demo) { b.gutted = false; b.gutT = 0; b.hitX = undefined; }
   if (b.topple) {
     if (b.kind === "tower") firsts.topple = true;
@@ -3107,7 +3135,7 @@ function collapse(b, demo) {
   logE(demo ? (b.kind === "tower" ? "Выгоревший небоскрёб снесли" : "Выгоревший дом снесли") : b.kind === "tower" ? "Рухнул небоскрёб" : b.kind === "house" ? "Разрушен частный дом" : "Обрушилось здание", demo ? "good" : "bad");
   fxCollapse(b); sfx.collapse(b); interest((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 10);
 }
-// рухнувшая вбок башня ложится на соседей: полоса завалов, домино, раздавленные машины
+// рухнувшая вбок башня ложится на соседей: полоса завалов, раздавленные машины; соседние дома повреждены, но стоят
 function toppleImpact(b) {
   b.impacted = true;
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, ca = Math.cos(b.fallAng), sa = Math.sin(b.fallAng);
@@ -3129,7 +3157,11 @@ function toppleImpact(b) {
     if (o === b || o.state !== "ok") continue;
     const ox = clamp(px + ca * L * .6, o.x0, o.x1), oy = clamp(py + sa * L * .6, o.y0, o.y1);
     let hit = false; for (let k = 0; k < L && !hit; k += 6) { const x = px + ca * k, y = py + sa * k; if (x > o.x0 - half * .6 && x < o.x1 + half * .6 && y > o.y0 - half * .6 && y < o.y1 + half * .6) hit = true; }
-    if (hit) { damageBuilding(o, 160 + b.floors * 18, px, py); logT("domino", "Падающая башня обрушила соседний дом", "bad", 8); }
+    if (hit) {
+      // частный дом под башней раздавлен, каменный — повреждён и горит, но стоит: домино не бывает
+      if (o.kind === "house") damageBuilding(o, 160 + b.floors * 18, px, py); else hurtBuilding(o, 160 + b.floors * 18, px, py, .15);
+      logT("domino", "Упавшая башня повредила соседний дом", "bad", 8);
+    }
   }
   fieldT = 0; gridDirty = true; barrDirty = true; interest(px + ca * L / 2, py + sa * L / 2, 10);
   fxToppleImpact(b); sfx.boom(px + ca * L * .5, py + sa * L * .5, true);
@@ -3165,15 +3197,17 @@ function stepBuildings(dt) {
   }
 }
 // взрыв ломает всё вокруг: здания, машины, фонари, деревья
-// каменный дом от взрыва машины или снаряда не падает: копоть на фасаде и иногда пожар; роняют только бомба и метеорит,
-// бензовоз — лишь частный дом вплотную; частные дома ломаются и от малых взрывов
+// каменный дом от взрыва машины, снаряда, авиабомбы, заправки или бензовоза не падает: копоть, выбитые окна, пожар;
+// роняют только метеорит и ядерный удар. Частные дома ломаются и от малых взрывов
 function blastWorld(x, y, R, big) {
   for (const b of buildings) {
     const dx = Math.max(b.x0 - x, 0, x - b.x1), dy = Math.max(b.y0 - y, 0, y - b.y1), d = Math.hypot(dx, dy);
     if (d >= R) continue;
     const k = 1 - d / R;
-    if (big && R >= 70) damageBuilding(b, 280 * k + 40, x, y);
-    else if (big || b.kind === "house") damageBuilding(b, (big ? 110 : R * 1.2) * k + (big ? 10 : 0), x, y);
+    if (big && R >= 100) { b.bigHit = true; damageBuilding(b, 280 * k + 40, x, y); }
+    else if (b.kind === "house") damageBuilding(b, (big ? 110 : R * 1.2) * k + (big ? 10 : 0), x, y);
+    // авиабомба, заправка, бензовоз: каменный дом рядом стоит — выбиты окна, повреждения, пожар
+    else if (big) hurtBuilding(b, (R >= 70 ? 200 : 110) * k + 10, x, y);
     else if (b.state === "ok") { b.scorch = Math.max(b.scorch, clamp(k * .5)); if (d < 8 && Math.random() < .2) { b.fire = Math.max(b.fire, rnd(20, 40)); first("bfire", "Горит здание", "bad"); } }
   }
   for (const c of cars) {
@@ -3255,7 +3289,7 @@ function fireShell(t, target) {
   fxCannon(t, hx, hy); sfx.cannon(t);
   noises.push({ x: t.x, y: t.y, t: simT, r: 450 });
   // фугас выбивает кусок стены, но дом валится лишь после многих попаданий
-  setTimeout0(.12, () => { boom(hx, hy, 26, false); if (hitB) damageBuilding(hitB, 25, t.x, t.y); });
+  setTimeout0(.12, () => { boom(hx, hy, 26, false); if (hitB) { if (hitB.kind === "house") damageBuilding(hitB, 25, t.x, t.y); else hurtBuilding(hitB, 25, t.x, t.y, .3); } });
   first("tank", "Танк открыл огонь", "good");
 }
 // отложенные события в игровом времени
@@ -3267,18 +3301,64 @@ function stepTimers(dt) { if (!timers.length) return; const due = []; timers = t
 // полиция из участка, пожарные из части, скорая из больницы, ремонтники и армия въезжают в город с окраины
 const SERVICE = {
   police: { col: "#e9e9ee", len: 1, crew: "police", n: 2, siren: "police", name: "Полиция" },
-  fire: { col: "#b3241a", len: 1.5, crew: "fire", n: 4, siren: "fire", name: "Пожарные" },
+  fire: { col: "#b3241a", len: 1.7, crew: "fire", n: 4, siren: "fire", name: "Пожарные" },
   ambulance: { col: "#f1f1ec", len: 1.2, crew: "medic", n: 2, siren: "fire", name: "Скорая" },
   repair: { col: "#e0a020", len: 1.25, crew: "worker", n: 3, siren: "amber", name: "Ремонтники" },
-  army: { col: "#4d5634", len: 1.45, crew: "army", n: 8, siren: null, name: "Армия" },
+  army: { col: "#4d5634", len: 1.6, crew: "army", n: 8, siren: null, name: "Армия" },
   tow: { col: "#f0c020", len: 1.3, crew: null, n: 0, siren: "amber", name: "Эвакуатор" },
-  dump: { col: "#c9701c", len: 1.5, crew: null, n: 0, siren: null, name: "Самосвал" },
+  dump: { col: "#c9701c", len: 1.6, crew: null, n: 0, siren: null, name: "Самосвал" },
   mixer: { col: "#f2efe6", len: 1.4, crew: null, n: 0, siren: null, name: "Бетономешалка" },
   sanit: { col: "#e4ece6", len: 1.3, crew: "sanitar", n: 3, siren: null, name: "Санитары" },
   builder: { col: "#e8a81a", len: 1.45, crew: "builder", n: 4, siren: "amber", name: "Строители" },
+  lowboy: { col: "#d8a018", len: 2.83, crew: null, n: 0, siren: "amber", name: "Трал" },
 };
+
+// ---------- облик служб: у каждой несколько машин, ливрей и форм, чтобы город не выглядел однообразно ----------
+const MODEL_LEN = { policeSuv: 1.03, policeVan: 1.17, omon: 1.67, ambulance2: 1.33, ladder: 1.75, rescue: 1.6, btr: 1.7, tigr: 1.25, tow: 1.45, utility: 1.17 };
+function wpick(list) { let r = Math.random() * list.reduce((a, x) => a + x[1], 0); for (const x of list) { r -= x[1]; if (r <= 0) return x[0]; } return list[0][0]; }
+function setModel(c, m) { c.model = m; if (MODEL_LEN[m]) c.len = MODEL_LEN[m]; }
+function styleService(c, type) {
+  if (type === "police") setModel(c, wpick([["police", 5], ["policeSuv", 3], ["policeVan", 2]]));
+  else if (type === "ambulance") setModel(c, wpick([["ambulance", 6], ["ambulance2", 4]]));
+  else if (type === "fire") setModel(c, wpick([["fire", 5], ["ladder", 3], ["rescue", 2]]));
+  else if (type === "army") setModel(c, wpick([["army", 7], ["btr", 3]]));
+  else if (type === "tow") setModel(c, "tow");
+  else if (type === "repair") setModel(c, wpick([["boxtruck", 1], ["utility", 1]]));
+  // скорая: новая жёлто-белая или старая бело-красная; армия — оттенки защитного; коммунальщики — оранжевые
+  if (type === "ambulance") { c.modern = Math.random() < .5; c.col = c.modern ? "#f6f4ea" : "#f1f1ec"; c.liv = c.modern ? "#e8c020" : "#d42020"; }
+  if (type === "army") c.col = pick(["#4d5634", "#535a3c", "#5a5e44"]);
+  if (c.model === "utility") { c.col = "#e8801c"; c.liv = "#f2f0e8"; }
+  c.dress = Math.floor(Math.random() * 3);
+}
+// машина под задачу постов: на малый армейский пост — «Тигр», федералы — тёмные «Тигры» и грузовики Росгвардии,
+// полиции на КПП — фургон, большой полицейский наряд — автобус ОМОН
+function stylePosts(c, type) {
+  if (type === "army") {
+    if (c.fed) { setModel(c, Math.random() < .6 ? "tigr" : "army"); c.col = "#3a3e42"; c.cab = "#2a2c30"; if (c.model === "army") c.len = SERVICE.army.len; }
+    else if ((c.crewN || SERVICE.army.n) <= 4) setModel(c, "tigr");
+  }
+  if (type === "police") { if ((c.crewN || 2) >= 4) { setModel(c, "omon"); c.col = "#283244"; } else if (c.cp) setModel(c, "policeVan"); }
+}
+// форма экипажа по машине и варианту
+function dressCrew(a, c, i) {
+  const v = c.dress || 0;
+  if (a.role === "police") {
+    if (c.model === "omon") { a.cloth = "#26292e"; a.pants = "#1f2226"; a.vest = "#15171a"; a.hat = "helmetBlk"; }
+    else if ((c.model === "police" || c.model === "policeSuv") && v === 0) a.vest = "#c8e04a"; // ДПС: салатовый светоотражающий жилет
+  }
+  if (a.role === "army") {
+    if (c.fed) { a.cloth = "#3a3e42"; a.pants = "#33373b"; a.vest = "#1e2124"; a.hat = "helmetBlk"; }
+    else { const camo = [["#55603a", "#4d5634"], ["#5f6a4c", "#565f45"], ["#6b6b4e", "#5f5f45"]][v]; a.cloth = camo[0]; a.pants = camo[1]; a.vest = v === 1 ? "#4a5238" : "#3f4a2a"; if (i === 0) a.hat = "cap"; }
+  }
+  if (a.role === "medic" && c.modern) { a.cloth = "#2a4f8a"; a.pants = "#24426f"; a.vest = "#e8c020"; }
+  if (a.role === "fire") {
+    if (v === 1) { a.cloth = "#3d342a"; a.pants = "#2e2820"; } // тёмная боевка
+    a.hat = i === 0 ? "fireWhite" : v === 2 ? "fireRed" : "fire";
+  }
+  if ((a.role === "worker" || a.role === "builder") && v === 1) { a.cloth = "#2c4a7a"; a.pants = "#24395e"; }
+}
 // кузов служебной машины
-const SERVICE_MODEL = { police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
+const SERVICE_MODEL = { lowboy: "lowboy", police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
 function clearCarCells(c) {
   if (c.cells) { for (let k = 0; k < c.cells.length; k += 2) if (grid[c.cells[k]] === 5) grid[c.cells[k]] = c.cells[k + 1]; c.cells = null; fieldT = 0; return; }
   for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0;
@@ -3292,6 +3372,7 @@ function spawnService(type, gx, gy, from) {
   let p = from ? nearestLanePoint(from.x, from.y) : null;
   if (!p) p = edgeLanePoint(gx, gy);
   const c = { ...newCar(), model: SERVICE_MODEL[type] || "van", service: type, col: S.col, len: S.len, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
+  styleService(c, type);
   placeOnLane(c, p.l, p.s);
   // разворачиваемся, если по встречной полосе к цели ближе
   const opp = oppLane(p.l), R = routeTo(gx, gy);
@@ -3311,6 +3392,7 @@ function deployCrew(c) {
     const a = newAgent(S.crew, x, y); a.unit = c; a.job = c.job || null; c.crew.push(a); if (c.sweep) a.sweep = true; if (sid) a.squad = sid;
     if (S.crew === "fire") { a.cloth = "#b5361f"; a.pants = "#2b2b2b"; a.hair = "#e8c020"; a.hat = "fire"; a.vest = "#d8b020"; }
     if (S.crew === "worker" || S.crew === "builder") { a.cloth = "#f08a1c"; a.pants = "#2c3550"; a.hair = "#f4f4f0"; a.hat = "hard"; a.vest = "#f0c020"; }
+    dressCrew(a, c, i);
   }
   if (sid) squads.set(sid, { id: sid, members: c.crew.map(m => m.id), leader: c.crew[0].id, state: "advance", holdAt: null, holdT: 0, regroupT: 0, slots: [] });
   // посты: высаженные занимают заданные точки; машина, которая только привезла, уезжает
@@ -3322,7 +3404,7 @@ function deployCrew(c) {
 // привезти людей и уехать: грузовик с заданными постами
 function sendPosts(type, x, y, posts, extra) {
   const c = spawnService(type, x, y, extra && extra.fed ? false : type === "police" ? special.police : type === "ambulance" ? special.hospital : null);
-  c.posts = posts; c.dropOnly = true; Object.assign(c, extra || {}); return c;
+  c.posts = posts; c.dropOnly = true; Object.assign(c, extra || {}); stylePosts(c, type); return c;
 }
 // недоделанная работа снова доступна диспетчеру
 function releaseJob(j) {
@@ -3355,6 +3437,7 @@ function stepServiceCar(c, dt) {
     else if (c.service === "mixer") { const b = c.job && c.job.build; if (!b || b.state !== "construct") releaseUnit(c); }
     else if (c.service === "bus") stepBusStop(c, dt);
     else if (c.service === "supply") supplyUnload(c, dt);
+    else if (c.service === "lowboy") lowboyStep(c, dt);
     else if (c.roam) roamStopDone(c, dt);
     return;
   }
@@ -3472,11 +3555,11 @@ function stepServices(dt) {
       site.clearAssigned = true; const [gx, gy] = siteGoal(site), [ex, ey] = edgePointNear(gx, gy);
       if (site.state === "ruin") {
         const f = fleetFor(site); site.truckN = f.trucks;
-        addMachine("loader", ex, ey, { ruin: site }); for (let k = 1; k < f.loaders; k++) { const [ex2, ey2] = edgePointNear(gx + (k % 2 ? 500 : -500), gy + (k > 1 ? 400 : -400)); addMachine("loader", ex2, ey2, { ruin: site }); }
+        for (let k = 0; k < f.loaders; k++) deliverMachine("loader", { ruin: site }, gx, gy, k * 6);
         spawnService("dump", gx, gy, null).job = { dump: site }; if (f.trucks > 2) { const t2 = spawnService("dump", gx, gy, null); t2.job = { dump: site }; }
-        site.dumpSentT = simT; logT("clear_go", f.loaders > 2 ? "К большому завалу выехали три экскаватора и колонна самосвалов" : "К завалу выехали два экскаватора и самосвалы", "good", 20);
+        site.dumpSentT = simT; logT("clear_go", f.loaders > 2 ? "К большому завалу тралы везут три экскаватора, за ними колонна самосвалов" : "К завалу тралы везут два экскаватора, за ними самосвалы", "good", 20);
       }
-      else { addMachine("loader", ex, ey, { demo: site }); logT("demo_go", site.kind === "tower" ? "Выгоревший небоскрёб решено снести: выехал экскаватор" : "Выгоревший дом решено снести: выехал экскаватор", "good", 20); }
+      else { deliverMachine("loader", { demo: site }, gx, gy, 0); logT("demo_go", site.kind === "tower" ? "Выгоревший небоскрёб решено снести: трал везёт экскаватор" : "Выгоревший дом решено снести: трал везёт экскаватор", "good", 20); }
     }
   }
   // самосвалы по кругу: пока есть завал, у экскаватора один грузится, второй уже едет
@@ -3799,7 +3882,7 @@ function detonate() {
     const d = Math.hypot(a.x - x, a.y - y);
     if (d < NUKE.R0) { if (a.state === "alive" && a.role !== "zombie") deaths++; if (a.role === "zombie" && a.state === "alive") zkills++; a.state = "saved"; a.vapor = true; }
   }
-  for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1)); if (d < NUKE.R0 + 40 && b.state === "ok") { b.hp = 0; collapse(b); b.ruinH = rnd(1, 4); } }
+  for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1)); if (d < NUKE.R0 + 40 && b.state === "ok") { b.hp = 0; b.hitX = undefined; collapse(b); b.ruinH = rnd(1, 4); } }
   for (const c of cars) if (Math.hypot(c.x - x, c.y - y) < NUKE.R0) c.gone = true;
   for (let i = 0; i < 70; i++) { const a = rnd(0, TAU), r = Math.sqrt(Math.random()) * NUKE.R1; fires.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, r: rnd(10, 26), l: rnd(40, 120) }); }
   // электромагнитный импульс глушит машины
@@ -3839,7 +3922,7 @@ function stepNuke(dt) {
     const k = 1 - d / NUKE.RMAX;
     // до R1 всё рушится, до R2 дома падают, а башни выгорают до остова; дальше ожоги и пожары
     const dmg = d < NUKE.R1 ? b.maxHp * 1.2 : d < NUKE.R2 ? b.maxHp * (b.floors > 8 ? .55 + .5 * k : .8 + .6 * k) : b.maxHp * .45 * k * k;
-    damageBuilding(b, dmg, x, y);
+    b.bigHit = true; damageBuilding(b, dmg, x, y);
     if (b.state === "ok" && d < NUKE.R2 * 1.15 && Math.random() < .3 + k) b.fire = Math.max(b.fire, rnd(80, 200));
     if (b.state === "ok") { b.scorch = Math.max(b.scorch, clamp(k * 1.3)); if (b.hp < b.maxHp * .45 && !b.gutted && !(b.fire > 0)) gutBuilding(b); }
   }
@@ -3964,14 +4047,90 @@ function clearRubbleAt(b, px, py) {
   if (typeof onRubbleCleared === "function") onRubbleCleared(px, py, b);
   return true;
 }
+
+/* ---------- трал: технику к площадке привозят и увозят на низкорамном прицепе ----------
+   Трал едет по дорогам, у площадки сгружает экскаватор и уезжает. Работа кончилась — экскаватор вызывает трал,
+   съезжает к дороге, заезжает на платформу, и трал увозит его. Пока экскаватор на платформе, он едет вместе с тралом */
+const LOWBOY_DECK = -1.5; // центр платформы от центра машины, в единицах модели
+function deckPos(c) { const k = (c.len || 2.83) * 18 / 51, ca = Math.cos(c.ang), sa = Math.sin(c.ang); return [c.x + ca * LOWBOY_DECK * k, c.y + sa * LOWBOY_DECK * k]; }
+function rearOf(c, extra = 10) { const ca = Math.cos(c.ang), sa = Math.sin(c.ang), r = (c.len || 2.83) * 9 + extra; return [c.x - ca * r, c.y - sa * r]; }
+function deliverMachine(kind, job, gx, gy, delay) {
+  const [ex, ey] = edgePointNear(gx, gy), m = addMachine(kind, ex, ey, job);
+  m.carried = true; m.wantTruckT = simT + (delay || 0);
+  return m;
+}
+// трал выезжает за экскаватором: доставка (m.carried — ещё за краем карты) или вывоз (m.pickupBy)
+function sendLowboy(m, gx, gy, pickup) {
+  const c = spawnService("lowboy", gx, gy, null);
+  if (pickup) { c.pickup = m; m.pickupBy = c; m.pickT = simT; } else { c.cargo = m; m.onTruck = c; }
+  return c;
+}
+function lowboyStep(c, dt) {
+  // привёз: опускает сходни, экскаватор съезжает назад и встаёт за прицепом
+  if (c.cargo) {
+    c.unloadT = (c.unloadT || 0) + dt;
+    if (c.unloadT > 5) {
+      const m = c.cargo, [rx, ry] = rearOf(c, 14), [fx, fy] = freeNear(rx, ry, 24);
+      m.carried = false; m.onTruck = null; m.x = fx; m.y = fy; m.ang = c.ang + Math.PI; m.v = 0; m.progT = simT;
+      c.cargo = null; releaseUnit(c);
+      logT("lowboy", "Трал сгрузил экскаватор у площадки и уехал", "", 25);
+    }
+    return;
+  }
+  // приехал за экскаватором: ждёт, пока тот заедет на платформу; не дождался за две минуты — уезжает пустым
+  if (c.pickup) {
+    const m = c.pickup; c.waitPickT = (c.waitPickT || 0) + dt;
+    if (m.gone || c.waitPickT > 120) { if (!m.gone) { m.pickupBy = null; m.pickFail = (m.pickFail || 0) + 1; } c.pickup = null; releaseUnit(c); return; }
+    if (m.carried && m.onTruck === c) { c.loadT = (c.loadT || 0) + dt; if (c.loadT > 4) { c.pickup = null; c.cargo2 = m; releaseUnit(c); logT("lowboy2", "Экскаватор погрузили на трал и увезли", "", 25); } }
+  }
+}
+// экскаватор, работа которого кончилась: вызвать трал, подъехать к дороге, заехать на платформу; без трала — своим ходом
+function machineGoHome(m, dt) {
+  if (m.carried) return true;
+  if (!m.pickupBy && settings.services && !(m.pickFail >= 2)) { const q = nearestLanePoint(m.x, m.y); sendLowboy(m, q ? q.x : m.x, q ? q.y : m.y, true); logT("lowboycall", "Экскаватор закончил работу и ждёт трал", "", 30); }
+  const c = m.pickupBy;
+  if (c && !c.gone && !c.wreck && !c.leaving) {
+    if (c.deployed) {
+      const [rx, ry] = rearOf(c, 6), d = Math.hypot(rx - m.x, ry - m.y);
+      if (d > 8) { steerTo(m, rx, ry, 7, dt); return true; }
+      // по сходням на платформу
+      m.carried = true; m.onTruck = c; return true;
+    }
+    // пока трал едет — ждём у ближайшей дороги
+    const q = m.roadQ || (m.roadQ = nearestLanePoint(m.x, m.y));
+    if (q && Math.hypot(q.x - m.x, q.y - m.y) > 26) steerTo(m, q.x, q.y, 9, dt); else m.v *= .5;
+    return true;
+  }
+  if (c && (c.gone || c.wreck || c.leaving)) { m.pickupBy = null; m.pickFail = (m.pickFail || 0) + 1; }
+  return false;
+}
+// техника на платформе едет вместе с тралом; трал уехал за край — техника тоже; трал разбит — техника остаётся рядом
+function stepCarried(m) {
+  if (!m.carried) return false;
+  if (!m.onTruck) {
+    // ещё за краем карты: трал выезжает в свой черёд
+    if (simT >= (m.wantTruckT || 0) && settings.services) { const J = m.job || {}, b = J.ruin || J.demo; const [gx, gy] = b ? siteGoal(b) : [m.x, m.y]; sendLowboy(m, gx, gy, false); }
+    else if (!settings.services) m.carried = false;
+    return true;
+  }
+  const c = m.onTruck;
+  if (c.wreck) { m.carried = false; m.onTruck = null; const [fx, fy] = freeNear(c.x, c.y, 30); m.x = fx; m.y = fy; return false; }
+  if (c.gone) { m.gone = true; return true; }
+  const [dx, dy] = deckPos(c); m.x = dx; m.y = dy; m.ang = c.ang; m.v = 0;
+  // застрял у завала в нескольких кварталах: сгружает там, дальше экскаватор своим ходом
+  if (c.cargo === m && !c.deployed && !c.leaving && c.goal && c.wait > 25 && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 400) deployCrew(c);
+  return true;
+}
 function stepMachines(dt) {
   for (const m of machines) {
     if (m.gone) continue;
     m.bucket = Math.max(0, m.bucket - dt);
     if (m.kind !== "loader") continue;
+    if (stepCarried(m)) continue;
     // зомби ближе 60 — экскаватор глушит работу и ждёт; сторож прогресса не считает это застреванием
     if (!m.leave) { let zc = 0; nearZ(m.x, m.y, 60, () => zc++); if (zc) { m.v *= .3; m.progT = simT; m.workT = 0; continue; } }
     // домой: к ближайшему выезду
+    if (m.leave && machineGoHome(m, dt)) continue;
     if (m.leave) { const e = m.exit || (m.exit = edgePointNear(m.x, m.y)); m.leaveT = (m.leaveT || 0) + dt; steerTo(m, e[0], e[1], 14, dt); if (Math.hypot(e[0] - m.x, e[1] - m.y) < 30 || m.leaveT > 90 || m.x < 12 || m.y < 12 || m.x > W - 12 || m.y > H - 12) m.gone = true; continue; }
     const J = m.job || {};
     // снос выгоревшего остова: подъезжает к стене, бьёт ковшом, дом оседает
@@ -4724,7 +4883,7 @@ function stepMeteors(dt) {
     m.t -= dt;
     if (m.t <= 0 && !m.done) {
       m.done = true; boom(m.x, m.y, 120, true); slowMo(2.5);
-      for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - m.x, 0, m.x - b.x1), Math.max(b.y0 - m.y, 0, m.y - b.y1)); if (d < 160) damageBuilding(b, 500 * (1 - d / 160), m.x, m.y); }
+      for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - m.x, 0, m.x - b.x1), Math.max(b.y0 - m.y, 0, m.y - b.y1)); if (d < 160) { b.bigHit = true; damageBuilding(b, 500 * (1 - d / 160), m.x, m.y); } }
       for (let i = 0; i < 40; i++) addDecal(m.x + rnd(-90, 90), m.y + rnd(-90, 90), rnd(3, 9), 1);
       logE("Метеорит ударил по городу", "bad");
     }
@@ -4979,25 +5138,103 @@ function inDanger(a) { for (const d of dangers) if (Math.hypot(d.x - a.x, d.y - 
 
 /* ---------- КПП: проверка на укусы, очередь, изолятор, бунт ---------- */
 let cps = [];
-function addCheckpoint(x, y) {
-  // ближайшая улица: барьер поперёк неё с проходом посередине
-  const q = gEdgeNear(x, y, 90, e => e.rural || e.kind === "ring"); if (!q) return false;
-  const e = q.e, t = clamp(q.t, Math.min(e.len / 2, e.ra + 18), Math.max(e.len / 2, e.len - e.rb - 18)), p = edgePos(e, t);
-  const tx = p.tx, ty = p.ty, nx = -ty, ny = tx, cx = p.x, cy = p.y, cells = [];
-  for (let o = -e.hw - 8; o <= e.hw + 8; o += CS / 2) {
-    if (Math.abs(o) < 7) continue;
-    const px = cx + nx * o, py = cy + ny * o, gx = Math.floor(px / CS), gy = Math.floor(py / CS);
-    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx, c = grid[i];
-    if (c === 3 || c === 9 || c === 5 || c === 6) continue; grid[i] = 6; bhp[i] = 120; wallMask[i] = 1; cells.push(i);
+/* ---------- блокпост на дороге ----------
+   Проезжая часть открыта: на каждую сторону свой шлагбаум, будка у обочины, бетонные блоки только на обочинах и тротуарах,
+   у будки — проход для пешеходов. Машины встают на досмотр и проезжают. Направление можно закрыть (closeIn — в город,
+   closeOut — из города): маршруты такое направление объезжают, а подъехавшие разворачиваются. shut — пост закрыт целиком
+   (орда рядом): шлагбаумы опущены, проезд и проход заложены блоками. outDir: 1 — наружу из города по возрастанию t ребра,
+   -1 — по убыванию, 0 — пост внутри города, направления не важны */
+const postMask = new Uint8Array(GW * GH);
+function postCell(cp, i, list) {
+  if (i in cp.prev || !fenceable(grid[i])) return;
+  cp.prev[i] = grid[i]; grid[i] = 6; bhp[i] = 400; wallMask[i] = 0; postMask[i] = 1; list.push(i);
+}
+function postCellAt(cp, x, y, list) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) postCell(cp, gy * GW + gx, list); }
+function restorePostCells(cp, list) {
+  for (const i of list) if (postMask[i]) { if (grid[i] === 6) grid[i] = cp.prev[i] !== undefined ? cp.prev[i] : 0; postMask[i] = 0; bhp[i] = 0; delete cp.prev[i]; }
+  list.length = 0; barrDirty = true; fieldT = 0;
+}
+function addRoadPost(e, t, opts = {}) {
+  t = clamp(t, Math.min(e.len / 2, (e.ra || 0) + 14), Math.max(e.len / 2, e.len - (e.rb || 0) - 14));
+  const p = edgePos(e, t), tx = p.tx, ty = p.ty, nx = -ty, ny = tx, side = opts.side || 1;
+  const cp = { road: true, kind: opts.kind || "police", x: p.x, y: p.y, ang: Math.atan2(ty, tx), tx, ty, v: Math.abs(ty) > Math.abs(tx), hw: e.hw, e: e.id, t,
+    outDir: opts.outDir || 0, closeIn: !!opts.closeIn, closeOut: !!opts.closeOut, shut: false, side, cells: [], shutCells: [], prev: {},
+    queue: 0, queueT: 0, detained: 0, checked: 0, turned: 0, broken: false, boomT: [0, 0], fed: !!opts.fed, noTent: !!opts.noTent };
+  // сторона дороги, по которой идёт каждая полоса (L[0] — по возрастанию t)
+  cp.sideL = e.L.map(l => { if (!l) return 0; const q = lanePos(l, clamp(laneSOfT(l, t), 0, e.len)); return Math.sign((q.x - p.x) * nx + (q.y - p.y) * ny) || 1; });
+  // блоки на обочинах и тротуарах; у будки — проход для пешеходов
+  for (const s of [-1, 1]) for (let o = e.hw + 1; o <= e.hw + 14; o += CS / 2) {
+    if (s === side && o > e.hw + 2 && o < e.hw + 8) continue;
+    postCellAt(cp, p.x + nx * o * s, p.y + ny * o * s, cp.cells);
   }
-  // ось x модели КПП — поперёк улицы вправо от направления (ty, −tx)
-  const ang = Math.atan2(ty, tx), lx = ty, ly = -tx, cp = { x: cx, y: cy, ang, tx, ty, v: Math.abs(ty) > Math.abs(tx), hw: e.hw, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [cx + lx * (e.hw + 12) + tx * 10, cy + ly * (e.hw + 12) + ty * 10] };
-  sendPosts("police", cx, cy, [0, 1].map(i => freeNear(cx + tx * (i ? 10 : -10), cy + ty * (i ? 10 : -10), 5)), { cp });
-  // будка у проезда, изолятор: клетки заняты
-  const bx = cx + lx * 9.5 + tx * 3, by = cy + ly * 9.5 + ty * 3;
-  cp.cells2 = blockFree(bx - 2, by - 2, bx + 2, by + 2).concat(blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7));
-  cps.push(cp); barrDirty = true; fieldT = 0;
-  logE("Развёрнут КПП: полиция проверяет проходящих на укусы, заражённых отправляют в изолятор", "good"); return true;
+  cp.ped = [p.x + nx * side * (e.hw + 5), p.y + ny * side * (e.hw + 5)];
+  cp.booth = [p.x + nx * side * (e.hw + 10), p.y + ny * side * (e.hw + 10)];
+  const back = cp.outDir ? -cp.outDir : -1;
+  cp.tent = [p.x + nx * side * (e.hw + 26) + tx * back * 16, p.y + ny * side * (e.hw + 26) + ty * back * 16];
+  if (!cp.noTent) cp.cells2 = blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7);
+  e.checkCp = cp; cps.push(cp); barrDirty = true; fieldT = 0; routeCache.clear(); exitRoute = null;
+  return cp;
+}
+// точки для постовых: двое у будки и прохода, остальные у противоположной обочины; чуть со стороны города
+function postSpots(cp, n) {
+  const nx = -cp.ty, ny = cp.tx, s = cp.side, back = cp.outDir ? -cp.outDir : -1, bx = cp.tx * back * 7, by = cp.ty * back * 7, out = [];
+  const offs = [[s, cp.hw + 4], [s, cp.hw + 12], [-s, cp.hw + 4], [-s, cp.hw + 12], [s, cp.hw + 8], [-s, cp.hw + 8]];
+  for (let i = 0; i < n; i++) { const [k, o] = offs[i % offs.length]; out.push(freeNear(cp.x + nx * k * o + bx, cp.y + ny * k * o + by, 5)); }
+  return out;
+}
+function staffPost(cp, type, n, extra) {
+  const back = cp.outDir ? -cp.outDir : -1;
+  return sendPosts(type, cp.x + cp.tx * back * 30, cp.y + cp.ty * back * 30, postSpots(cp, n), { crewN: n, cp, ...(extra || {}) });
+}
+// полоса через пост ведёт из города или в город
+function postLaneOut(cp, l) { return cp.outDir ? (l.d > 0) === (cp.outDir === 1) : false; }
+function postLaneShut(cp, l) {
+  if (!cp || !cp.road || cp.broken) return false;
+  if (cp.shut) return true;
+  return cp.outDir ? (postLaneOut(cp, l) ? cp.closeOut : cp.closeIn) : false;
+}
+// закрыть пост целиком (орда рядом) или открыть снова
+function shutPost(cp, on) {
+  if (!cp || !cp.road || cp.broken || !!cp.shut === on) return;
+  cp.shut = on;
+  if (on) {
+    const nx = -cp.ty, ny = cp.tx, out = cp.outDir || 1, ox = cp.tx * out * 7, oy = cp.ty * out * 7;
+    for (let o = -cp.hw - 1; o <= cp.hw + 1; o += CS / 2) postCellAt(cp, cp.x + nx * o + ox, cp.y + ny * o + oy, cp.shutCells);
+    for (let o = cp.hw + 2; o <= cp.hw + 8; o += CS / 2) postCellAt(cp, cp.x + nx * cp.side * o, cp.y + ny * cp.side * o, cp.shutCells);
+  } else restorePostCells(cp, cp.shutCells);
+  routeCache.clear(); exitRoute = null; barrDirty = true; fieldT = 0;
+}
+// снять пост: блоки убрать, постовых отпустить (полицию — в участок, наряд ДПС — в свою будку)
+function removeRoadPost(cp) {
+  if (!cp) return;
+  if (cp.road) { restorePostCells(cp, cp.shutCells); restorePostCells(cp, cp.cells); }
+  if (cp.cells2) { unblock(cp.cells2); cp.cells2 = null; }
+  const e = RE.find(x => x.id === cp.e); if (e && e.checkCp === cp) e.checkCp = null;
+  cps = cps.filter(c => c !== cp); routeCache.clear(); exitRoute = null; barrDirty = true;
+  for (const a of agents) if (a.cp === cp && a.state === "alive") {
+    a.cp = null; a.order = null; if (a.fed) continue;
+    if (a.dpsHome) { a.standDown = true; a.standT = simT; a.order = { x: a.dpsHome[0], y: a.dpsHome[1] }; }
+    else if (a.role === "police" && special.police) { a.standDown = true; a.standT = simT; a.order = { x: special.police.x, y: special.police.y }; }
+  }
+}
+// машина на закрытом направлении: постоял — разворачивается назад; бегущие из города больше не рвутся к выездам
+function turnBackAtPost(c, l, cp) {
+  const opp = oppLane(l); if (!opp) return false;
+  const s2 = l.e.len - c.s; if (laneBusy(opp, s2, c)) return false;
+  const ox = c.x, oy = c.y, ang = c.ang;
+  placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; c.shutT = 0; c.next = null; c.route = null;
+  if (c.flee) { c.flee = false; c.goal = null; }
+  cp.turned++; logT("cpturn", cp.fed ? "Внешнее оцепление: машину развернули, выезд из города закрыт" : cp.shut ? "Пост закрыт: машины разворачивают" : "Въезд закрыт: машины разворачивают", "", 30);
+  return true;
+}
+
+function addCheckpoint(x, y) {
+  // ближайшая улица: блокпост поперёк неё — шлагбаумы на обе стороны, проход для пешеходов у будки; машины досматривают и пропускают
+  const q = gEdgeNear(x, y, 90, e => e.rural || e.kind === "ring"); if (!q) return false;
+  if (q.e.checkCp) return false;
+  const cp = addRoadPost(q.e, q.t, { kind: "police" });
+  staffPost(cp, "police", 3);
+  logE("Развёрнут КПП: полиция досматривает людей и машины, заражённых отправляют в изолятор", "good"); return true;
 }
 // КПП на воротах карантина: без своих клеток (стены вокруг уже есть), проход вдоль y, изолятор снаружи
 // пост пропуска карантина: проход вдоль (tx, ty), изолятор сбоку снаружи; клетки барьера ставит сама зона
@@ -5016,16 +5253,16 @@ function stepCheckpoints(dt) {
   for (const cp of cps) {
     if (cp.broken) continue;
     // без полиции или военных на посту никто никого не проверяет
-    let staff = 0; near(cp.x, cp.y, 28, a => { if (a.state === "alive" && !a.hidden && (a.role === "police" || a.role === "army")) staff++; });
+    let staff = 0; near(cp.x, cp.y, cp.road ? Math.max(28, cp.hw + 20) : 28, a => { if (a.state === "alive" && !a.hidden && (a.role === "police" || a.role === "army")) staff++; });
     cp.staff = staff;
     if (cp.openT > 0) { cp.openT -= dt; cp.queue = 0; if (cp.openT <= 0) logT("cpreopen", "Пост пропуска снова проверяет выходящих", "good", 20); continue; }
     if (!staff) { cp.queue = 0; continue; }
     const tx = cp.tx !== undefined ? cp.tx : cp.v ? 0 : 1, ty = cp.ty !== undefined ? cp.ty : cp.v ? 1 : 0;
     let waiting = 0;
-    near(cp.x, cp.y, 16, a => {
+    near(cp.x, cp.y, cp.road ? cp.hw + 16 : 16, a => {
       if (a.state !== "alive" || a.role !== "civ" || a.hidden) return;
       const dx = a.x - cp.x, dy = a.y - cp.y, lat = -dx * ty + dy * tx, along = dx * tx + dy * ty;
-      if (Math.abs(lat) > 8 || Math.abs(along) > 14) return;
+      if (Math.abs(lat) > (cp.road ? cp.hw + 9 : 8) || Math.abs(along) > 14) return;
       if (a.cpChecked === cp) return;
       if (a.cpWait > 0) { waiting++; return; }
       if (a.cpWait === 0 && a.cpAt !== cp) { a.cpWait = 2; a.cpAt = cp; waiting++; return; }
@@ -5038,7 +5275,7 @@ function stepCheckpoints(dt) {
     });
     cp.queue = waiting;
     cp.queueT = waiting > 10 ? cp.queueT + dt : 0;
-    if (cp.queueT > 40 && cp.gate) {
+    if (cp.queueT > 40 && (cp.gate || cp.road)) {
       // толпа у ворот карантина прорывается: минуту проход открыт без проверки, потом полиция восстанавливает порядок
       cp.openT = 60; cp.queueT = 0;
       near(cp.x, cp.y, 40, a => { if (a.state === "alive" && a.role === "civ") { a.panic = Math.max(a.panic, .6); a.cpWait = 0; a.cpChecked = cp; } });
@@ -5271,9 +5508,10 @@ function stepResponse(dt) {
   if (alert >= 4) {
     // танк — крайняя мера: армия воюет уже две с половиной минуты ликвидации, а штабу всё ещё известно больше восьмидесяти зомби; или город потерян
     if (scenOk("tank") && tanks.filter(t => t.hp > 0).length < (alert >= 5 ? 4 : 1) && since("tank") > 60 && (alert >= 5 || (armyTried && K >= 80 && simT - alertT > 150))) { respLog.tank = simT; addTank(...edgePointNear(cl.x, cl.y)); scenUse("tank"); logE("Штаб направил танк", "good"); sfx.radio(); }
-    // авиаудар: только по плотному скоплению вдали от людей и своих, и пока город не потерян — только там, где снаряд не заденет целые дома
+    // авиаудар: только по плотному скоплению вдали от людей и своих и только там, где бомба не заденет целые дома
     let troops = 0; near(cl.x, cl.y, 130, a => { if (a.state === "alive" && (a.role === "army" || a.role === "police")) troops++; });
-    const openGround = alert >= 5 || !buildings.some(b => b.state === "ok" && Math.hypot(clamp(cl.x, b.x0, b.x1) - cl.x, clamp(cl.y, b.y0, b.y1) - cl.y) < 78);
+    // по жилым кварталам штурмовик не бьёт никогда — даже когда город потерян: целые дома в 80 м от цели исключают удар
+    const openGround = !buildings.some(b => b.state === "ok" && Math.hypot(clamp(cl.x, b.x0, b.x1) - cl.x, clamp(cl.y, b.y0, b.y1) - cl.y) < 78);
     if (scenOk("strike") && since("strike") > 90 && (alert >= 5 || simT - alertT > 60) && cl.n >= 15 && civNear(cl.x, cl.y, 90) === 0 && troops === 0 && openGround && !strikes.length) { respLog.strike = simT; strikes.push({ x: cl.x, y: cl.y, t: 3 }); scenUse("strike"); logE("Авиация бьёт по скоплению зомби", "bad"); radio("Штаб: штурмовик на боевом курсе, всем отойти"); }
   }
   // 5. город потерян: вторая волна вертолётов без пауз, армия отходит к лагерям
@@ -5837,20 +6075,22 @@ function compass(dx, dy) { const a = Math.atan2(-dy, dx), k = Math.round(a / (Ma
 const entryEdge = en => RE.find(e => e.id === en.e) || null;
 // точка на трассе въезда: k > 0 — от въезда наружу, k < 0 — в город
 function entryPoint(en, k) { const e = entryEdge(en); if (!e) return [en.x + en.tx * k, en.y + en.ty * k]; const t = clamp(en.t + k * (en.dir || 1), 0, e.len), p = edgePos(e, t); return [p.x, p.y, t, p]; }
-// заграждение поперёк трассы: бетонные блоки на всю ширину (gap — проход посередине, в метрах от оси)
-function roadBlock(en, k, gap = 0) {
+// блокпост на въезде (addRoadPost в sim13.js). Один пост может держать сразу несколько «владельцев»: рубеж против орды,
+// пост для беженцев, внешнее оцепление. У каждого свои ограничения; пост снимают, когда уходит последний
+function roadBlock(en, k, opts, tag) {
   const e = entryEdge(en); if (!e) return null;
-  const [x, y, t, p] = entryPoint(en, k), nx = -p.ty, ny = p.tx, cells = [], prev = {};
-  for (let o = -e.hw - 6; o <= e.hw + 6; o += CS / 2) {
-    if (Math.abs(o) < gap) continue;
-    const gx = Math.floor((x + nx * o) / CS), gy = Math.floor((y + ny * o) / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
-    const i = gy * GW + gx; if (i in prev || !fenceable(grid[i])) continue;
-    prev[i] = grid[i]; grid[i] = 6; bhp[i] = 300; wallMask[i] = 1; cells.push(i);
-  }
-  barrDirty = true; fieldT = 0;
-  return { cells, prev, x, y, t, e: e.id };
+  const [, , t] = entryPoint(en, k);
+  let cp = e.checkCp && e.checkCp.road && !e.checkCp.broken ? e.checkCp : null;
+  if (!cp) cp = addRoadPost(e, t, { outDir: en.dir || 1, kind: opts.kind, noTent: opts.noTent, fed: opts.fed });
+  cp.own = cp.own || {}; cp.own[tag] = { closeIn: !!opts.closeIn, closeOut: !!opts.closeOut };
+  postFlags(cp); return cp;
 }
-function liftBlock(bl) { if (!bl) return; for (const i of bl.cells) if (grid[i] === 6 && wallMask[i] && !quarMask[i]) { grid[i] = bl.prev[i]; wallMask[i] = 0; bhp[i] = 0; } barrDirty = true; fieldT = 0; }
+function postFlags(cp) { const o = Object.values(cp.own || {}); cp.closeIn = o.some(x => x.closeIn); cp.closeOut = o.some(x => x.closeOut); routeCache.clear(); exitRoute = null; }
+function liftBlock(cp, tag) {
+  if (!cp) return;
+  if (cp.own && tag) { delete cp.own[tag]; if (Object.keys(cp.own).length) { if (tag[0] === "h") shutPost(cp, false); postFlags(cp); return; } }
+  removeRoadPost(cp);
+}
 function stepThreats(dt) {
   if (!threat) resetThreats();
   threat.noise *= Math.exp(-dt / 150);
@@ -5893,12 +6133,17 @@ function stepHordes(dt) {
     let alive = 0, nearLine = 0; for (const a of agents) if (a.state === "alive" && a.role === "zombie" && a.horde === h.id) { alive++; if (Math.hypot(a.x - en.x, a.y - en.y) < 400) nearLine++; }
     h.alive = alive;
     if (nearLine) h.arrived = true;
+    if (h.line && simT >= h.emergeT) {
+      let dmin = 1e9; for (const a of agents) if (a.horde === h.id && a.state === "alive" && a.role === "zombie") dmin = Math.min(dmin, Math.hypot(a.x - h.line.x, a.y - h.line.y));
+      if (!h.line.shut && dmin < 700) { shutPost(h.line, true); logE("Орда в двухстах метрах: блокпост на въезде закрыт, проезд заложен блоками", "bad"); }
+      else if (h.line.shut && dmin > 950) { shutPost(h.line, false); logT("hopen" + h.id, "Орда отошла: блокпост на въезде снова пропускает машины", "good", 30); }
+    }
     // рубеж поредел (погибли, укушены) — штаб досылает ещё один грузовик, но не больше двух раз за орду
     if (h.line && h.linePt && settings.services && simT > h.reinfT && (h.reinfN || 0) < 2) {
       h.reinfT = simT + 10;
       let held = 0; near(h.linePt[0], h.linePt[1], 140, a => { if (a.state === "alive" && a.role === "army") held++; });
       for (const c of cars) if (c.hordeLine === h.id && !c.deployed && !c.gone && !c.wreck && !c.leaving) held += c.crewN || 4;
-      if (held < 3) { h.reinfN = (h.reinfN || 0) + 1; h.reinfT = simT + 90; sendPosts("army", h.linePt[0] - en.tx * 30, h.linePt[1] - en.ty * 30, h.posts, { crewN: 4, hordeLine: h.id }); radio("Штаб: рубеж на въезде редеет, высылаем подкрепление"); }
+      if (held < 3) { h.reinfN = (h.reinfN || 0) + 1; h.reinfT = simT + 90; sendPosts("army", h.linePt[0] - en.tx * 30, h.linePt[1] - en.ty * 30, h.posts, { crewN: 4, hordeLine: h.id, cp: h.line || null }); radio("Штаб: рубеж на въезде редеет, высылаем подкрепление"); }
     }
     // тишину у въезда считают, только когда орда уже подошла; если за семь минут так и не дошла — значит, разбрелась по полям
     if (h.left === 0 && simT >= h.emergeT && (h.arrived || simT - h.emergeT > 420)) { h.quietT = nearLine ? 0 : h.quietT + dt; if (h.quietT > 90 || alive === 0) { h.done = true; hordeFields.delete(h.id); liftHordeLine(h); logE(alive ? "Орда рассеялась, рубеж на въезде снят" : "Орда отбита, рубеж на въезде снят", "good"); } }
@@ -5907,12 +6152,12 @@ function stepHordes(dt) {
 // рубеж: заграждение поперёк трассы за въездом, армейский пост за ним, прожектор; пригороды на пути орды уходят в город
 function hordeDefense(h, en) {
   if (!settings.services) return;
-  const block = roadBlock(en, 40);
-  const [bx, by, , p] = entryPoint(en, 18), nx = -p.ty, ny = p.tx;
-  const posts = [-1, -.35, .35, 1].map(k => freeNear(bx + nx * k * (en.hw + 4) - en.tx * 6, by + ny * k * (en.hw + 4) - en.ty * 6, 6));
-  sendPosts("army", bx - en.tx * 30, by - en.ty * 30, posts, { crewN: 4, hordeLine: h.id });
-  h.linePt = [bx, by]; h.posts = posts; h.reinfN = 0; h.reinfT = simT + 60;
-  const [fx, fy] = freeNear(bx - en.tx * 16 + nx * (en.hw + 10), by - en.ty * 16 + ny * (en.hw + 10), 8); floods.push({ x: fx, y: fy, on: true, horde: h.id });
+  // армейский блокпост на трассе: пока орда далеко — машины досматривают и пропускают, когда подходит — проезд закладывают блоками
+  const block = roadBlock(en, 40, { kind: "army", noTent: true }, "h" + h.id); if (!block) return;
+  const posts = postSpots(block, 4), back = -(en.dir || 1), nx = -block.ty, ny = block.tx;
+  sendPosts("army", block.x + block.tx * back * 30, block.y + block.ty * back * 30, posts, { crewN: 4, hordeLine: h.id, cp: block });
+  h.linePt = [block.x, block.y]; h.posts = posts; h.reinfN = 0; h.reinfT = simT + 60;
+  const [fx, fy] = freeNear(block.x + block.tx * back * 14 - nx * block.side * (block.hw + 10), block.y + block.ty * back * 14 - ny * block.side * (block.hw + 10), 8); floods.push({ x: fx, y: fy, on: true, horde: h.id });
   h.line = block;
   // жители посёлков и дач на пути орды — в город
   for (const a of agents) {
@@ -5923,7 +6168,7 @@ function hordeDefense(h, en) {
   logE("Штаб: въезд перекрыт, на рубеже армейский пост; жители пригородов уходят в город", "good");
 }
 function liftHordeLine(h) {
-  liftBlock(h.line); h.line = null;
+  liftBlock(h.line, "h" + h.id); h.line = null;
   floods = floods.filter(f => f.horde !== h.id);
 }
 // поведение зомби орды: пока людей не видно и не слышно — идёт к своему въезду
@@ -5968,10 +6213,12 @@ function stepRefugees(dt) {
     threat.cols.push(col);
     if (policy === "check") {
       // пост на въезде: полиция проверяет людей и машины; полосы открыты — машины встают на досмотр сами
-      const e = entryEdge(en), [x, y, t, p] = entryPoint(en, 30);
-      const cp = addGateCheckpoint(x, y, -en.tx, -en.ty); cp.t = t; cp.e = e.id; cp.refugee = true; if (e) e.checkCp = cp; col.cp = cp;
-      dpsCrew(en, cp);
-    } else col.block = roadBlock(en, 60);
+      const cp = roadBlock(en, 30, { kind: "police" }, "r" + col.en + "_" + threat.cols.length); if (cp) { cp.refugee = true; col.cp = cp; col.tag = "r" + col.en + "_" + threat.cols.length; dpsCrew(en, cp); staffPost(cp, "police", 2); }
+    } else {
+      // въезд закрыт: шлагбаум в город опущен, из города выпускают
+      col.tag = "r" + col.en + "_" + threat.cols.length; col.block = roadBlock(en, 60, { kind: "police", closeIn: true }, col.tag);
+      if (col.block) { dpsCrew(en, col.block); staffPost(col.block, "police", 2); }
+    }
     logE(`Беженцы ${side}: колонна из ${nCars} машин и около ${nPeople} пеших`, "bad");
     radio(policy === "check" ? `Штаб: беженцев ${side} принимаем через проверку на въезде, укушенных — в изолятор` : `Штаб: въезд ${side} закрыт, беженцев в город не пускать`);
     sfx.radio();
@@ -6000,12 +6247,12 @@ function stepRefugees(dt) {
       let crowd = 0; const [bx, by] = entryPoint(en, 60); near(bx, by, 60, a => { if (a.state === "alive" && a.refCol === threat.cols.indexOf(col) + 1) crowd++; });
       cityNoise(dt * crowd * .01);
       col.crowdT = crowd >= 10 ? col.crowdT + dt : Math.max(0, col.crowdT - dt);
-      if (col.crowdT > 60) { col.breached = true; liftBlock(col.block); col.block = null; logE("Беженцы прорвали заграждение на въезде и идут в город без проверки", "bad"); interest(bx, by, 6); }
+      if (col.crowdT > 60) { col.breached = true; liftBlock(col.block, col.tag); col.block = null; logE("Беженцы прорвали заграждение на въезде и идут в город без проверки", "bad"); interest(bx, by, 6); }
     }
     // колонна прошла: все вышли и через 6 минут никого из неё у въезда
     if (col.carsLeft === 0 && col.peopleLeft === 0 && simT - col.t0 > 360) {
       let at = 0; near(en.x, en.y, 200, a => { if (a.state === "alive" && a.refCol === threat.cols.indexOf(col) + 1) at++; });
-      if (!at || simT - col.t0 > 900) { col.done = true; for (const c of cars) if (c.dps && Math.hypot(c.x - en.x, c.y - en.y) < 90) c.dpsOut = false; liftBlock(col.block); col.block = null; if (col.cp) { cps = cps.filter(c => c !== col.cp); const e = RE.find(e => e.id === col.cp.e); if (e && e.checkCp === col.cp) e.checkCp = null; if (col.cp.cells2) unblock(col.cp.cells2); for (const a of agents) if (a.cp === col.cp && a.state === "alive") { a.cp = null; a.order = null; if (a.dpsHome) { a.standDown = true; a.standT = simT; a.order = { x: a.dpsHome[0], y: a.dpsHome[1] }; } else if (special.police) { a.standDown = true; a.standT = simT; a.order = { x: special.police.x, y: special.police.y }; } } } }
+      if (!at || simT - col.t0 > 900) { col.done = true; for (const c of cars) if (c.dps && Math.hypot(c.x - en.x, c.y - en.y) < 90) c.dpsOut = false; liftBlock(col.block, col.tag); col.block = null; if (col.cp) { liftBlock(col.cp, col.tag); } }
     }
   }
 }
@@ -6018,7 +6265,7 @@ function dpsCrew(en, cp) {
   for (const s of [1, -1]) {
     const [x, y] = freeNear(dps.x, dps.y, 10), a = newAgent("police", x, y);
     const [px, py] = freeNear(cp.x + nx * s * 9 + cp.tx * 6, cp.y + ny * s * 9 + cp.ty * 6, 5);
-    a.order = { x: px, y: py }; a.cp = cp; a.dpsHome = [dps.x, dps.y];
+    a.order = { x: px, y: py }; a.cp = cp; a.dpsHome = [dps.x, dps.y]; a.vest = "#c8e04a";
   }
   logT("dps", "Наряд ДПС с поста встал на досмотр беженцев", "good", 20);
 }
@@ -6059,11 +6306,9 @@ function stepFederal(dt) {
     for (const n of exits) {
       const e = n.ed[0]; if (!e) continue;
       const en = { e: e.id, t: e.a === n ? Math.min(60, e.len / 2) : Math.max(e.len - 60, e.len / 2), dir: e.a === n ? -1 : 1, x: n.x, y: n.y, tx: 0, ty: 0, hw: e.hw };
-      const bl = roadBlock(en, 0); if (bl) threat.fed.blocks.push(bl);
-      // посты федеральных войск со стороны города; их машина приезжает снаружи и уезжает
-      const p = edgePos(e, en.t), nx = -p.ty, ny = p.tx, dir = e.a === n ? 1 : -1;
-      const posts = [-.6, .6].map(k => freeNear(p.x + nx * k * e.hw + p.tx * dir * 12, p.y + ny * k * e.hw + p.ty * dir * 12, 6));
-      const c = sendPosts("army", p.x + p.tx * dir * 30, p.y + p.ty * dir * 30, posts, { crewN: 2, fed: true });
+      const bl = roadBlock(en, 0, { kind: "fed", noTent: true, fed: true, closeOut: true }, "fed"); if (!bl) continue; threat.fed.blocks.push(bl);
+      // посты федеральных войск; их машина приезжает снаружи и уезжает
+      const c = staffPost(bl, "army", 2, { fed: true });
       const lp = nearestLanePoint(n.x, n.y); if (lp) placeOnLane(c, lp.l, lp.s);
     }
     logE("Федеральный центр: город оцеплен, все выезды закрыты", "bad");
@@ -6080,12 +6325,17 @@ function stepFederal(dt) {
     }
   } else if (F.phase === "strike" && nuke && nuke.over) { F.phase = "lifting"; F.liftT = simT + 60; }
   if (F.phase === "lifting" && simT > F.liftT) {
-    for (const bl of F.blocks) liftBlock(bl);
+    for (const bl of F.blocks) liftBlock(bl, "fed");
     for (const a of agents) if (a.fed && a.state === "alive") { a.fed = false; a.order = null; a.withdraw = true; a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; }
     threat.fed = null; threat.fedDone = true; logE("Внешнее оцепление снято", "good");
   }
 }
 // строка часов: ультиматум и подходящие орды
+// через сколько секунд орда будет у въезда: ещё не вышла из-за горизонта плюс путь полями
+function hordeEta(h) {
+  const en = entries[h.en]; if (!en) return 0;
+  return Math.max(0, h.emergeT - simT) + Math.hypot(en.x - h.x, en.y - h.y) / (settings.fast ? 18 : 6);
+}
 function threatLabel() {
   if (!threat) return "";
   let s = "";
@@ -6508,11 +6758,13 @@ function buildTrees() {
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
   trees.forEach((t, i) => {
     const ty = gY(t.x, t.y);
-    m.makeScale(1, t.h * .55, 1).setPosition(X(t.x), ty, Z(t.y)); treeTrunk.setMatrixAt(i, m);
+    // в симуляции дерево занимает свою клетку, а рисуем его в натуральную величину: городские деревья 6–12 м
+    const th = t.h * 1.45, trr = t.r * 1.3;
+    m.makeScale(1.25, th * .55, 1.25).setPosition(X(t.x), ty, Z(t.y)); treeTrunk.setMatrixAt(i, m);
     for (let k = 0; k < 3; k++) {
-      const r = t.r * rnd(.6, .9);
+      const r = trr * rnd(.6, .9);
       q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
-      m.compose(new THREE.Vector3(X(t.x) + rnd(-t.r, t.r) * .4, ty + t.h * rnd(.6, .85), Z(t.y) + rnd(-t.r, t.r) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r));
+      m.compose(new THREE.Vector3(X(t.x) + rnd(-trr, trr) * .4, ty + th * rnd(.6, .85), Z(t.y) + rnd(-trr, trr) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r));
       treeCrown.setMatrixAt(i * 3 + k, m); col.setHSL(rnd(.22, .3), rnd(.35, .5), rnd(.2, .3)); treeCrown.setColorAt(i * 3 + k, col);
     }
   });
@@ -6528,7 +6780,7 @@ function buildTrees() {
     // лес растёт на пологих склонах ниже снега
     const hh = gY(x, y), sl = Math.hypot(gY(x + 8, y) - gY(x - 8, y), gY(x, y + 8) - gY(x, y - 8)) / 16;
     if (hh > 330 || sl > .55) continue;
-    out.push([x, y, rnd(8, 15) * (hh > 180 ? .7 : 1), rnd(18, 34) * (hh > 180 ? .7 : 1), hh]);
+    out.push([x, y, rnd(10, 19) * (hh > 180 ? .7 : 1), rnd(26, 50) * (hh > 180 ? .7 : 1), hh]);
   }
   const ot = new THREE.InstancedMesh(treeTrunk.geometry, treeTrunk.material, Math.max(1, out.length)), oc = new THREE.InstancedMesh(crownGeo, treeCrown.material, Math.max(1, out.length * 2));
   out.forEach(([x, y, r, h, hh], i) => {
@@ -6548,9 +6800,9 @@ function radialTex(stops) { return canvasTex(128, 128, (g) => { const gr = g.cre
 const glowTex = radialTex([[0, "rgba(255,255,255,1)"], [.25, "rgba(255,255,255,.6)"], [1, "rgba(255,255,255,0)"]]);
 function buildLamps() {
   const n = Math.max(1, lamps.length);
-  lampPole = new THREE.InstancedMesh(new THREE.CylinderGeometry(.3, .45, 24, 6).translate(0, 12, 0), new THREE.MeshStandardMaterial({ color: 0x2f3336, roughness: .6, metalness: .5 }), n);
-  lampArm = new THREE.InstancedMesh(new THREE.BoxGeometry(6, .5, .5).translate(3, 0, 0), lampPole.material, n);
-  lampHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(3, .8, 1.6), new THREE.MeshStandardMaterial({ color: 0x9a9a92, emissive: 0xffd9a0, emissiveIntensity: 0 }), n);
+  lampPole = new THREE.InstancedMesh(new THREE.CylinderGeometry(.35, .55, 34, 6).translate(0, 17, 0), new THREE.MeshStandardMaterial({ color: 0x2f3336, roughness: .6, metalness: .5 }), n);
+  lampArm = new THREE.InstancedMesh(new THREE.BoxGeometry(8, .5, .5).translate(4, 0, 0), lampPole.material, n);
+  lampHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(3.4, .9, 1.8), new THREE.MeshStandardMaterial({ color: 0x9a9a92, emissive: 0xffd9a0, emissiveIntensity: 0 }), n);
   lampPools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffc98a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }), n);
   lampPole.castShadow = lampArm.castShadow = true;
   lampPools.renderOrder = 2;
@@ -6566,9 +6818,9 @@ function placeLamps() {
     if (l.down) base.multiply(m.makeRotationY(i * 1.7)).multiply(new THREE.Matrix4().makeRotationZ(l.down));
     lampPole.setMatrixAt(i, base);
     q.setFromAxisAngle(up, ang);
-    lampArm.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(0, 23.5, 0), q, one)));
-    lampHeads.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(dx * 5.5, 23.2, dz * 5.5), q, one)));
-    lampPools.setMatrixAt(i, l.down ? zero : m.makeScale(70, 1, 70).setPosition(X(l.x) + dx * 6, gY(l.x, l.y) + .15, Z(l.y) + dz * 6));
+    lampArm.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(0, 33.5, 0), q, one)));
+    lampHeads.setMatrixAt(i, base.clone().multiply(m.compose(new THREE.Vector3(dx * 7.5, 33.1, dz * 7.5), q, one)));
+    lampPools.setMatrixAt(i, l.down ? zero : m.makeScale(84, 1, 84).setPosition(X(l.x) + dx * 8, gY(l.x, l.y) + .15, Z(l.y) + dz * 8));
   });
   for (const o of [lampPole, lampArm, lampHeads, lampPools]) o.instanceMatrix.needsUpdate = true;
 }
@@ -6777,6 +7029,10 @@ function updateBarricades() {
       put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, alongZ, k);
       if (corner) put(fenceMesh, x, y, z, CS * 1.02, hgt, 1, true, k);
       put(wallPost, x + (alongZ ? 0 : CS / 2), y, z + (alongZ ? CS / 2 : 0), .7, hgt + .6, .7, false, k);
+    } else if (postMask[i]) {
+      // блокпост: бетонные блоки-«джерси» в шахматном порядке, без проволоки
+      const hgt = 5.2 * hp, j = ((r >> 8) % 100) / 100 - .5;
+      put(barrJersey, x + (alongZ ? j * .8 : 0), y, z + (alongZ ? 0 : j * .8), (alongZ ? .55 : 1.02) * CS, hgt, (alongZ ? 1.02 : .55) * CS, false, k);
     } else {
       // баррикада: мешки с песком или дорожные блоки, слегка вразнобой
       const jersey = r % 3 === 0, hgt = (jersey ? 5.2 : 6.5) * hp, th = jersey ? .5 : .62, j = ((r >> 8) % 100) / 100 - .5;
@@ -6860,7 +7116,8 @@ const PARTS = {
   glasses: new THREE.BoxGeometry(.16, .26, 1.3),
   lhair: new THREE.BoxGeometry(.6, 1.5, 1.25).translate(-.1, -.5, 0),
 };
-const HAT_COL = { cap: null, beanie: null, hood: null, bandana: "#8a2222", police: "#1a2a4a", helmet: "#4d5634", fire: "#d8b020", hard: "#f08a1c" };
+const HAT_COL = { cap: null, beanie: null, hood: null, bandana: "#8a2222", police: "#1a2a4a", helmet: "#4d5634", fire: "#d8b020", hard: "#f08a1c", helmetBlk: "#1c1d20", fireRed: "#b8261a", fireWhite: "#e8e8e4" };
+const isHelmet = h => h === "helmet" || h === "fire" || h === "hard" || h === "helmetBlk" || h === "fireRed" || h === "fireWhite";
 const personMat = new THREE.MeshStandardMaterial({ roughness: .82 });
 const skinMat = new THREE.MeshStandardMaterial({ roughness: .6 });
 const gunMat = new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: .5, metalness: .6 });
@@ -6969,14 +7226,14 @@ function updatePeople(dt) {
     part(pm.torso, i, upper, 0, HIP - .05, 0, 0, 0); pm.torso.setColorAt(i, colorOf(a, a.cloth));
     const headTilt = z && !dead ? Math.sin(ph * .3 + a.id) * .3 : 0;
     part(pm.head, i, upper, .05, SHO + .85, 0, zt === "screamer" && a.shriek > 0 ? -.7 : z ? .25 : 0, headTilt); pm.head.setColorAt(i, colorOf(a, a.skin, "skin"));
-    const helmet = a.hat === "helmet" || a.hat === "fire" || a.hat === "hard";
+    const helmet = isHelmet(a.hat);
     part(pm.hair, i, upper, -.05, SHO + .95, 0, -.15, headTilt, helmet ? 1.12 : 1); pm.hair.setColorAt(i, colorOf(a, a.hair));
     // головные уборы, жилеты, бороды, очки, длинные волосы
     if (a.hat && !far) {
       const hc = HAT_COL[a.hat] === null ? colorOf(a, a.hat === "hood" ? a.cloth : a.pants).clone() : colorOf(a, HAT_COL[a.hat]).clone();
       if (a.hat === "cap" || a.hat === "police" || a.hat === "hard") { part(pm.cap, ci, upper, -.05, SHO + 1.2, 0, 0, headTilt); pm.cap.setColorAt(ci++, hc); if (a.hat !== "hard") { part(pm.visor, vi, upper, -.05, SHO + 1.2, 0, 0, headTilt); pm.visor.setColorAt(vi++, hc); } }
       else if (a.hat === "bandana") { part(pm.cap, ci, upper, -.05, SHO + 1.05, 0, 0, headTilt, .95); pm.cap.setColorAt(ci++, hc); }
-      else { part(pm.dome, di, upper, -.05, SHO + .95, 0, 0, headTilt, a.hat === "helmet" || a.hat === "fire" ? 1.15 : a.hat === "hood" ? 1.2 : 1.05); pm.dome.setColorAt(di++, hc); }
+      else { part(pm.dome, di, upper, -.05, SHO + .95, 0, 0, headTilt, isHelmet(a.hat) && a.hat !== "hard" ? 1.15 : a.hat === "hood" ? 1.2 : 1.05); pm.dome.setColorAt(di++, hc); }
     }
     if (a.vest && !far) { part(pm.vest, vsi, upper, 0, HIP - .05, 0, 0, 0); pm.vest.setColorAt(vsi++, colorOf(a, a.vest)); }
     if (a.beard && !helmet && !far) { part(pm.beard, bdi, upper, .5, SHO + .55, 0, 0, headTilt); pm.beard.setColorAt(bdi++, colorOf(a, a.hair)); }
@@ -7756,8 +8013,9 @@ const machineObjs = new Map();
 function updateMachines() {
   for (const m of machines) {
     let o = machineObjs.get(m);
-    if (!o) { o = buildLoader(); scene.add(o); machineObjs.set(m, o); }
-    o.position.set(X(m.x), gY(m.x, m.y), Z(m.y)); o.rotation.y = -m.ang;
+    if (!o) { o = buildLoader(); o.scale.setScalar(1.3); scene.add(o); machineObjs.set(m, o); }
+    o.visible = !(m.carried && !m.onTruck); // ещё за краем карты
+    o.position.set(X(m.x), gY(m.x, m.y) + (m.carried && m.onTruck ? 3.9 : 0), Z(m.y)); o.rotation.y = -m.ang;
     // ковш: черпает у земли, при погрузке поднимается над бортом и опрокидывается
     const ph = (m.workT || 0) / (m.loading ? 1.2 : 1.1), lift = m.loading ? .9 - Math.sin(Math.min(1, ph) * Math.PI) * .25 : m.bucket > 0 ? .5 + Math.sin(simT * 4) * .35 : .15;
     o.userData.arm.rotation.z = lift; o.userData.bucket.rotation.z = m.loading ? -lift * 1.3 + Math.sin(Math.min(1, ph) * Math.PI) * 1.4 : -lift * 1.3 + (m.bucket > 0 ? Math.sin(simT * 4 + 1) * .4 : 0);
@@ -7779,8 +8037,9 @@ function updateMachines() {
         o.userData.bed = bed; o.userData.heap = heap;
       }
       if (c.service === "mixer") { const drum = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 4.2, 12, 14).rotateZ(Math.PI / 2 - .25), new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: .5, metalness: .3 })); drum.position.set(-4, 9, 0); drum.castShadow = true; o.add(drum); const stripe = new THREE.Mesh(new THREE.TorusGeometry(3.9, .4, 6, 18).rotateY(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd2552a })); stripe.position.set(-4, 9, 0); o.add(stripe); o.userData.drum = drum; o.userData.stripe = stripe; }
-      if (c.service === "tow") { const boom = addBox(o, steelMat, 12, 1, 1, -9, 8, 0); boom.rotation.z = -.35; addBox(o, steelMat, 2, 6, 6, -6, 6, 0); }
-      if (c.service === "fire") { const base = new THREE.Group(); base.position.set(-6, 7.2, 0); o.add(base); addBox(base, steelMat, 3, 1.4, 3, 0, 0, 0); const lad = new THREE.Group(); base.add(lad); const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: .6, roughness: .4 }); for (const s of [-1, 1]) addBox(lad, rail, 22, .35, .35, 11, .6, s * 1.1); for (let x = 1; x < 22; x += 2.2) addBox(lad, rail, .3, .3, 2.2, x, .6, 0); const ext = new THREE.Group(); ext.position.set(10, .9, 0); lad.add(ext); for (const s of [-1, 1]) addBox(ext, rail, 20, .3, .3, 10, 0, s * .8); ext.scale.x = .3; o.userData.ladder = lad; o.userData.ext = ext; }
+      if (c.service === "tow" && c.model !== "tow") { const boom = addBox(o, steelMat, 12, 1, 1, -9, 8, 0); boom.rotation.z = -.35; addBox(o, steelMat, 2, 6, 6, -6, 6, 0); }
+      if (c.service === "fire" && c.model === "ladder") { const base = new THREE.Group(); base.position.set(-6, 7.2, 0); o.add(base); addBox(base, steelMat, 3, 1.4, 3, 0, 0, 0); const lad = new THREE.Group(); base.add(lad); const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: .6, roughness: .4 }); for (const s of [-1, 1]) addBox(lad, rail, 22, .35, .35, 11, .6, s * 1.1); for (let x = 1; x < 22; x += 2.2) addBox(lad, rail, .3, .3, 2.2, x, .6, 0); const ext = new THREE.Group(); ext.position.set(10, .9, 0); lad.add(ext); for (const s of [-1, 1]) addBox(ext, rail, 20, .3, .3, 10, 0, s * .8); ext.scale.x = .3; o.userData.ladder = lad; o.userData.ext = ext; }
+      const FM = CAR_MODELS[c.model]; if (FM && FM.fit) o.scale.set(1, FM.fit[0], FM.fit[1]);
       scene.add(o); carExtras.set(c, o);
     }
     o.visible = !c.gone;
@@ -8042,7 +8301,7 @@ function updateWorld2(dt) {
   for (const gn of gens) if (!genObjs.has(gn)) { const o = buildGenMesh(gn); scene.add(o); genObjs.set(gn, o); }
   for (const [gn, o] of genObjs) { if (!gens.includes(gn)) { scene.remove(o); genObjs.delete(gn); continue; } o.userData.lamp.material.color.set(gn.fuel > 0 ? 0x40ff60 : 0x602020); if (dt && gn.fuel > 0 && Math.random() < dt * 8) smokeParticle(o.position.x - 1.8, 5, o.position.z + .8, .35, false); }
   for (const cp of cps) if (!cpObjs.has(cp)) { const o = buildCpMesh(cp); scene.add(o); cpObjs.set(cp, o); }
-  for (const [cp, o] of cpObjs) { if (!cps.includes(cp)) { scene.remove(o); cpObjs.delete(cp); continue; } const open = cp.broken; o.userData.bar.rotation.z = open ? 1.2 : 0; o.userData.stripes.visible = !open; }
+  for (const [cp, o] of cpObjs) { if (!cps.includes(cp)) { scene.remove(o); cpObjs.delete(cp); continue; } if (cp.road) { updateRoadPostMesh(cp, o, dt); continue; } const open = cp.broken; o.userData.bar.rotation.z = open ? 1.2 : 0; o.userData.stripes.visible = !open; }
   for (const m of medpoints) if (!medObjs.has(m)) { const o = buildMedMesh(m); scene.add(o); medObjs.set(m, o); }
   for (const [m, o] of medObjs) if (!medpoints.includes(m)) { scene.remove(o); medObjs.delete(m); }
   for (const f of factions) if (!facObjs.has(f)) { const o = buildFlag(f); if (o) { scene.add(o); facObjs.set(f, o); } }
@@ -8126,10 +8385,89 @@ function buildCampMesh(c) {
   return g;
 }
 /* КПП: будка, шлагбаум с противовесом, мешки, конусы, знак «СТОП», палатка-изолятор с крестом, маячок */
+
+/* ---------- блокпост на дороге: будка, шлагбаум на каждую сторону, конусы, знаки, мешки, изолятор ----------
+   размеры настоящие: 1 ед. = 25 см, будка 2,5 × 2,5 × 2,6 м, шлагбаум на высоте метра */
+const postSignTex = {};
+function postSign(kind) {
+  if (postSignTex[kind]) return postSignTex[kind];
+  const txt = kind === "army" ? "ВОЕННЫЙ ПОСТ" : kind === "fed" ? "ОЦЕПЛЕНИЕ" : "КОНТРОЛЬ";
+  return postSignTex[kind] = canvasTex(256, 128, (g, w, h) => {
+    g.fillStyle = "#f4f2ea"; g.fillRect(0, 0, w, h); g.strokeStyle = "#c81e1e"; g.lineWidth = 10; g.strokeRect(5, 5, w - 10, h - 10);
+    g.fillStyle = "#c81e1e"; g.font = "bold 50px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.fillText("СТОП", w / 2, 58);
+    g.fillStyle = "#1d2a44"; g.font = "bold 30px Oswald, Arial Narrow, sans-serif"; g.fillText(txt, w / 2, 102);
+  });
+}
+const boothMat = { police: new THREE.MeshStandardMaterial({ color: 0xdfe3e6, roughness: .7 }), army: new THREE.MeshStandardMaterial({ color: 0x5f6a45, roughness: .85 }), fed: new THREE.MeshStandardMaterial({ color: 0x55604a, roughness: .85 }) };
+const boothGlass = new THREE.MeshStandardMaterial({ color: 0x5a7fa0, metalness: .3, roughness: .2 }), boothRoof = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, roughness: .6 });
+function buildRoadPostMesh(cp) {
+  const g = new THREE.Group(); g.position.set(X(cp.x), 0, Z(cp.y));
+  const tx = cp.tx, ty = cp.ty, nx = -ty, ny = tx, hw = cp.hw, ang = cp.ang, s0 = cp.side || 1;
+  const at = (o, a) => [nx * o + tx * a, ny * o + ty * a]; // смещение: o — поперёк дороги, a — вдоль
+  const put = (m, o, a, y, rot) => { const [x, z] = at(o, a); m.position.set(x, y, z); m.rotation.y = -(ang + (rot || 0)); g.add(m); return m; };
+  // будка у обочины
+  const booth = new THREE.Group();
+  const bb = new THREE.Mesh(new THREE.BoxGeometry(10, 10.4, 10), boothMat[cp.kind] || boothMat.police); bb.position.y = 5.2; bb.castShadow = bb.receiveShadow = true; booth.add(bb);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(10.15, 3.4, 10.15), boothGlass); win.position.y = 6.6; booth.add(win);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(11.6, .7, 11.6), boothRoof); roof.position.y = 10.75; booth.add(roof);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(.7, 8, 6), new THREE.MeshBasicMaterial({ color: cp.kind === "police" ? 0x2a6aff : 0xffa000 })); beacon.position.y = 11.6; booth.add(beacon);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(10.2, 1, 10.2), new THREE.MeshStandardMaterial({ map: stripeTex })); stripe.position.y = 1.4; booth.add(stripe);
+  put(booth, s0 * (hw + 10), 0, 0);
+  // шлагбаумы: на каждую сторону дороги свой, от обочины к осевой
+  const booms = [];
+  cp.sideL.forEach((s, k) => {
+    if (!s) return;
+    const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, 4.6, 1.2), steelMat2); post.castShadow = true; put(post, s * (hw + 1.2), 0, 2.3);
+    const light = new THREE.Mesh(new THREE.SphereGeometry(.45, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 })); put(light, s * (hw + 1.2), 0, 5);
+    const bar = new THREE.Group(); const [bx, bz] = at(s * (hw + 1.2), 0); bar.position.set(bx, 4, bz);
+    // локальная ось x бруса смотрит к осевой
+    bar.rotation.order = "YXZ"; bar.rotation.y = -Math.atan2(-ny * s, -nx * s);
+    const L = Math.max(6, hw - 1.5), mat = new THREE.MeshStandardMaterial({ map: stripeTex.clone() }); mat.map.wrapS = THREE.RepeatWrapping; mat.map.repeat.set(Math.max(2, L / 4), 1); mat.map.needsUpdate = true;
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.24, .24, L, 8).rotateZ(Math.PI / 2), mat); arm.position.x = L / 2; arm.castShadow = true; bar.add(arm);
+    const cw = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.2), new THREE.MeshStandardMaterial({ color: 0x222222 })); cw.position.x = -1.2; bar.add(cw);
+    g.add(bar);
+    const rest = new THREE.Mesh(new THREE.CylinderGeometry(.2, .25, 3.8, 6), steelMat2); put(rest, s * .9, 0, 1.9);
+    booms.push({ k, bar, light, a: 0 });
+  });
+  g.userData.booms = booms;
+  // конусы по осевой с обеих сторон — машины проходят пост по одной
+  for (const a of [-24, -17, -10, 10, 17, 24]) { const c = trafficCone(0, 0); put(c, 0, a, 0); c.scale.setScalar(1.5); }
+  // знаки «СТОП» для подъезжающих с обеих сторон
+  for (const d of [-1, 1]) {
+    const [x, z] = at(-d * s0 * (hw + 3), d * 20), b = signBoard(postSign(cp.kind), 8, 4, 0, 9, 0, 0);
+    b.position.set(x, 0, z); b.rotation.y = Math.atan2(tx * d, ty * d); g.add(b);
+  }
+  // мешки с песком: у будки, у военных — огневые точки по обе стороны
+  const sb = sandbagArc(7, 0, Math.PI, 3.2); put(sb, s0 * (hw + 18), cp.outDir ? cp.outDir * 6 : 6, 0, Math.PI / 2 * (cp.outDir || 1));
+  if (cp.kind !== "police") { const sb2 = sandbagArc(7, 0, Math.PI, 3.2); put(sb2, -s0 * (hw + 12), cp.outDir ? cp.outDir * 6 : 6, 0, Math.PI / 2 * (cp.outDir || 1)); }
+  // изолятор: палатка с крестом, обнесённая лентой
+  if (!cp.noTent && cp.tent) {
+    const wx = cp.tent[0] - cp.x, wy = cp.tent[1] - cp.y;
+    const iso = ridgeTent(24, 16, 10, crossTentMat); iso.position.set(wx, 0, wy); iso.rotation.y = -ang; g.add(iso);
+    const tapePts = [];
+    for (let i = 0; i < 4; i++) { const a = i / 4 * TAU + Math.PI / 4, a2 = (i + 1) / 4 * TAU + Math.PI / 4; const p = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 4, 5), steelMat2); p.position.set(wx + Math.cos(a) * 19, 2, wy + Math.sin(a) * 19); g.add(p); tapePts.push(new THREE.Vector3(wx + Math.cos(a) * 19, 3.4, wy + Math.sin(a) * 19), new THREE.Vector3(wx + Math.cos(a2) * 19, 3.4, wy + Math.sin(a2) * 19)); }
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(tapePts), new THREE.LineBasicMaterial({ color: 0xd42020 })));
+    const ban = signBoard(medBannerTex, 12, 3, wx + 14, 6, wy + 14, 0); ban.rotation.y = -ang; g.add(ban);
+  }
+  return g;
+}
+// шлагбаум поднят, если машину пропускают, если на посту никого нет (и направление не закрыто), если пост сломан
+function updateRoadPostMesh(cp, o, dt) {
+  for (const b of o.userData.booms || []) {
+    const out = cp.outDir ? (b.k === 0) === (cp.outDir === 1) : false;
+    const shutDir = cp.shut || (cp.outDir ? (out ? cp.closeOut : cp.closeIn) : false);
+    const open = cp.broken || simT < (cp.boomT ? cp.boomT[b.k] : 0) || (!shutDir && !(cp.staff > 0));
+    b.a += ((open ? 1.35 : 0) - b.a) * Math.min(1, (dt || .016) * 3);
+    b.bar.rotation.z = b.a;
+    b.light.material.color.setHex(open ? 0x20e040 : 0xff2020);
+  }
+}
 function buildCpMesh(cp) {
+  if (cp.road) return buildRoadPostMesh(cp);
   const g = new THREE.Group(); g.position.set(X(cp.x), 0, Z(cp.y)); g.rotation.y = cp.ang !== undefined ? Math.atan2(Math.cos(cp.ang), Math.sin(cp.ang)) : cp.v ? 0 : Math.PI / 2;
   // в локальных координатах проход идёт вдоль z, барьер вдоль x
-  const booth = new THREE.Group(); booth.position.set(9.5, 0, 3);
+  // будка в натуральную величину: 2 × 2,5 м
+  const booth = new THREE.Group(); booth.position.set(13, 0, 4); booth.scale.setScalar(2.1);
   const bb = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 4), new THREE.MeshStandardMaterial({ color: 0xdfe3e6, roughness: .7 })); bb.position.y = 2.5; bb.castShadow = true; booth.add(bb);
   const win = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.6, 4.1), new THREE.MeshStandardMaterial({ color: 0x5a7fa0, metalness: .3, roughness: .2 })); win.position.y = 3.3; booth.add(win);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(5, .4, 5), new THREE.MeshStandardMaterial({ color: 0x3a4a5a })); roof.position.y = 5.2; booth.add(roof);
@@ -8377,13 +8715,82 @@ const CAR_MODELS = {
     glass: () => [_cbox(.3, 2.4, 6.8, 14.55, 5.6, 0), _cbox(3, 1.8, 7.7, 11.5, 5.8, 0)],
     trim: () => [_cbox(29, 1, 5, 0, 2, 0), _cbox(.8, 1.4, 7.7, 14.6, 2.4, 0)],
     light: () => [new THREE.CylinderGeometry(3.7, 3.7, .6, 18).rotateZ(Math.PI / 2).translate(-9, 5.8, 0), new THREE.CylinderGeometry(3.7, 3.7, .6, 18).rotateZ(Math.PI / 2).translate(1.8, 5.8, 0)] },
+  // ---- варианты служб ----
+  // патрульный внедорожник ППС/ДПС: белый, синяя полоса
+  policeSuv: { L: 18.5, wheels: [6, -6], r: 1.8, track: 3.6, ly: 4, roof: 7.9, lightCol: "#1f3c78",
+    paint: () => [_cbox(18.5, 3, 7.6, 0, 3.4, 0), _cbox(10.5, .35, 6.8, -1.8, 7.65, 0)],
+    glass: () => [cabinGeo(12.5, 10.8, 2.6, 6.9, -1.6, 4.9, -.4)],
+    trim: () => [...bumpers(18.5, 2.4, 7.7, 1.3), _cbox(18.6, .7, 7.7, 0, 2.1, 0)],
+    light: () => [_cbox(18.56, .8, 7.66, 0, 3.9, 0)] },
+  // фургон ППС/автозак: высокий кузов, синяя полоса, решётки на окнах
+  policeVan: { L: 21, wheels: [6.8, -6.4], r: 1.55, track: 3.8, ly: 3.4, roof: 9.2, lightCol: "#1f3c78",
+    paint: () => [_cbox(21, 3, 7.9, 0, 3, 0), _cbox(15.5, 4.4, 7.9, -2.75, 6.7, 0)],
+    glass: () => [cabinGeo(3, .2, 4.2, 7.6, 7.2, 4.5, -1.4)],
+    trim: () => [...bumpers(21, 2, 8), _cbox(7, 1.8, 7.96, -6, 7.1, 0)],
+    light: () => [_cbox(21.04, .9, 7.96, 0, 4.2, 0)] },
+  // автобус ОМОН/Росгвардии (ПАЗ): короткий, тёмно-синий, решётки
+  omon: { L: 30, wheels: [9.5, -8.5], r: 1.8, track: 4.4, ly: 3.4, roof: 11.6, lightCol: "#c8ccd0",
+    paint: () => [_cbox(30, 8.4, 9.6, 0, 6.2, 0)],
+    glass: () => [_cbox(22, 2.6, 9.7, -2.5, 7.8, 0), _cbox(.15, 4.2, 8.6, 15.02, 7, 0)],
+    trim: () => [...bumpers(30, 2.4, 9.7, 1.2), _cbox(22, 2, 9.75, -2.5, 7.8, 0)],
+    light: () => [_cbox(30.04, .6, 9.66, 0, 4.4, 0)] },
+  // реанимобиль на шасси грузовика: кабина и бело-красный кузов-фургон
+  ambulance2: { L: 24, wheels: [8.6, -7.6], r: 1.7, track: 4.2, ly: 3.6, roof: 11, lightCol: "#d42020",
+    paint: () => [_cbox(6.4, 3.6, 9, 8.8, 3.8, 0), _cbox(5.2, 2.6, 8.8, 8.2, 7, 0), _cbox(17, 8.4, 9.6, -3.4, 6.6, 0)],
+    glass: () => [_cbox(.3, 2, 7.8, 10.85, 6.8, 0), _cbox(2.4, 1.6, 9.1, 9.2, 7, 0), _cbox(5, 1.5, 9.66, -2, 8.4, 0)],
+    trim: () => [_cbox(24, 1, 6, 0, 2.2, 0), _cbox(.8, 1.4, 9.1, 12, 2.6, 0)],
+    light: () => [_cbox(17.04, 1.2, 9.66, -3.4, 5, 0), _cbox(17.04, .5, 9.66, -3.4, 10.4, 0)] },
+  // пожарная автолестница: низкий кузов-платформа под лестницу
+  ladder: { L: 30, wheels: [11, -4, -10], r: 2.1, track: 4.5, ly: 4.4, roof: 12, lightCol: "#e8e2d4",
+    paint: () => [_cbox(8, 7.2, 10, 11, 6.2, 0), _cbox(21, 3.6, 10, -4, 4.6, 0)],
+    glass: () => [_cbox(.3, 2.8, 8.8, 15.02, 8.2, 0), _cbox(6, 2, 10.06, 11, 8.3, 0)],
+    trim: () => [_cbox(30, 1.2, 6.4, 0, 2.4, 0), _cbox(.9, 1.8, 10.1, 15.2, 3, 0), _cbox(19, .6, 10.06, -4, 6.7, 0)],
+    light: () => [_cbox(21.04, .7, 10.06, -4, 4.4, 0)] },
+  // аварийно-спасательная машина: кабина и высокий отсек с рольставнями
+  rescue: { L: 28, wheels: [10, -7], r: 2.1, track: 4.5, ly: 4.4, roof: 13, lightCol: "#e8e2d4",
+    paint: () => [_cbox(7.6, 7.4, 10, 10.2, 6.3, 0), _cbox(19.6, 9.6, 10, -4.2, 7.4, 0)],
+    glass: () => [_cbox(.3, 2.8, 8.8, 14.02, 8.4, 0), _cbox(5.6, 2, 10.06, 10.2, 8.4, 0)],
+    trim: () => [_cbox(28, 1.2, 6.4, 0, 2.4, 0), _cbox(.9, 1.8, 10.1, 14.2, 3, 0), _cbox(5.6, 6, 10.08, -1, 7.6, 0), _cbox(5.6, 6, 10.08, -7.6, 7.6, 0)],
+    light: () => [_cbox(19.64, .9, 10.06, -4.2, 3.4, 0)] },
+  // БТР: восемь колёс, скошенный корпус, башенка с пулемётом
+  btr: { L: 30, wheels: [10.5, 4, -3, -9.5], r: 2.2, track: 4.6, ly: 5.6, roof: 11, lightCol: "#3f4630",
+    paint: () => [_cbox(30, 4.2, 10.4, 0, 4.9, 0), cabinGeo(30, 22, 2.6, 10, -1, 7, -2), new THREE.CylinderGeometry(2.4, 2.8, 2, 12).translate(2, 10.6, 0)],
+    glass: () => [_cbox(1.6, .5, 6, 13.6, 8.2, 0)],
+    trim: () => [new THREE.CylinderGeometry(.35, .35, 9, 6).rotateZ(Math.PI / 2).translate(7.5, 10.9, 0), _cbox(28, .6, .6, -1, 5.2, 5.4), _cbox(28, .6, .6, -1, 5.2, -5.4)] },
+  // бронеавтомобиль «Тигр»: высокий угловатый внедорожник
+  tigr: { L: 22, wheels: [7.2, -7], r: 2.2, track: 4.3, ly: 4.6, roof: 10.2, lightCol: "#3f4630",
+    paint: () => [_cbox(22, 4, 9.2, 0, 4.6, 0), cabinGeo(15, 12, 3.4, 8.8, -1.6, 6.6, -.4)],
+    glass: () => [_cbox(.4, 1.6, 7, 6.6, 8.2, 0), _cbox(10, 1.2, 8.86, -2.4, 8.6, 0)],
+    trim: () => [...bumpers(22, 2.8, 9.3, 1.6), _cbox(1, 2.4, 9.3, 11.3, 4.4, 0), _cbox(4, .5, 7, -2.4, 10.3, 0)] },
+  // эвакуатор с платформой
+  tow: { L: 26, wheels: [9.2, -5, -9], r: 2, track: 4.4, ly: 4, roof: 10,
+    paint: () => [_cbox(6.6, 6.4, 9.6, 9.6, 5.8, 0)],
+    glass: () => [_cbox(.3, 2.4, 8.6, 12.92, 7.6, 0), _cbox(4.6, 1.8, 9.66, 9.6, 7.6, 0)],
+    trim: () => [_cbox(26, 1.2, 6, 0, 2.6, 0), _cbox(.9, 1.6, 9.7, 13.1, 3, 0)],
+    light: () => [_cbox(18, .8, 9.6, -3.6, 4.4, 0), _cbox(1.2, 1.4, 9.6, -12.4, 5.2, 0)] },
+  // трал: седельный тягач и низкорамный полуприцеп, сзади — поднятые сходни; технику возят на платформе
+  lowboy: { L: 51, wheels: [22.5, 13.5, 10.5, -15, -18.5, -22], r: 1.9, track: 4.5, ly: 4.2, roof: 12.4, lightCol: "#f08a1c",
+    paint: () => [_cbox(7.4, 7.6, 10, 21.6, 6.6, 0), _cbox(5.4, 1.8, 9.6, 21, 11.2, 0), _cbox(7, 2.4, 9.8, 12, 5.8, 0), _cbox(22, 1.2, 10, -1.5, 3.4, 0), _cbox(13, 2.6, 10, -18.8, 4.3, 0)],
+    glass: () => [_cbox(.3, 2.8, 8.8, 25.32, 8.6, 0), _cbox(4.4, 1.8, 10.06, 22.2, 8.8, 0)],
+    trim: () => [_cbox(16, 1.6, 6.4, 17, 3, 0), _cbox(.9, 1.8, 10.1, 25.5, 3.2, 0), _cbox(4, 1.6, 2, 15, 3.4, 4.2), _cbox(22, .5, 9.6, -1.5, 2.6, 0), _cbox(.6, 1.2, 6, -25.2, 3.4, 0)],
+    light: () => [_cbox(.8, 4.4, 3.4, -24.9, 7.6, 2.8), _cbox(.8, 4.4, 3.4, -24.9, 7.6, -2.8), _cbox(.3, .9, 9.9, -25.3, 4.6, 0)] },
+  // аварийка коммунальщиков: оранжевый фургон с полосой
+  utility: { L: 21, wheels: [6.8, -6.4], r: 1.55, track: 3.8, ly: 3.4, roof: 9.2, lightCol: "#e8e4dc",
+    paint: () => [_cbox(21, 3, 7.9, 0, 3, 0), _cbox(15.5, 4.4, 7.9, -2.75, 6.7, 0)],
+    glass: () => [cabinGeo(3, .2, 4.2, 7.6, 7.2, 4.5, -1.4), _cbox(4, 1.6, 7.96, 2, 7.2, 0)],
+    trim: () => [...bumpers(21, 2, 8)],
+    light: () => [_cbox(21.04, .8, 7.96, 0, 4.6, 0)] },
 };
+// грузовые машины и автобусы в натуральную ширину (2,5 м) и высоту: [по высоте, по ширине, радиус колёс]
+const MODEL_FIT = { truck: [1.3, 1.28, 2.1], garbage: [1.3, 1.28, 2.1], boxtruck: [1.22, 1.24, 1.9], fire: [1.32, 1.28, 2.1], army: [1.15, 1.28, 2.2], tanker: [1.25, 1.28, 2], bus: [1.18, 1.25, 1.9], suv: [.86, 1, 1.8], van: [1, 1.06, 1.5] };
+for (const k in MODEL_FIT) { const M = CAR_MODELS[k], [sy, sz, r] = MODEL_FIT[k]; M.fit = [sy, sz]; M.track *= sz; M.ly *= sy; M.roof *= sy; M.r = r; }
+
 const CAR_PARTS = ["paint", "glass", "trim", "light"];
 const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .08, metalness: .7 }),
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
 const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
-for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) M.geo[p] = mergeGeo(M[p]()); }
-const wheelGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.2, 12).rotateX(Math.PI / 2);
+for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
+const wheelGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 12).rotateX(Math.PI / 2);
 const lightGeo = new THREE.BoxGeometry(.4, .8, 1.6);
 let cm = null, carCap = 0;
 function carModelOf(c) {
@@ -8397,7 +8804,7 @@ function makeCarMeshes(cap) {
   carCap = cap;
   const mk = (geo, mat, n, shadow = true) => { const m = new THREE.InstancedMesh(geo, mat, n); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.setColorAt(0, new THREE.Color()); scene.add(m); return m; };
   cm = { parts: [], byModel: {}, fixed: {
-    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .9 }), cap * 6),
+    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .9 }), cap * 8),
     lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 4, false),
     beams: mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), cap, false),
     bars: mk(new THREE.BoxGeometry(1.4, .8, 2.4), new THREE.MeshBasicMaterial({ toneMapped: false }), 200, false),
@@ -8423,16 +8830,16 @@ function updateCars() {
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.police ? "#e9e9ee" : c.col) : part.p === "glass" ? (dead ? "#0c0b0a" : "#1a2028") : part.p === "trim" ? (dead ? "#0c0b0a" : SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#1a2028") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим
     const ws = M.r / 1.4;
-    for (const wx of M.wheels) for (const s of [-1, 1]) { if (wi >= F.wheels.instanceMatrix.count) break; _cw.makeScale(ws / sx, ws, 1).setPosition(wx, M.r, s * M.track); F.wheels.setMatrixAt(wi++, _cw.premultiply(_cm)); }
+    for (const wx of M.wheels) for (const s of [-1, 1]) { if (wi >= F.wheels.instanceMatrix.count) break; _cw.makeScale(ws / sx, ws, M.r > 1.7 ? 1.15 : 1).setPosition(wx, M.r, s * M.track); F.wheels.setMatrixAt(wi++, _cw.premultiply(_cm)); }
     // фары: днём у едущих — дневные ходовые огни, вечером и ночью — ближний свет с пятном на дороге и красные габариты; при торможении — стоп-сигналы
     const lit = !c.wreck && (c.moving || c.police), hw = M.L / 2 + .1;
     for (let k = 0; k < 4; k++) {
-      _cw.makeTranslation(k < 2 ? hw : -hw, M.ly, k % 2 ? 2.6 : -2.6); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
+      _cw.makeTranslation(k < 2 ? hw : -hw, M.ly, (k % 2 ? 1 : -1) * Math.min(M.track - .3, 2.6 * M.track / 3.45)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
       F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.v < 3 ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
     }
     if (c.moving && dusk) { _cw.makeScale(26, 1, 18).setPosition(M.L / 2 + 7, .25, 0); F.beams.setMatrixAt(bi++, _cw.premultiply(_cm)); }
@@ -8769,6 +9176,88 @@ function buildProps() {
     }
   }
   for (const [mat, list] of buckets) { const m = new THREE.Mesh(mergeGeoUV(list), mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; cityGroup.add(m); }
+}
+
+/* ---------- указатели угроз в сцене ----------
+   Над въездом, к которому идёт орда, — красный световой столб (65 м) и пульсирующее кольцо на земле; вокруг орды в поле — кольцо.
+   У края экрана — плашки со стрелкой к орде и к беженцам, с численностью, временем и расстоянием; клик переносит камеру туда. */
+const tmGroup = new THREE.Group(); scene.add(tmGroup);
+const tmBeamMat = new THREE.MeshBasicMaterial({ color: 0xff3020, transparent: true, opacity: .3, blending: THREE.AdditiveBlending, depthWrite: false });
+const tmObjs = new Map();
+function tmMarker(key, beam) {
+  let o = tmObjs.get(key); if (o) return o;
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.RingGeometry(.82, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff3020, transparent: true, opacity: .6, side: THREE.DoubleSide, depthWrite: false }));
+  ring.position.y = .8; g.add(ring);
+  let b = null; if (beam) { b = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 5, 260, 12, 1, true), tmBeamMat); b.position.y = 130; g.add(b); }
+  tmGroup.add(g); o = { g, ring, beam: b, seen: 0 }; tmObjs.set(key, o); return o;
+}
+// DOM-слой с плашками у края экрана
+const tmLayer = document.createElement("div"); tmLayer.className = "tmarks"; $("stage").appendChild(tmLayer);
+const tmEls = new Map(), tmV = new THREE.Vector3();
+function tmEl(key, cls) {
+  let el = tmEls.get(key); if (el) return el;
+  el = document.createElement("button"); el.className = "tmark " + cls; el.innerHTML = "<i></i><span></span>";
+  el.addEventListener("click", () => { const p = el._to; if (!p) return; followA = null; cine = false; syncCamButtons(); camS.tx = p[0] - W / 2; camS.tz = p[1] - H / 2; camS.dist = Math.min(camS.dist, 700); });
+  tmLayer.appendChild(el); tmEls.set(key, el); return el;
+}
+// поставить плашку. Цель в кадре — плашка над ней со стрелкой вниз. Цель вне кадра — плашка у края экрана,
+// стрелка как у компаса: направление по земле от центра кадра к цели с учётом поворота камеры, в подписи — расстояние
+const tmF = new THREE.Vector3();
+function tmPlace(el, x, y, text) {
+  el._to = [x, y]; el._seen = true;
+  const cv = $("cv"), w = cv.clientWidth, h = cv.clientHeight, sr0 = cv.getBoundingClientRect(), hd = document.querySelector("header.top"), tip = document.querySelector(".tip");
+  const L = document.body.classList.contains("noTools") ? 24 : 240, Rm = document.body.classList.contains("noPanel") ? 24 : 360;
+  // сверху — шапка с кнопками, снизу — строка подсказки: плашки между ними
+  const T = Math.max(60, (hd ? hd.getBoundingClientRect().bottom - sr0.top : 0) + 14), B = Math.max(60, tip && !tip.hidden ? sr0.bottom - tip.getBoundingClientRect().top + 10 : 0);
+  tmV.set(X(x), gY(x, y) + 4, Z(y)).project(camera);
+  let sx = (tmV.x + 1) / 2 * w, sy = (1 - tmV.y) / 2 * h, ang = Math.PI / 2, label = text;
+  const inside = tmV.z < 1 && Math.abs(tmV.x) < 1 && Math.abs(tmV.y) < 1 && sx > L + 20 && sx < w - Rm - 20 && sy > T + 30 && sy < h - B - 20;
+  if (inside) sy -= 30;
+  else {
+    const cxw = camC.tx + W / 2, cyw = camC.tz + H / 2, dx = x - cxw, dz = y - cyw, dist = Math.hypot(dx, dz) / 4;
+    camera.getWorldDirection(tmF); let fx = tmF.x, fz = tmF.z; const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+    ang = Math.atan2(-(dx * fx + dz * fz), dx * -fz + dz * fx);
+    const cx = (L + w - Rm) / 2, cy = (T + h - B) / 2, ux = Math.cos(ang), uy = Math.sin(ang);
+    const k = Math.min(ux > 1e-6 ? (w - Rm - cx) / ux : ux < -1e-6 ? (L - cx) / ux : 1e9, uy > 1e-6 ? (h - B - cy) / uy : uy < -1e-6 ? (T - cy) / uy : 1e9);
+    sx = cx + ux * k; sy = cy + uy * k;
+    label = text + " · " + (dist >= 1000 ? (dist / 1000).toFixed(1).replace(".", ",") + " км" : Math.max(10, Math.round(dist / 10) * 10) + " м");
+  }
+  // не заезжать под панели и под мини-карту: плашка целиком в свободной части экрана
+  const hw2 = (el.offsetWidth || 160) / 2 + 6, hh2 = (el.offsetHeight || 22) / 2 + 4;
+  sx = clamp(sx, L + hw2, Math.max(L + hw2, w - Rm - hw2)); sy = clamp(sy, T + hh2, h - B - hh2);
+  const mr = mini.getBoundingClientRect(), m0x = mr.left - sr0.left, m0y = mr.top - sr0.top;
+  if (sx + hw2 > m0x && sx - hw2 < m0x + mr.width && sy + hh2 > m0y) sy = Math.min(sy, m0y - hh2 - 4);
+  el.style.left = sx + "px"; el.style.top = sy + "px";
+  el.firstChild.style.transform = `rotate(${ang}rad)`;
+  el.classList.toggle("off", !inside);
+  if (el.lastChild.textContent !== label) el.lastChild.textContent = label;
+}
+function updateThreatMarks(dt) {
+  for (const o of tmObjs.values()) o.seen = 0;
+  for (const el of tmEls.values()) el._seen = false;
+  const pulse = .5 + .5 * Math.sin(performance.now() / 300);
+  if (typeof threat !== "undefined" && threat && !(typeof fps !== "undefined" && fps.on)) {
+    for (const h of threat.hordes) {
+      if (h.done) continue; const en = entries[h.en]; if (!en) continue;
+      // въезд, к которому идёт орда: столб и кольцо
+      const m = tmMarker("he" + h.id, true); m.seen = 1;
+      m.g.position.set(X(en.x), gY(en.x, en.y), Z(en.y)); const rr = 34 + 6 * pulse; m.ring.scale.set(rr, 1, rr); m.ring.material.opacity = .35 + .4 * pulse;
+      tmBeamMat.opacity = .18 + .17 * pulse;
+      const c = simT >= h.emergeT ? hordeCenter(h) : null;
+      if (c) {
+        const r = tmMarker("hc" + h.id, false); r.seen = 1; r.g.position.set(X(c.x), gY(c.x, c.y), Z(c.y)); const s = Math.max(30, c.r + 12); r.ring.scale.set(s, 1, s); r.ring.material.opacity = .5;
+        const dEn = Math.hypot(c.x - en.x, c.y - en.y) / 4;
+        tmPlace(tmEl("h" + h.id, "horde"), c.x, c.y, `Орда ${c.n} · ${dEn < 60 ? "у въезда" : Math.round(dEn / 10) * 10 + " м до въезда"}`);
+      } else tmPlace(tmEl("h" + h.id, "horde"), en.x, en.y, `Орда ~${Math.round(h.n / 10) * 10} · у въезда через ${mmss2(hordeEta(h))}`);
+    }
+    for (let i = 0; i < threat.cols.length; i++) {
+      const col = threat.cols[i]; if (col.done) continue; const en = entries[col.en]; if (!en) continue;
+      tmPlace(tmEl("r" + i, "ref"), en.x, en.y, col.policy === "closed" ? "Беженцы · въезд закрыт" : "Беженцы · досмотр на въезде");
+    }
+  }
+  for (const [k, o] of tmObjs) if (!o.seen) { tmGroup.remove(o.g); o.ring.geometry.dispose(); o.ring.material.dispose(); if (o.beam) o.beam.geometry.dispose(); tmObjs.delete(k); }
+  for (const [k, el] of tmEls) if (!el._seen) { el.remove(); tmEls.delete(k); }
 }
 
 /* ---------- обработка картинки: свечение, затенение, цветокоррекция ---------- */
@@ -9901,6 +10390,7 @@ function loadGame(S) {
   for (const j of wallJobs) for (const m of j.mouths) { const e = RE.find(e => e.id === m.e); if (e) e.quar = j.id; }
   if (threat) for (const c of threat.cols) c.cp = c.cp >= 0 ? cps[c.cp] || null : null;
   for (const cp of cps) if (cp.e !== undefined) { const e = RE.find(e => e.id === cp.e); if (e) e.checkCp = cp; }
+  postMask.fill(0); for (const cp of cps) if (cp.road) for (const i of cp.cells.concat(cp.shutCells || [])) postMask[i] = 1;
   for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) { let best = null, bd = 1e9; for (const c of cps) { const d = Math.hypot(c.x - a.x, c.y - a.y); if (d < bd) { bd = d; best = c; } } a.detained = best; } if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
   resetSquads(); fires.forEach(f => { f.assigned = false; });
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
@@ -9957,42 +10447,167 @@ $("saveList").addEventListener("click", async e => {
 $("openSaves").addEventListener("click", () => { renderSaves(); $("saveNote").textContent = "Сохранения лежат только в этом браузере."; $("saves").hidden = false; });
 $("savesClose").addEventListener("click", () => { $("saves").hidden = true; });
 
-/* ---------- мини-карта ---------- */
-const mini = $("mini"), mctx = mini.getContext("2d"), miniBase = document.createElement("canvas");
-const MS = mini.width / W;
+/* ---------- мини-карта ----------
+   Подложка (раз в пару секунд): земля по клеткам, дороги, дома по назначению, карантин, значки важных зданий.
+   Поверх каждый кадр: люди и зомби, машины служб, пожары, посты, лагеря, орда и беженцы стрелками с подписями,
+   внешнее оцепление, рамка камеры. В углах — «раскрыть» (или клавиша M) и «легенда». */
+const mini = $("mini"), mctx = mini.getContext("2d"), miniBase = document.createElement("canvas"), miniCells = document.createElement("canvas");
+let MS = 1, miniBig = false, miniLegend = false, miniDpr = 1;
+function miniResize() {
+  miniDpr = Math.min(2, window.devicePixelRatio || 1);
+  const cw = miniBig ? 480 : 240, ch = miniBig ? 320 : 160;
+  document.body.classList.toggle("miniBig", miniBig);
+  mini.width = Math.round(cw * miniDpr); mini.height = Math.round(ch * miniDpr); MS = mini.width / W; gridDirtyMini = true; miniDirtyT = 0;
+}
+const MINI_CELL = [[92, 96, 100], [98, 101, 104], [63, 95, 52], [150, 145, 135], [44, 74, 38], [92, 96, 100], [184, 154, 60], [118, 114, 106], [107, 95, 80], [31, 64, 87], [122, 114, 104]];
+const MINI_KIND = { hospital: "#eef0f0", police: "#4f7fe0", fire: "#d8503a", mall: "#c9a070", power: "#8a8070", water: "#7fa7c7", radio: "#9a9a90", church: "#d9b44a", station: "#b9a07a", school: "#d9c27a", gas: "#e8c040", basehq: "#7b8a4f", barracks: "#6f7d48", hangar: "#6a7068", warehouse: "#8d8579", factory: "#857d70" };
 function paintMiniBase() {
   miniBase.width = mini.width; miniBase.height = mini.height;
   const g = miniBase.getContext("2d");
-  g.fillStyle = "#3c4044"; g.fillRect(0, 0, mini.width, mini.height);
-  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
-    const c = grid[y * GW + x];
-    g.fillStyle = c === 3 ? "#9b958a" : c === 1 || c === 7 ? "#5d6064" : c === 2 || c === 4 ? "#3f5f34" : c === 9 ? "#1f4057" : c === 8 ? "#6b5f50" : c === 10 ? "#7a7268" : c === 6 ? (wallMask[y * GW + x] ? "#c9c2b4" : "#b89a3c") : null;
-    if (g.fillStyle && c !== 0 && c !== 5) g.fillRect(x * CS * MS, y * CS * MS, CS * MS + .5, CS * MS + .5);
+  // земля по клеткам: одна клетка — один пиксель, потом растягиваем
+  miniCells.width = GW; miniCells.height = GH;
+  const cg = miniCells.getContext("2d"), img = cg.createImageData(GW, GH), d = img.data;
+  for (let i = 0; i < GW * GH; i++) {
+    const c = grid[i]; let col = MINI_CELL[c] || MINI_CELL[0];
+    if (c === 0 || c === 5) col = roadMask[i] === 1 ? [128, 132, 138] : [96, 99, 103];
+    if (c === 6) col = wallMask[i] ? (quarMask[i] ? [220, 120, 110] : [205, 198, 184]) : postMask[i] ? [240, 240, 240] : [184, 154, 60];
+    let [r, gg, b] = col;
+    // зона карантина — красноватый оттенок
+    if (zoneOf[i] > 0 && c !== 6) { r = r * .7 + 160 * .3; gg *= .75; b *= .75; }
+    d[i * 4] = r; d[i * 4 + 1] = gg; d[i * 4 + 2] = b; d[i * 4 + 3] = 255;
   }
+  cg.putImageData(img, 0, 0);
+  g.imageSmoothingEnabled = false; g.drawImage(miniCells, 0, 0, mini.width, mini.height);
+  // дома по назначению — поверх клеток, с поворотом
+  for (const b of buildings) {
+    const k = MINI_KIND[b.kind];
+    g.fillStyle = b.state !== "ok" ? "#5a4a3c" : b.gutted ? "#4a4542" : k || (b.kind === "house" ? "#b4a48c" : b.kind === "tower" ? "#c4c8cc" : "#a7a297");
+    g.save();
+    if (b.rot !== undefined) { g.translate(b.cx * MS, b.cy * MS); g.rotate(b.rot); g.fillRect(-b.w / 2 * MS, -b.d / 2 * MS, b.w * MS, b.d * MS); }
+    else g.fillRect(b.x0 * MS, b.y0 * MS, (b.x1 - b.x0) * MS, (b.y1 - b.y0) * MS);
+    g.restore();
+  }
+  // значки важных зданий
+  const icon = (x, y, bg, txt) => { const r = 6 * miniDpr; g.fillStyle = bg; g.beginPath(); g.arc(x * MS, y * MS, r, 0, TAU); g.fill(); g.strokeStyle = "rgba(0,0,0,.6)"; g.lineWidth = miniDpr; g.stroke(); g.fillStyle = "#fff"; g.font = `bold ${8 * miniDpr}px IBM Plex Sans, sans-serif`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(txt, x * MS, y * MS + .5); };
+  if (special.hospital) icon(special.hospital.x, special.hospital.y, "#d42020", "+");
+  if (special.police) icon(special.police.x, special.police.y, "#3a66d0", "П");
+  if (special.fire) icon(special.fire.x, special.fire.y, "#d8503a", "О");
+  if (special.base) icon(special.base.x, special.base.y, "#5f6e3a", "★");
 }
-let miniDirtyT = 0;
+let miniDirtyT = 0, gridDirtyMini = true, miniDrag = false;
+// подпись с тёмной обводкой
+function miniText(t, x, y, col, size = 10) {
+  mctx.font = `600 ${size * miniDpr}px IBM Plex Sans, sans-serif`; mctx.textAlign = "center"; mctx.textBaseline = "bottom";
+  const px = clamp(x, 40 * miniDpr, mini.width - 40 * miniDpr), py = clamp(y, 14 * miniDpr, mini.height - 2);
+  mctx.lineWidth = 3 * miniDpr; mctx.strokeStyle = "rgba(0,0,0,.85)"; mctx.strokeText(t, px, py); mctx.fillStyle = col; mctx.fillText(t, px, py);
+}
+function miniArrow(x0, y0, x1, y1, col, dash) {
+  const a = Math.atan2(y1 - y0, x1 - x0), hs = 7 * miniDpr;
+  mctx.strokeStyle = col; mctx.lineWidth = 2 * miniDpr; mctx.setLineDash(dash ? [5 * miniDpr, 4 * miniDpr] : []);
+  mctx.beginPath(); mctx.moveTo(x0, y0); mctx.lineTo(x1 - Math.cos(a) * hs * .6, y1 - Math.sin(a) * hs * .6); mctx.stroke(); mctx.setLineDash([]);
+  mctx.fillStyle = col; mctx.beginPath(); mctx.moveTo(x1, y1); mctx.lineTo(x1 - Math.cos(a - .45) * hs, y1 - Math.sin(a - .45) * hs); mctx.lineTo(x1 - Math.cos(a + .45) * hs, y1 - Math.sin(a + .45) * hs); mctx.closePath(); mctx.fill();
+}
+const mmss2 = s => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, "0")}`;
+// где сейчас орда: центр живых зомби этой орды и их разброс
+function hordeCenter(h) {
+  let n = 0, sx = 0, sy = 0; for (const a of agents) if (a.horde === h.id && a.state === "alive" && a.role === "zombie") { n++; sx += a.x; sy += a.y; }
+  if (!n) return null; const cx = sx / n, cy = sy / n; let r = 0; for (const a of agents) if (a.horde === h.id && a.state === "alive" && a.role === "zombie") r = Math.max(r, Math.hypot(a.x - cx, a.y - cy));
+  return { x: cx, y: cy, n, r: Math.min(r, 400) };
+}
+const SVC_COL = { police: "#4f8bff", fire: "#ff4a3a", ambulance: "#ffffff", army: "#b8c878", bus: "#e8c040", supply: "#c9a5f0" };
 function drawMini(dt) {
   miniDirtyT -= dt; if (miniDirtyT <= 0 && gridDirtyMini) { gridDirtyMini = false; miniDirtyT = 2; paintMiniBase(); }
   mctx.drawImage(miniBase, 0, 0);
+  const D = miniDpr, pulse = .5 + .5 * Math.sin(performance.now() / 260);
+  // пожары
+  for (const b of buildings) if (b.fire > 0 && b.state !== "ruin") { const x = (b.x0 + b.x1) / 2 * MS, y = (b.y0 + b.y1) / 2 * MS; mctx.fillStyle = `rgba(255,${120 + 80 * pulse | 0},40,.85)`; mctx.beginPath(); mctx.arc(x, y, (2.5 + pulse * 1.5) * D, 0, TAU); mctx.fill(); }
+  // люди и зомби
   for (const a of agents) {
-    if (a.state !== "alive") continue;
+    if (a.state !== "alive" || a.hidden) continue;
     const hl = highlight && matchType(a, highlight);
-    mctx.fillStyle = hl ? "#ffffff" : a.role === "zombie" ? "#7fdf5a" : a.role === "army" || a.role === "police" ? "#f2d04a" : a.bitten ? "#e8a447" : "#5fb3e8";
-    const s = hl ? 3 : a.role === "zombie" ? 2.2 : 1.5;
+    mctx.fillStyle = hl ? "#ffffff" : a.role === "zombie" ? (a.horde ? "#ff5a4a" : "#7fdf5a") : a.role === "army" ? "#c8d878" : a.role === "police" ? "#6f9bff" : a.bitten ? "#e8a447" : "#5fb3e8";
+    const s = (hl ? 3 : a.role === "zombie" ? 2.2 : a.role === "army" || a.role === "police" ? 2 : 1.4) * D * (miniBig ? 1.15 : 1);
     mctx.fillRect(a.x * MS - s / 2, a.y * MS - s / 2, s, s);
   }
-  for (const t of tanks) { mctx.fillStyle = "#c6d36a"; mctx.fillRect(t.x * MS - 2.5, t.y * MS - 2.5, 5, 5); }
-  if (evac) { mctx.strokeStyle = "#c9a5f0"; mctx.lineWidth = 1.5; mctx.beginPath(); mctx.arc(evac.x * MS, evac.y * MS, 5, 0, TAU); mctx.stroke(); }
+  // машины служб
+  for (const c of cars) { if (c.gone || !c.service || c.wreck) continue; const col = SVC_COL[c.service]; if (!col) continue; mctx.fillStyle = col; mctx.strokeStyle = "rgba(0,0,0,.7)"; mctx.lineWidth = D * .8; const s = 3.4 * D; mctx.fillRect(c.x * MS - s / 2, c.y * MS - s / 2, s, s); mctx.strokeRect(c.x * MS - s / 2, c.y * MS - s / 2, s, s); }
+  for (const t of tanks) { mctx.fillStyle = "#c6d36a"; mctx.fillRect(t.x * MS - 2.5 * D, t.y * MS - 2.5 * D, 5 * D, 5 * D); }
+  // лагеря и точка эвакуации
+  for (const c of camps) { mctx.fillStyle = "#f2b33d"; mctx.beginPath(); mctx.moveTo(c.x * MS, c.y * MS - 5 * D); mctx.lineTo(c.x * MS + 5 * D, c.y * MS + 4 * D); mctx.lineTo(c.x * MS - 5 * D, c.y * MS + 4 * D); mctx.closePath(); mctx.fill(); }
+  if (evac) { mctx.strokeStyle = "#c9a5f0"; mctx.lineWidth = 1.5 * D; mctx.beginPath(); mctx.arc(evac.x * MS, evac.y * MS, 5 * D, 0, TAU); mctx.stroke(); }
+  // посты: синий — полиция, оливковый — армия, чёрный — федералы; красная рамка — направление закрыто, крест — пост закрыт целиком
+  for (const cp of cps) {
+    const x = cp.x * MS, y = cp.y * MS, s = (cp.road ? 6 : 4) * D;
+    mctx.fillStyle = cp.broken ? "#777" : cp.kind === "army" ? "#7b8a4f" : cp.kind === "fed" ? "#202020" : "#3a66d0";
+    mctx.fillRect(x - s / 2, y - s / 2, s, s);
+    mctx.lineWidth = 1.4 * D; mctx.strokeStyle = cp.shut || cp.closeIn || cp.closeOut ? "#ff3b30" : "#fff"; mctx.strokeRect(x - s / 2, y - s / 2, s, s);
+    if (cp.shut) { mctx.beginPath(); mctx.moveTo(x - s / 2, y - s / 2); mctx.lineTo(x + s / 2, y + s / 2); mctx.moveTo(x + s / 2, y - s / 2); mctx.lineTo(x - s / 2, y + s / 2); mctx.stroke(); }
+  }
+  if (typeof threat !== "undefined" && threat) {
+    // внешнее оцепление: красная пунктирная рамка по краю города и таймер ультиматума
+    if (threat.fed && threat.fed.phase === "cordon") {
+      mctx.strokeStyle = "rgba(255,59,48,.9)"; mctx.lineWidth = 2 * D; mctx.setLineDash([6 * D, 4 * D]);
+      mctx.strokeRect((W - CITY_W * 1.08) / 2 * MS, (H - CITY_H * 1.08) / 2 * MS, CITY_W * 1.08 * MS, CITY_H * 1.08 * MS); mctx.setLineDash([]);
+      miniText("УЛЬТИМАТУМ " + mmss2(threat.fed.deadline - simT), mini.width / 2, (H - CITY_H * 1.08) / 2 * MS - 2 * D, "#ff6b60", 11);
+    }
+    // беженцы: жёлтая стрелка от края карты к въезду
+    for (const col of threat.cols) {
+      if (col.done) continue; const en = entries[col.en]; if (!en) continue;
+      const sx = clamp(en.x + en.tx * 4000, 30, W - 30), sy = clamp(en.y + en.ty * 4000, 30, H - 30), ex = en.x * MS, ey = en.y * MS;
+      miniArrow(sx * MS + (ex - sx * MS) * .35, sy * MS + (ey - sy * MS) * .35, ex, ey, "rgba(242,200,70,.9)", true);
+      miniText(col.policy === "closed" ? "беженцы · въезд закрыт" : "беженцы", ex, ey - 7 * D, "#f2c846", 9);
+    }
+    // орда: до выхода — пунктир от края карты и таймер; потом — круг вокруг орды и стрелка к въезду
+    for (const h of threat.hordes) {
+      if (h.done) continue; const en = entries[h.en]; if (!en) continue;
+      const ex = en.x * MS, ey = en.y * MS;
+      mctx.strokeStyle = `rgba(255,59,48,${.5 + .5 * pulse})`; mctx.lineWidth = 2 * D; mctx.beginPath(); mctx.arc(ex, ey, (7 + 3 * pulse) * D, 0, TAU); mctx.stroke();
+      if (simT < h.emergeT) {
+        miniArrow(h.x * MS, h.y * MS, ex, ey, "rgba(255,70,60,.95)", true);
+        miniText(`орда ~${Math.round(h.n / 10) * 10} · ${mmss2(hordeEta(h))}`, h.x * MS + (ex - h.x * MS) * .5, h.y * MS + (ey - h.y * MS) * .5 - 4 * D, "#ff6b60", 10);
+      } else {
+        const c = hordeCenter(h);
+        if (c) {
+          mctx.fillStyle = "rgba(255,59,48,.18)"; mctx.strokeStyle = "rgba(255,59,48,.9)"; mctx.lineWidth = 1.5 * D;
+          mctx.beginPath(); mctx.arc(c.x * MS, c.y * MS, Math.max(5 * D, c.r * MS), 0, TAU); mctx.fill(); mctx.stroke();
+          if (Math.hypot(c.x - en.x, c.y - en.y) > 120) miniArrow(c.x * MS, c.y * MS, ex, ey, "rgba(255,70,60,.95)", false);
+          miniText(`орда ${c.n}`, c.x * MS, c.y * MS - Math.max(6 * D, c.r * MS) - 2 * D, "#ff6b60", 10);
+        }
+      }
+    }
+  }
   // что видит камера: четыре угла кадра на земле
   const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => { ndc.set(x, y); ray.setFromCamera(ndc, camera); plane.constant = 0; const p = ray.ray.intersectPlane(plane, new THREE.Vector3()); if (!p) { const d = ray.ray.direction; return [camera.position.x + d.x * 4000 + W / 2, camera.position.z + d.z * 4000 + H / 2]; } return [p.x + W / 2, p.z + H / 2]; });
-  mctx.strokeStyle = "rgba(255,255,255,.85)"; mctx.lineWidth = 1; mctx.beginPath();
+  mctx.strokeStyle = "rgba(255,255,255,.85)"; mctx.lineWidth = D; mctx.beginPath();
   pts.forEach(([x, y], i) => i ? mctx.lineTo(clamp(x, -50, W + 50) * MS, clamp(y, -50, H + 50) * MS) : mctx.moveTo(clamp(x, -50, W + 50) * MS, clamp(y, -50, H + 50) * MS)); mctx.closePath(); mctx.stroke();
+  // кнопки в углах: легенда слева, раскрыть справа
+  const bs = 16 * D;
+  mctx.fillStyle = "rgba(14,17,18,.8)"; mctx.fillRect(0, 0, bs, bs); mctx.fillRect(mini.width - bs, 0, bs, bs);
+  mctx.fillStyle = "#e3e7e5"; mctx.font = `600 ${11 * D}px IBM Plex Sans, sans-serif`; mctx.textAlign = "center"; mctx.textBaseline = "middle";
+  mctx.fillText("?", bs / 2, bs / 2 + D); mctx.fillText(miniBig ? "–" : "+", mini.width - bs / 2, bs / 2 + D);
+  if (miniLegend) drawMiniLegend();
 }
-let gridDirtyMini = true, miniDrag = false;
-function miniGo(e) { const r = mini.getBoundingClientRect(); followA = null; cine = false; syncCamButtons(); camS.tx = (e.clientX - r.left) / r.width * W - W / 2; camS.tz = (e.clientY - r.top) / r.height * H - H / 2; }
-mini.addEventListener("pointerdown", e => { miniDrag = true; mini.setPointerCapture(e.pointerId); miniGo(e); });
+function drawMiniLegend() {
+  const D = miniDpr, rows = [["#5fb3e8", "жители"], ["#7fdf5a", "зомби"], ["#ff5a4a", "зомби орды"], ["#6f9bff", "полиция"], ["#c8d878", "армия"], ["#e8a447", "укушенные"], ["#ff8a30", "пожар"], ["#3a66d0", "пост, КПП"], ["#ff3b30", "закрытый пост"], ["#f2b33d", "лагерь"], ["#f2c846", "беженцы"]];
+  const lh = 12 * D, w = 108 * D, h = rows.length * lh + 8 * D, x0 = 4 * D, y0 = 20 * D;
+  mctx.fillStyle = "rgba(14,17,18,.88)"; mctx.fillRect(x0, y0, w, h);
+  mctx.font = `${9.5 * D}px IBM Plex Sans, sans-serif`; mctx.textAlign = "left"; mctx.textBaseline = "middle";
+  rows.forEach(([c, t], i) => { const y = y0 + 4 * D + lh * i + lh / 2; mctx.fillStyle = c; mctx.fillRect(x0 + 5 * D, y - 3 * D, 6 * D, 6 * D); mctx.fillStyle = "#e3e7e5"; mctx.fillText(t, x0 + 16 * D, y); });
+}
+// клик: угловые кнопки или перенос камеры
+function miniLocal(e) { const r = mini.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, r]; }
+function miniGo(e) { const [u, v] = miniLocal(e); followA = null; cine = false; syncCamButtons(); camS.tx = u * W - W / 2; camS.tz = v * H - H / 2; }
+function miniButton(e) {
+  const [u, v, r] = miniLocal(e), px = u * r.width, py = v * r.height;
+  if (py < 16 && px < 16) { miniLegend = !miniLegend; return true; }
+  if (py < 16 && px > r.width - 16) { miniBig = !miniBig; miniResize(); return true; }
+  return false;
+}
+mini.addEventListener("pointerdown", e => { if (miniButton(e)) return; miniDrag = true; mini.setPointerCapture(e.pointerId); miniGo(e); });
 mini.addEventListener("pointermove", e => { if (miniDrag) miniGo(e); });
 mini.addEventListener("pointerup", () => { miniDrag = false; });
+window.addEventListener("keydown", e => { if (e.code === "KeyM" && !["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) && !(typeof fps !== "undefined" && fps.on)) { miniBig = !miniBig; miniResize(); } });
+miniResize();
 
 /* ---------- подсветка по клику на плашку сводки ---------- */
 let highlight = null, hlIndex = 0;
@@ -10846,7 +11461,7 @@ function frameBody(now) {
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
   updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
-  updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
+  updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);

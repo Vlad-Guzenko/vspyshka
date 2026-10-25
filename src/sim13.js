@@ -106,25 +106,103 @@ function inDanger(a) { for (const d of dangers) if (Math.hypot(d.x - a.x, d.y - 
 
 /* ---------- КПП: проверка на укусы, очередь, изолятор, бунт ---------- */
 let cps = [];
-function addCheckpoint(x, y) {
-  // ближайшая улица: барьер поперёк неё с проходом посередине
-  const q = gEdgeNear(x, y, 90, e => e.rural || e.kind === "ring"); if (!q) return false;
-  const e = q.e, t = clamp(q.t, Math.min(e.len / 2, e.ra + 18), Math.max(e.len / 2, e.len - e.rb - 18)), p = edgePos(e, t);
-  const tx = p.tx, ty = p.ty, nx = -ty, ny = tx, cx = p.x, cy = p.y, cells = [];
-  for (let o = -e.hw - 8; o <= e.hw + 8; o += CS / 2) {
-    if (Math.abs(o) < 7) continue;
-    const px = cx + nx * o, py = cy + ny * o, gx = Math.floor(px / CS), gy = Math.floor(py / CS);
-    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx, c = grid[i];
-    if (c === 3 || c === 9 || c === 5 || c === 6) continue; grid[i] = 6; bhp[i] = 120; wallMask[i] = 1; cells.push(i);
+/* ---------- блокпост на дороге ----------
+   Проезжая часть открыта: на каждую сторону свой шлагбаум, будка у обочины, бетонные блоки только на обочинах и тротуарах,
+   у будки — проход для пешеходов. Машины встают на досмотр и проезжают. Направление можно закрыть (closeIn — в город,
+   closeOut — из города): маршруты такое направление объезжают, а подъехавшие разворачиваются. shut — пост закрыт целиком
+   (орда рядом): шлагбаумы опущены, проезд и проход заложены блоками. outDir: 1 — наружу из города по возрастанию t ребра,
+   -1 — по убыванию, 0 — пост внутри города, направления не важны */
+const postMask = new Uint8Array(GW * GH);
+function postCell(cp, i, list) {
+  if (i in cp.prev || !fenceable(grid[i])) return;
+  cp.prev[i] = grid[i]; grid[i] = 6; bhp[i] = 400; wallMask[i] = 0; postMask[i] = 1; list.push(i);
+}
+function postCellAt(cp, x, y, list) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) postCell(cp, gy * GW + gx, list); }
+function restorePostCells(cp, list) {
+  for (const i of list) if (postMask[i]) { if (grid[i] === 6) grid[i] = cp.prev[i] !== undefined ? cp.prev[i] : 0; postMask[i] = 0; bhp[i] = 0; delete cp.prev[i]; }
+  list.length = 0; barrDirty = true; fieldT = 0;
+}
+function addRoadPost(e, t, opts = {}) {
+  t = clamp(t, Math.min(e.len / 2, (e.ra || 0) + 14), Math.max(e.len / 2, e.len - (e.rb || 0) - 14));
+  const p = edgePos(e, t), tx = p.tx, ty = p.ty, nx = -ty, ny = tx, side = opts.side || 1;
+  const cp = { road: true, kind: opts.kind || "police", x: p.x, y: p.y, ang: Math.atan2(ty, tx), tx, ty, v: Math.abs(ty) > Math.abs(tx), hw: e.hw, e: e.id, t,
+    outDir: opts.outDir || 0, closeIn: !!opts.closeIn, closeOut: !!opts.closeOut, shut: false, side, cells: [], shutCells: [], prev: {},
+    queue: 0, queueT: 0, detained: 0, checked: 0, turned: 0, broken: false, boomT: [0, 0], fed: !!opts.fed, noTent: !!opts.noTent };
+  // сторона дороги, по которой идёт каждая полоса (L[0] — по возрастанию t)
+  cp.sideL = e.L.map(l => { if (!l) return 0; const q = lanePos(l, clamp(laneSOfT(l, t), 0, e.len)); return Math.sign((q.x - p.x) * nx + (q.y - p.y) * ny) || 1; });
+  // блоки на обочинах и тротуарах; у будки — проход для пешеходов
+  for (const s of [-1, 1]) for (let o = e.hw + 1; o <= e.hw + 14; o += CS / 2) {
+    if (s === side && o > e.hw + 2 && o < e.hw + 8) continue;
+    postCellAt(cp, p.x + nx * o * s, p.y + ny * o * s, cp.cells);
   }
-  // ось x модели КПП — поперёк улицы вправо от направления (ty, −tx)
-  const ang = Math.atan2(ty, tx), lx = ty, ly = -tx, cp = { x: cx, y: cy, ang, tx, ty, v: Math.abs(ty) > Math.abs(tx), hw: e.hw, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [cx + lx * (e.hw + 12) + tx * 10, cy + ly * (e.hw + 12) + ty * 10] };
-  sendPosts("police", cx, cy, [0, 1].map(i => freeNear(cx + tx * (i ? 10 : -10), cy + ty * (i ? 10 : -10), 5)), { cp });
-  // будка у проезда, изолятор: клетки заняты
-  const bx = cx + lx * 9.5 + tx * 3, by = cy + ly * 9.5 + ty * 3;
-  cp.cells2 = blockFree(bx - 2, by - 2, bx + 2, by + 2).concat(blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7));
-  cps.push(cp); barrDirty = true; fieldT = 0;
-  logE("Развёрнут КПП: полиция проверяет проходящих на укусы, заражённых отправляют в изолятор", "good"); return true;
+  cp.ped = [p.x + nx * side * (e.hw + 5), p.y + ny * side * (e.hw + 5)];
+  cp.booth = [p.x + nx * side * (e.hw + 10), p.y + ny * side * (e.hw + 10)];
+  const back = cp.outDir ? -cp.outDir : -1;
+  cp.tent = [p.x + nx * side * (e.hw + 26) + tx * back * 16, p.y + ny * side * (e.hw + 26) + ty * back * 16];
+  if (!cp.noTent) cp.cells2 = blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7);
+  e.checkCp = cp; cps.push(cp); barrDirty = true; fieldT = 0; routeCache.clear(); exitRoute = null;
+  return cp;
+}
+// точки для постовых: двое у будки и прохода, остальные у противоположной обочины; чуть со стороны города
+function postSpots(cp, n) {
+  const nx = -cp.ty, ny = cp.tx, s = cp.side, back = cp.outDir ? -cp.outDir : -1, bx = cp.tx * back * 7, by = cp.ty * back * 7, out = [];
+  const offs = [[s, cp.hw + 4], [s, cp.hw + 12], [-s, cp.hw + 4], [-s, cp.hw + 12], [s, cp.hw + 8], [-s, cp.hw + 8]];
+  for (let i = 0; i < n; i++) { const [k, o] = offs[i % offs.length]; out.push(freeNear(cp.x + nx * k * o + bx, cp.y + ny * k * o + by, 5)); }
+  return out;
+}
+function staffPost(cp, type, n, extra) {
+  const back = cp.outDir ? -cp.outDir : -1;
+  return sendPosts(type, cp.x + cp.tx * back * 30, cp.y + cp.ty * back * 30, postSpots(cp, n), { crewN: n, cp, ...(extra || {}) });
+}
+// полоса через пост ведёт из города или в город
+function postLaneOut(cp, l) { return cp.outDir ? (l.d > 0) === (cp.outDir === 1) : false; }
+function postLaneShut(cp, l) {
+  if (!cp || !cp.road || cp.broken) return false;
+  if (cp.shut) return true;
+  return cp.outDir ? (postLaneOut(cp, l) ? cp.closeOut : cp.closeIn) : false;
+}
+// закрыть пост целиком (орда рядом) или открыть снова
+function shutPost(cp, on) {
+  if (!cp || !cp.road || cp.broken || !!cp.shut === on) return;
+  cp.shut = on;
+  if (on) {
+    const nx = -cp.ty, ny = cp.tx, out = cp.outDir || 1, ox = cp.tx * out * 7, oy = cp.ty * out * 7;
+    for (let o = -cp.hw - 1; o <= cp.hw + 1; o += CS / 2) postCellAt(cp, cp.x + nx * o + ox, cp.y + ny * o + oy, cp.shutCells);
+    for (let o = cp.hw + 2; o <= cp.hw + 8; o += CS / 2) postCellAt(cp, cp.x + nx * cp.side * o, cp.y + ny * cp.side * o, cp.shutCells);
+  } else restorePostCells(cp, cp.shutCells);
+  routeCache.clear(); exitRoute = null; barrDirty = true; fieldT = 0;
+}
+// снять пост: блоки убрать, постовых отпустить (полицию — в участок, наряд ДПС — в свою будку)
+function removeRoadPost(cp) {
+  if (!cp) return;
+  if (cp.road) { restorePostCells(cp, cp.shutCells); restorePostCells(cp, cp.cells); }
+  if (cp.cells2) { unblock(cp.cells2); cp.cells2 = null; }
+  const e = RE.find(x => x.id === cp.e); if (e && e.checkCp === cp) e.checkCp = null;
+  cps = cps.filter(c => c !== cp); routeCache.clear(); exitRoute = null; barrDirty = true;
+  for (const a of agents) if (a.cp === cp && a.state === "alive") {
+    a.cp = null; a.order = null; if (a.fed) continue;
+    if (a.dpsHome) { a.standDown = true; a.standT = simT; a.order = { x: a.dpsHome[0], y: a.dpsHome[1] }; }
+    else if (a.role === "police" && special.police) { a.standDown = true; a.standT = simT; a.order = { x: special.police.x, y: special.police.y }; }
+  }
+}
+// машина на закрытом направлении: постоял — разворачивается назад; бегущие из города больше не рвутся к выездам
+function turnBackAtPost(c, l, cp) {
+  const opp = oppLane(l); if (!opp) return false;
+  const s2 = l.e.len - c.s; if (laneBusy(opp, s2, c)) return false;
+  const ox = c.x, oy = c.y, ang = c.ang;
+  placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; c.shutT = 0; c.next = null; c.route = null;
+  if (c.flee) { c.flee = false; c.goal = null; }
+  cp.turned++; logT("cpturn", cp.fed ? "Внешнее оцепление: машину развернули, выезд из города закрыт" : cp.shut ? "Пост закрыт: машины разворачивают" : "Въезд закрыт: машины разворачивают", "", 30);
+  return true;
+}
+
+function addCheckpoint(x, y) {
+  // ближайшая улица: блокпост поперёк неё — шлагбаумы на обе стороны, проход для пешеходов у будки; машины досматривают и пропускают
+  const q = gEdgeNear(x, y, 90, e => e.rural || e.kind === "ring"); if (!q) return false;
+  if (q.e.checkCp) return false;
+  const cp = addRoadPost(q.e, q.t, { kind: "police" });
+  staffPost(cp, "police", 3);
+  logE("Развёрнут КПП: полиция досматривает людей и машины, заражённых отправляют в изолятор", "good"); return true;
 }
 // КПП на воротах карантина: без своих клеток (стены вокруг уже есть), проход вдоль y, изолятор снаружи
 // пост пропуска карантина: проход вдоль (tx, ty), изолятор сбоку снаружи; клетки барьера ставит сама зона
@@ -143,16 +221,16 @@ function stepCheckpoints(dt) {
   for (const cp of cps) {
     if (cp.broken) continue;
     // без полиции или военных на посту никто никого не проверяет
-    let staff = 0; near(cp.x, cp.y, 28, a => { if (a.state === "alive" && !a.hidden && (a.role === "police" || a.role === "army")) staff++; });
+    let staff = 0; near(cp.x, cp.y, cp.road ? Math.max(28, cp.hw + 20) : 28, a => { if (a.state === "alive" && !a.hidden && (a.role === "police" || a.role === "army")) staff++; });
     cp.staff = staff;
     if (cp.openT > 0) { cp.openT -= dt; cp.queue = 0; if (cp.openT <= 0) logT("cpreopen", "Пост пропуска снова проверяет выходящих", "good", 20); continue; }
     if (!staff) { cp.queue = 0; continue; }
     const tx = cp.tx !== undefined ? cp.tx : cp.v ? 0 : 1, ty = cp.ty !== undefined ? cp.ty : cp.v ? 1 : 0;
     let waiting = 0;
-    near(cp.x, cp.y, 16, a => {
+    near(cp.x, cp.y, cp.road ? cp.hw + 16 : 16, a => {
       if (a.state !== "alive" || a.role !== "civ" || a.hidden) return;
       const dx = a.x - cp.x, dy = a.y - cp.y, lat = -dx * ty + dy * tx, along = dx * tx + dy * ty;
-      if (Math.abs(lat) > 8 || Math.abs(along) > 14) return;
+      if (Math.abs(lat) > (cp.road ? cp.hw + 9 : 8) || Math.abs(along) > 14) return;
       if (a.cpChecked === cp) return;
       if (a.cpWait > 0) { waiting++; return; }
       if (a.cpWait === 0 && a.cpAt !== cp) { a.cpWait = 2; a.cpAt = cp; waiting++; return; }
@@ -165,7 +243,7 @@ function stepCheckpoints(dt) {
     });
     cp.queue = waiting;
     cp.queueT = waiting > 10 ? cp.queueT + dt : 0;
-    if (cp.queueT > 40 && cp.gate) {
+    if (cp.queueT > 40 && (cp.gate || cp.road)) {
       // толпа у ворот карантина прорывается: минуту проход открыт без проверки, потом полиция восстанавливает порядок
       cp.openT = 60; cp.queueT = 0;
       near(cp.x, cp.y, 40, a => { if (a.state === "alive" && a.role === "civ") { a.panic = Math.max(a.panic, .6); a.cpWait = 0; a.cpChecked = cp; } });

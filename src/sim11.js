@@ -356,7 +356,7 @@ function stepMeteors(dt) {
     m.t -= dt;
     if (m.t <= 0 && !m.done) {
       m.done = true; boom(m.x, m.y, 120, true); slowMo(2.5);
-      for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - m.x, 0, m.x - b.x1), Math.max(b.y0 - m.y, 0, m.y - b.y1)); if (d < 160) damageBuilding(b, 500 * (1 - d / 160), m.x, m.y); }
+      for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - m.x, 0, m.x - b.x1), Math.max(b.y0 - m.y, 0, m.y - b.y1)); if (d < 160) { b.bigHit = true; damageBuilding(b, 500 * (1 - d / 160), m.x, m.y); } }
       for (let i = 0; i < 40; i++) addDecal(m.x + rnd(-90, 90), m.y + rnd(-90, 90), rnd(3, 9), 1);
       logE("Метеорит ударил по городу", "bad");
     }

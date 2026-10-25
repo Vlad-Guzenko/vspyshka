@@ -211,6 +211,12 @@ body{padding:0}
 .squad{top:88px;right:344px}
 .objective{left:224px;top:50px}
 #mini{left:224px;bottom:44px}
+body.miniBig #mini{width:480px;height:320px}
+.tmarks{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5}
+.tmark{position:absolute;pointer-events:auto;cursor:pointer;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px;padding:3px 9px 3px 7px;border-radius:12px;background:rgba(120,14,10,.88);color:#fff;font:600 12px var(--f-body);white-space:nowrap;border:1px solid rgba(255,120,110,.75);box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.tmark i{display:inline-block;width:0;height:0;border-left:8px solid #fff;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.tmark.ref{background:rgba(110,86,10,.88);border-color:rgba(242,200,70,.75)}
+body.fps .tmarks,.stage.cine .tmarks{display:none}
 .camhelp{right:344px;bottom:44px;max-width:calc(100% - 600px)}
 .banner{top:58px}
 .radio{top:100px}

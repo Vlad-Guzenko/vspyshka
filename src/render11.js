@@ -67,10 +67,89 @@ function buildCampMesh(c) {
   return g;
 }
 /* КПП: будка, шлагбаум с противовесом, мешки, конусы, знак «СТОП», палатка-изолятор с крестом, маячок */
+
+/* ---------- блокпост на дороге: будка, шлагбаум на каждую сторону, конусы, знаки, мешки, изолятор ----------
+   размеры настоящие: 1 ед. = 25 см, будка 2,5 × 2,5 × 2,6 м, шлагбаум на высоте метра */
+const postSignTex = {};
+function postSign(kind) {
+  if (postSignTex[kind]) return postSignTex[kind];
+  const txt = kind === "army" ? "ВОЕННЫЙ ПОСТ" : kind === "fed" ? "ОЦЕПЛЕНИЕ" : "КОНТРОЛЬ";
+  return postSignTex[kind] = canvasTex(256, 128, (g, w, h) => {
+    g.fillStyle = "#f4f2ea"; g.fillRect(0, 0, w, h); g.strokeStyle = "#c81e1e"; g.lineWidth = 10; g.strokeRect(5, 5, w - 10, h - 10);
+    g.fillStyle = "#c81e1e"; g.font = "bold 50px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.fillText("СТОП", w / 2, 58);
+    g.fillStyle = "#1d2a44"; g.font = "bold 30px Oswald, Arial Narrow, sans-serif"; g.fillText(txt, w / 2, 102);
+  });
+}
+const boothMat = { police: new THREE.MeshStandardMaterial({ color: 0xdfe3e6, roughness: .7 }), army: new THREE.MeshStandardMaterial({ color: 0x5f6a45, roughness: .85 }), fed: new THREE.MeshStandardMaterial({ color: 0x55604a, roughness: .85 }) };
+const boothGlass = new THREE.MeshStandardMaterial({ color: 0x5a7fa0, metalness: .3, roughness: .2 }), boothRoof = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, roughness: .6 });
+function buildRoadPostMesh(cp) {
+  const g = new THREE.Group(); g.position.set(X(cp.x), 0, Z(cp.y));
+  const tx = cp.tx, ty = cp.ty, nx = -ty, ny = tx, hw = cp.hw, ang = cp.ang, s0 = cp.side || 1;
+  const at = (o, a) => [nx * o + tx * a, ny * o + ty * a]; // смещение: o — поперёк дороги, a — вдоль
+  const put = (m, o, a, y, rot) => { const [x, z] = at(o, a); m.position.set(x, y, z); m.rotation.y = -(ang + (rot || 0)); g.add(m); return m; };
+  // будка у обочины
+  const booth = new THREE.Group();
+  const bb = new THREE.Mesh(new THREE.BoxGeometry(10, 10.4, 10), boothMat[cp.kind] || boothMat.police); bb.position.y = 5.2; bb.castShadow = bb.receiveShadow = true; booth.add(bb);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(10.15, 3.4, 10.15), boothGlass); win.position.y = 6.6; booth.add(win);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(11.6, .7, 11.6), boothRoof); roof.position.y = 10.75; booth.add(roof);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(.7, 8, 6), new THREE.MeshBasicMaterial({ color: cp.kind === "police" ? 0x2a6aff : 0xffa000 })); beacon.position.y = 11.6; booth.add(beacon);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(10.2, 1, 10.2), new THREE.MeshStandardMaterial({ map: stripeTex })); stripe.position.y = 1.4; booth.add(stripe);
+  put(booth, s0 * (hw + 10), 0, 0);
+  // шлагбаумы: на каждую сторону дороги свой, от обочины к осевой
+  const booms = [];
+  cp.sideL.forEach((s, k) => {
+    if (!s) return;
+    const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, 4.6, 1.2), steelMat2); post.castShadow = true; put(post, s * (hw + 1.2), 0, 2.3);
+    const light = new THREE.Mesh(new THREE.SphereGeometry(.45, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 })); put(light, s * (hw + 1.2), 0, 5);
+    const bar = new THREE.Group(); const [bx, bz] = at(s * (hw + 1.2), 0); bar.position.set(bx, 4, bz);
+    // локальная ось x бруса смотрит к осевой
+    bar.rotation.order = "YXZ"; bar.rotation.y = -Math.atan2(-ny * s, -nx * s);
+    const L = Math.max(6, hw - 1.5), mat = new THREE.MeshStandardMaterial({ map: stripeTex.clone() }); mat.map.wrapS = THREE.RepeatWrapping; mat.map.repeat.set(Math.max(2, L / 4), 1); mat.map.needsUpdate = true;
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.24, .24, L, 8).rotateZ(Math.PI / 2), mat); arm.position.x = L / 2; arm.castShadow = true; bar.add(arm);
+    const cw = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.2), new THREE.MeshStandardMaterial({ color: 0x222222 })); cw.position.x = -1.2; bar.add(cw);
+    g.add(bar);
+    const rest = new THREE.Mesh(new THREE.CylinderGeometry(.2, .25, 3.8, 6), steelMat2); put(rest, s * .9, 0, 1.9);
+    booms.push({ k, bar, light, a: 0 });
+  });
+  g.userData.booms = booms;
+  // конусы по осевой с обеих сторон — машины проходят пост по одной
+  for (const a of [-24, -17, -10, 10, 17, 24]) { const c = trafficCone(0, 0); put(c, 0, a, 0); c.scale.setScalar(1.5); }
+  // знаки «СТОП» для подъезжающих с обеих сторон
+  for (const d of [-1, 1]) {
+    const [x, z] = at(-d * s0 * (hw + 3), d * 20), b = signBoard(postSign(cp.kind), 8, 4, 0, 9, 0, 0);
+    b.position.set(x, 0, z); b.rotation.y = Math.atan2(tx * d, ty * d); g.add(b);
+  }
+  // мешки с песком: у будки, у военных — огневые точки по обе стороны
+  const sb = sandbagArc(7, 0, Math.PI, 3.2); put(sb, s0 * (hw + 18), cp.outDir ? cp.outDir * 6 : 6, 0, Math.PI / 2 * (cp.outDir || 1));
+  if (cp.kind !== "police") { const sb2 = sandbagArc(7, 0, Math.PI, 3.2); put(sb2, -s0 * (hw + 12), cp.outDir ? cp.outDir * 6 : 6, 0, Math.PI / 2 * (cp.outDir || 1)); }
+  // изолятор: палатка с крестом, обнесённая лентой
+  if (!cp.noTent && cp.tent) {
+    const wx = cp.tent[0] - cp.x, wy = cp.tent[1] - cp.y;
+    const iso = ridgeTent(24, 16, 10, crossTentMat); iso.position.set(wx, 0, wy); iso.rotation.y = -ang; g.add(iso);
+    const tapePts = [];
+    for (let i = 0; i < 4; i++) { const a = i / 4 * TAU + Math.PI / 4, a2 = (i + 1) / 4 * TAU + Math.PI / 4; const p = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 4, 5), steelMat2); p.position.set(wx + Math.cos(a) * 19, 2, wy + Math.sin(a) * 19); g.add(p); tapePts.push(new THREE.Vector3(wx + Math.cos(a) * 19, 3.4, wy + Math.sin(a) * 19), new THREE.Vector3(wx + Math.cos(a2) * 19, 3.4, wy + Math.sin(a2) * 19)); }
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(tapePts), new THREE.LineBasicMaterial({ color: 0xd42020 })));
+    const ban = signBoard(medBannerTex, 12, 3, wx + 14, 6, wy + 14, 0); ban.rotation.y = -ang; g.add(ban);
+  }
+  return g;
+}
+// шлагбаум поднят, если машину пропускают, если на посту никого нет (и направление не закрыто), если пост сломан
+function updateRoadPostMesh(cp, o, dt) {
+  for (const b of o.userData.booms || []) {
+    const out = cp.outDir ? (b.k === 0) === (cp.outDir === 1) : false;
+    const shutDir = cp.shut || (cp.outDir ? (out ? cp.closeOut : cp.closeIn) : false);
+    const open = cp.broken || simT < (cp.boomT ? cp.boomT[b.k] : 0) || (!shutDir && !(cp.staff > 0));
+    b.a += ((open ? 1.35 : 0) - b.a) * Math.min(1, (dt || .016) * 3);
+    b.bar.rotation.z = b.a;
+    b.light.material.color.setHex(open ? 0x20e040 : 0xff2020);
+  }
+}
 function buildCpMesh(cp) {
+  if (cp.road) return buildRoadPostMesh(cp);
   const g = new THREE.Group(); g.position.set(X(cp.x), 0, Z(cp.y)); g.rotation.y = cp.ang !== undefined ? Math.atan2(Math.cos(cp.ang), Math.sin(cp.ang)) : cp.v ? 0 : Math.PI / 2;
   // в локальных координатах проход идёт вдоль z, барьер вдоль x
-  const booth = new THREE.Group(); booth.position.set(9.5, 0, 3);
+  // будка в натуральную величину: 2 × 2,5 м
+  const booth = new THREE.Group(); booth.position.set(13, 0, 4); booth.scale.setScalar(2.1);
   const bb = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 4), new THREE.MeshStandardMaterial({ color: 0xdfe3e6, roughness: .7 })); bb.position.y = 2.5; bb.castShadow = true; booth.add(bb);
   const win = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.6, 4.1), new THREE.MeshStandardMaterial({ color: 0x5a7fa0, metalness: .3, roughness: .2 })); win.position.y = 3.3; booth.add(win);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(5, .4, 5), new THREE.MeshStandardMaterial({ color: 0x3a4a5a })); roof.position.y = 5.2; booth.add(roof);

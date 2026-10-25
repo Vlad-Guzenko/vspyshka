@@ -19,7 +19,7 @@ function detonate() {
     const d = Math.hypot(a.x - x, a.y - y);
     if (d < NUKE.R0) { if (a.state === "alive" && a.role !== "zombie") deaths++; if (a.role === "zombie" && a.state === "alive") zkills++; a.state = "saved"; a.vapor = true; }
   }
-  for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1)); if (d < NUKE.R0 + 40 && b.state === "ok") { b.hp = 0; collapse(b); b.ruinH = rnd(1, 4); } }
+  for (const b of buildings) { const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1)); if (d < NUKE.R0 + 40 && b.state === "ok") { b.hp = 0; b.hitX = undefined; collapse(b); b.ruinH = rnd(1, 4); } }
   for (const c of cars) if (Math.hypot(c.x - x, c.y - y) < NUKE.R0) c.gone = true;
   for (let i = 0; i < 70; i++) { const a = rnd(0, TAU), r = Math.sqrt(Math.random()) * NUKE.R1; fires.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, r: rnd(10, 26), l: rnd(40, 120) }); }
   // электромагнитный импульс глушит машины
@@ -59,7 +59,7 @@ function stepNuke(dt) {
     const k = 1 - d / NUKE.RMAX;
     // до R1 всё рушится, до R2 дома падают, а башни выгорают до остова; дальше ожоги и пожары
     const dmg = d < NUKE.R1 ? b.maxHp * 1.2 : d < NUKE.R2 ? b.maxHp * (b.floors > 8 ? .55 + .5 * k : .8 + .6 * k) : b.maxHp * .45 * k * k;
-    damageBuilding(b, dmg, x, y);
+    b.bigHit = true; damageBuilding(b, dmg, x, y);
     if (b.state === "ok" && d < NUKE.R2 * 1.15 && Math.random() < .3 + k) b.fire = Math.max(b.fire, rnd(80, 200));
     if (b.state === "ok") { b.scorch = Math.max(b.scorch, clamp(k * 1.3)); if (b.hp < b.maxHp * .45 && !b.gutted && !(b.fire > 0)) gutBuilding(b); }
   }

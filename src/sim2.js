@@ -593,7 +593,7 @@ function newCitySim(n) {
   genCity(); buildCrossings();
   agents = []; stats = []; events = []; firsts = {}; noises = []; simT = 0; bites = 0; deaths = 0; zkills = 0; saved = 0; cured = 0;
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
-  research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); quarMask.fill(0); zoneOf.fill(0); zoneSeq = 0; wallJobs = []; gangsSpawned = 0; computeDoors();
+  research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); postMask.fill(0); quarMask.fill(0); zoneOf.fill(0); zoneSeq = 0; wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
   for (const k in lastLog) delete lastLog[k];
   resetExtras(); resetBuild(); resetWorld2(); resetThreats(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();

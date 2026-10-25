@@ -19,8 +19,9 @@ const machineObjs = new Map();
 function updateMachines() {
   for (const m of machines) {
     let o = machineObjs.get(m);
-    if (!o) { o = buildLoader(); scene.add(o); machineObjs.set(m, o); }
-    o.position.set(X(m.x), gY(m.x, m.y), Z(m.y)); o.rotation.y = -m.ang;
+    if (!o) { o = buildLoader(); o.scale.setScalar(1.3); scene.add(o); machineObjs.set(m, o); }
+    o.visible = !(m.carried && !m.onTruck); // ещё за краем карты
+    o.position.set(X(m.x), gY(m.x, m.y) + (m.carried && m.onTruck ? 3.9 : 0), Z(m.y)); o.rotation.y = -m.ang;
     // ковш: черпает у земли, при погрузке поднимается над бортом и опрокидывается
     const ph = (m.workT || 0) / (m.loading ? 1.2 : 1.1), lift = m.loading ? .9 - Math.sin(Math.min(1, ph) * Math.PI) * .25 : m.bucket > 0 ? .5 + Math.sin(simT * 4) * .35 : .15;
     o.userData.arm.rotation.z = lift; o.userData.bucket.rotation.z = m.loading ? -lift * 1.3 + Math.sin(Math.min(1, ph) * Math.PI) * 1.4 : -lift * 1.3 + (m.bucket > 0 ? Math.sin(simT * 4 + 1) * .4 : 0);
@@ -42,8 +43,9 @@ function updateMachines() {
         o.userData.bed = bed; o.userData.heap = heap;
       }
       if (c.service === "mixer") { const drum = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 4.2, 12, 14).rotateZ(Math.PI / 2 - .25), new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: .5, metalness: .3 })); drum.position.set(-4, 9, 0); drum.castShadow = true; o.add(drum); const stripe = new THREE.Mesh(new THREE.TorusGeometry(3.9, .4, 6, 18).rotateY(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd2552a })); stripe.position.set(-4, 9, 0); o.add(stripe); o.userData.drum = drum; o.userData.stripe = stripe; }
-      if (c.service === "tow") { const boom = addBox(o, steelMat, 12, 1, 1, -9, 8, 0); boom.rotation.z = -.35; addBox(o, steelMat, 2, 6, 6, -6, 6, 0); }
-      if (c.service === "fire") { const base = new THREE.Group(); base.position.set(-6, 7.2, 0); o.add(base); addBox(base, steelMat, 3, 1.4, 3, 0, 0, 0); const lad = new THREE.Group(); base.add(lad); const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: .6, roughness: .4 }); for (const s of [-1, 1]) addBox(lad, rail, 22, .35, .35, 11, .6, s * 1.1); for (let x = 1; x < 22; x += 2.2) addBox(lad, rail, .3, .3, 2.2, x, .6, 0); const ext = new THREE.Group(); ext.position.set(10, .9, 0); lad.add(ext); for (const s of [-1, 1]) addBox(ext, rail, 20, .3, .3, 10, 0, s * .8); ext.scale.x = .3; o.userData.ladder = lad; o.userData.ext = ext; }
+      if (c.service === "tow" && c.model !== "tow") { const boom = addBox(o, steelMat, 12, 1, 1, -9, 8, 0); boom.rotation.z = -.35; addBox(o, steelMat, 2, 6, 6, -6, 6, 0); }
+      if (c.service === "fire" && c.model === "ladder") { const base = new THREE.Group(); base.position.set(-6, 7.2, 0); o.add(base); addBox(base, steelMat, 3, 1.4, 3, 0, 0, 0); const lad = new THREE.Group(); base.add(lad); const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: .6, roughness: .4 }); for (const s of [-1, 1]) addBox(lad, rail, 22, .35, .35, 11, .6, s * 1.1); for (let x = 1; x < 22; x += 2.2) addBox(lad, rail, .3, .3, 2.2, x, .6, 0); const ext = new THREE.Group(); ext.position.set(10, .9, 0); lad.add(ext); for (const s of [-1, 1]) addBox(ext, rail, 20, .3, .3, 10, 0, s * .8); ext.scale.x = .3; o.userData.ladder = lad; o.userData.ext = ext; }
+      const FM = CAR_MODELS[c.model]; if (FM && FM.fit) o.scale.set(1, FM.fit[0], FM.fit[1]);
       scene.add(o); carExtras.set(c, o);
     }
     o.visible = !c.gone;

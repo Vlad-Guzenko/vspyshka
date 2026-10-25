@@ -2,18 +2,64 @@
 // полиция из участка, пожарные из части, скорая из больницы, ремонтники и армия въезжают в город с окраины
 const SERVICE = {
   police: { col: "#e9e9ee", len: 1, crew: "police", n: 2, siren: "police", name: "Полиция" },
-  fire: { col: "#b3241a", len: 1.5, crew: "fire", n: 4, siren: "fire", name: "Пожарные" },
+  fire: { col: "#b3241a", len: 1.7, crew: "fire", n: 4, siren: "fire", name: "Пожарные" },
   ambulance: { col: "#f1f1ec", len: 1.2, crew: "medic", n: 2, siren: "fire", name: "Скорая" },
   repair: { col: "#e0a020", len: 1.25, crew: "worker", n: 3, siren: "amber", name: "Ремонтники" },
-  army: { col: "#4d5634", len: 1.45, crew: "army", n: 8, siren: null, name: "Армия" },
+  army: { col: "#4d5634", len: 1.6, crew: "army", n: 8, siren: null, name: "Армия" },
   tow: { col: "#f0c020", len: 1.3, crew: null, n: 0, siren: "amber", name: "Эвакуатор" },
-  dump: { col: "#c9701c", len: 1.5, crew: null, n: 0, siren: null, name: "Самосвал" },
+  dump: { col: "#c9701c", len: 1.6, crew: null, n: 0, siren: null, name: "Самосвал" },
   mixer: { col: "#f2efe6", len: 1.4, crew: null, n: 0, siren: null, name: "Бетономешалка" },
   sanit: { col: "#e4ece6", len: 1.3, crew: "sanitar", n: 3, siren: null, name: "Санитары" },
   builder: { col: "#e8a81a", len: 1.45, crew: "builder", n: 4, siren: "amber", name: "Строители" },
+  lowboy: { col: "#d8a018", len: 2.83, crew: null, n: 0, siren: "amber", name: "Трал" },
 };
+
+// ---------- облик служб: у каждой несколько машин, ливрей и форм, чтобы город не выглядел однообразно ----------
+const MODEL_LEN = { policeSuv: 1.03, policeVan: 1.17, omon: 1.67, ambulance2: 1.33, ladder: 1.75, rescue: 1.6, btr: 1.7, tigr: 1.25, tow: 1.45, utility: 1.17 };
+function wpick(list) { let r = Math.random() * list.reduce((a, x) => a + x[1], 0); for (const x of list) { r -= x[1]; if (r <= 0) return x[0]; } return list[0][0]; }
+function setModel(c, m) { c.model = m; if (MODEL_LEN[m]) c.len = MODEL_LEN[m]; }
+function styleService(c, type) {
+  if (type === "police") setModel(c, wpick([["police", 5], ["policeSuv", 3], ["policeVan", 2]]));
+  else if (type === "ambulance") setModel(c, wpick([["ambulance", 6], ["ambulance2", 4]]));
+  else if (type === "fire") setModel(c, wpick([["fire", 5], ["ladder", 3], ["rescue", 2]]));
+  else if (type === "army") setModel(c, wpick([["army", 7], ["btr", 3]]));
+  else if (type === "tow") setModel(c, "tow");
+  else if (type === "repair") setModel(c, wpick([["boxtruck", 1], ["utility", 1]]));
+  // скорая: новая жёлто-белая или старая бело-красная; армия — оттенки защитного; коммунальщики — оранжевые
+  if (type === "ambulance") { c.modern = Math.random() < .5; c.col = c.modern ? "#f6f4ea" : "#f1f1ec"; c.liv = c.modern ? "#e8c020" : "#d42020"; }
+  if (type === "army") c.col = pick(["#4d5634", "#535a3c", "#5a5e44"]);
+  if (c.model === "utility") { c.col = "#e8801c"; c.liv = "#f2f0e8"; }
+  c.dress = Math.floor(Math.random() * 3);
+}
+// машина под задачу постов: на малый армейский пост — «Тигр», федералы — тёмные «Тигры» и грузовики Росгвардии,
+// полиции на КПП — фургон, большой полицейский наряд — автобус ОМОН
+function stylePosts(c, type) {
+  if (type === "army") {
+    if (c.fed) { setModel(c, Math.random() < .6 ? "tigr" : "army"); c.col = "#3a3e42"; c.cab = "#2a2c30"; if (c.model === "army") c.len = SERVICE.army.len; }
+    else if ((c.crewN || SERVICE.army.n) <= 4) setModel(c, "tigr");
+  }
+  if (type === "police") { if ((c.crewN || 2) >= 4) { setModel(c, "omon"); c.col = "#283244"; } else if (c.cp) setModel(c, "policeVan"); }
+}
+// форма экипажа по машине и варианту
+function dressCrew(a, c, i) {
+  const v = c.dress || 0;
+  if (a.role === "police") {
+    if (c.model === "omon") { a.cloth = "#26292e"; a.pants = "#1f2226"; a.vest = "#15171a"; a.hat = "helmetBlk"; }
+    else if ((c.model === "police" || c.model === "policeSuv") && v === 0) a.vest = "#c8e04a"; // ДПС: салатовый светоотражающий жилет
+  }
+  if (a.role === "army") {
+    if (c.fed) { a.cloth = "#3a3e42"; a.pants = "#33373b"; a.vest = "#1e2124"; a.hat = "helmetBlk"; }
+    else { const camo = [["#55603a", "#4d5634"], ["#5f6a4c", "#565f45"], ["#6b6b4e", "#5f5f45"]][v]; a.cloth = camo[0]; a.pants = camo[1]; a.vest = v === 1 ? "#4a5238" : "#3f4a2a"; if (i === 0) a.hat = "cap"; }
+  }
+  if (a.role === "medic" && c.modern) { a.cloth = "#2a4f8a"; a.pants = "#24426f"; a.vest = "#e8c020"; }
+  if (a.role === "fire") {
+    if (v === 1) { a.cloth = "#3d342a"; a.pants = "#2e2820"; } // тёмная боевка
+    a.hat = i === 0 ? "fireWhite" : v === 2 ? "fireRed" : "fire";
+  }
+  if ((a.role === "worker" || a.role === "builder") && v === 1) { a.cloth = "#2c4a7a"; a.pants = "#24395e"; }
+}
 // кузов служебной машины
-const SERVICE_MODEL = { police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
+const SERVICE_MODEL = { lowboy: "lowboy", police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
 function clearCarCells(c) {
   if (c.cells) { for (let k = 0; k < c.cells.length; k += 2) if (grid[c.cells[k]] === 5) grid[c.cells[k]] = c.cells[k + 1]; c.cells = null; fieldT = 0; return; }
   for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0;
@@ -27,6 +73,7 @@ function spawnService(type, gx, gy, from) {
   let p = from ? nearestLanePoint(from.x, from.y) : null;
   if (!p) p = edgeLanePoint(gx, gy);
   const c = { ...newCar(), model: SERVICE_MODEL[type] || "van", service: type, col: S.col, len: S.len, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
+  styleService(c, type);
   placeOnLane(c, p.l, p.s);
   // разворачиваемся, если по встречной полосе к цели ближе
   const opp = oppLane(p.l), R = routeTo(gx, gy);
@@ -46,6 +93,7 @@ function deployCrew(c) {
     const a = newAgent(S.crew, x, y); a.unit = c; a.job = c.job || null; c.crew.push(a); if (c.sweep) a.sweep = true; if (sid) a.squad = sid;
     if (S.crew === "fire") { a.cloth = "#b5361f"; a.pants = "#2b2b2b"; a.hair = "#e8c020"; a.hat = "fire"; a.vest = "#d8b020"; }
     if (S.crew === "worker" || S.crew === "builder") { a.cloth = "#f08a1c"; a.pants = "#2c3550"; a.hair = "#f4f4f0"; a.hat = "hard"; a.vest = "#f0c020"; }
+    dressCrew(a, c, i);
   }
   if (sid) squads.set(sid, { id: sid, members: c.crew.map(m => m.id), leader: c.crew[0].id, state: "advance", holdAt: null, holdT: 0, regroupT: 0, slots: [] });
   // посты: высаженные занимают заданные точки; машина, которая только привезла, уезжает
@@ -57,7 +105,7 @@ function deployCrew(c) {
 // привезти людей и уехать: грузовик с заданными постами
 function sendPosts(type, x, y, posts, extra) {
   const c = spawnService(type, x, y, extra && extra.fed ? false : type === "police" ? special.police : type === "ambulance" ? special.hospital : null);
-  c.posts = posts; c.dropOnly = true; Object.assign(c, extra || {}); return c;
+  c.posts = posts; c.dropOnly = true; Object.assign(c, extra || {}); stylePosts(c, type); return c;
 }
 // недоделанная работа снова доступна диспетчеру
 function releaseJob(j) {
@@ -90,6 +138,7 @@ function stepServiceCar(c, dt) {
     else if (c.service === "mixer") { const b = c.job && c.job.build; if (!b || b.state !== "construct") releaseUnit(c); }
     else if (c.service === "bus") stepBusStop(c, dt);
     else if (c.service === "supply") supplyUnload(c, dt);
+    else if (c.service === "lowboy") lowboyStep(c, dt);
     else if (c.roam) roamStopDone(c, dt);
     return;
   }
@@ -207,11 +256,11 @@ function stepServices(dt) {
       site.clearAssigned = true; const [gx, gy] = siteGoal(site), [ex, ey] = edgePointNear(gx, gy);
       if (site.state === "ruin") {
         const f = fleetFor(site); site.truckN = f.trucks;
-        addMachine("loader", ex, ey, { ruin: site }); for (let k = 1; k < f.loaders; k++) { const [ex2, ey2] = edgePointNear(gx + (k % 2 ? 500 : -500), gy + (k > 1 ? 400 : -400)); addMachine("loader", ex2, ey2, { ruin: site }); }
+        for (let k = 0; k < f.loaders; k++) deliverMachine("loader", { ruin: site }, gx, gy, k * 6);
         spawnService("dump", gx, gy, null).job = { dump: site }; if (f.trucks > 2) { const t2 = spawnService("dump", gx, gy, null); t2.job = { dump: site }; }
-        site.dumpSentT = simT; logT("clear_go", f.loaders > 2 ? "К большому завалу выехали три экскаватора и колонна самосвалов" : "К завалу выехали два экскаватора и самосвалы", "good", 20);
+        site.dumpSentT = simT; logT("clear_go", f.loaders > 2 ? "К большому завалу тралы везут три экскаватора, за ними колонна самосвалов" : "К завалу тралы везут два экскаватора, за ними самосвалы", "good", 20);
       }
-      else { addMachine("loader", ex, ey, { demo: site }); logT("demo_go", site.kind === "tower" ? "Выгоревший небоскрёб решено снести: выехал экскаватор" : "Выгоревший дом решено снести: выехал экскаватор", "good", 20); }
+      else { deliverMachine("loader", { demo: site }, gx, gy, 0); logT("demo_go", site.kind === "tower" ? "Выгоревший небоскрёб решено снести: трал везёт экскаватор" : "Выгоревший дом решено снести: трал везёт экскаватор", "good", 20); }
     }
   }
   // самосвалы по кругу: пока есть завал, у экскаватора один грузится, второй уже едет

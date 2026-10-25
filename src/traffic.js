@@ -203,12 +203,24 @@ function stepRoadCar(c, dt) {
   // пост пропуска карантина: перед шлагбаумом машина встаёт на досмотр (службы — коротко, с сиреной — без остановки);
   // без людей на посту или во время прорыва проверять некому
   const ckp = l.e.checkCp;
-  if (ckp && !ckp.broken && !(ckp.openT > 0) && ckp.staff > 0 && c.cpChecked !== ckp && !(c.service && c.siren) && ckp.t !== undefined) {
-    const d = laneSOfT(l, ckp.t) - c.s;
-    if (d > -3 && d < 45) {
-      clear = Math.min(clear, Math.max(0, d) + 9);
-      if (d < 10 && c.v < 1.5) { c.checkT = (c.checkT || 0) + dt; if (c.checkT > (c.service ? 1.5 : 6)) { c.cpChecked = ckp; c.checkT = 0; ckp.checked++; cpCheckBus(c, ckp); if (c.refugee) refugeeCarCheck(c, ckp); logT("cpcar", ckp.refugee ? "Пост на въезде: машину беженцев досмотрели" : "Пост пропуска: машину досмотрели и пропустили", "", 30); } }
+  if (ckp && !ckp.broken && ckp.t !== undefined) {
+    const d = laneSOfT(l, ckp.t) - c.s, k = l.d > 0 ? 0 : 1;
+    // закрытое направление: службы проезжают (шлагбаум поднимают), остальные встают и разворачиваются; беженцы бросают машины
+    if (ckp.road && postLaneShut(ckp, l) && !c.service) {
+      if (d > -3 && d < 45) {
+        clear = Math.min(clear, Math.max(0, d) + 9);
+        if (d < 16 && c.v < 1.5 && !c.refugee) { c.shutT = (c.shutT || 0) + dt; if (c.shutT > 5 && turnBackAtPost(c, l, ckp)) return; }
+      }
+    } else if (ckp.staff > 0 && !(ckp.openT > 0) && c.cpChecked !== ckp && !(c.service && c.siren)) {
+      if (d > -3 && d < 45) {
+        clear = Math.min(clear, Math.max(0, d) + 9);
+        // из города выпускают быстрее: смотрят документы, а не багажник
+        const need = c.service ? 1.5 : ckp.road && postLaneOut(ckp, l) ? 3 : 6;
+        if (d < 10 && c.v < 1.5) { c.checkT = (c.checkT || 0) + dt; if (c.checkT > need) { c.cpChecked = ckp; c.checkT = 0; ckp.checked++; if (ckp.boomT) ckp.boomT[k] = simT + 4; cpCheckBus(c, ckp); if (c.refugee) refugeeCarCheck(c, ckp); logT("cpcar", ckp.refugee ? "Пост на въезде: машину беженцев досмотрели" : "Пост пропуска: машину досмотрели и пропустили", "", 30); } }
+      }
     }
+    // проезжающим поднимают шлагбаум
+    if (ckp.boomT && d > -4 && d < 14 && (c.cpChecked === ckp || c.service || !(ckp.staff > 0))) ckp.boomT[k] = Math.max(ckp.boomT[k], simT + 2);
   }
   // машина беженцев: у цели высаживает людей; у закрытого въезда долго стоит — люди бросают её и идут пешком
   if (c.refugee && ((c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 60) || (c.wait > 15 && cityK(c.x, c.y) < .5) || c.wait > 40)) { refugeeCarArrive(c); return; }
@@ -286,7 +298,7 @@ function spawnTraffic(n) {
   for (let i = 0; i < n && pool.length; i++) {
     let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= wt(l); if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();
-    if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
+    if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.7; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
     else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
     const s = rnd(laneStart(lane) + 12, laneEnd(lane) - 12);
     placeOnLane(c, lane, s);

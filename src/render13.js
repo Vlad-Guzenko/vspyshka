@@ -95,13 +95,82 @@ const CAR_MODELS = {
     glass: () => [_cbox(.3, 2.4, 6.8, 14.55, 5.6, 0), _cbox(3, 1.8, 7.7, 11.5, 5.8, 0)],
     trim: () => [_cbox(29, 1, 5, 0, 2, 0), _cbox(.8, 1.4, 7.7, 14.6, 2.4, 0)],
     light: () => [new THREE.CylinderGeometry(3.7, 3.7, .6, 18).rotateZ(Math.PI / 2).translate(-9, 5.8, 0), new THREE.CylinderGeometry(3.7, 3.7, .6, 18).rotateZ(Math.PI / 2).translate(1.8, 5.8, 0)] },
+  // ---- варианты служб ----
+  // патрульный внедорожник ППС/ДПС: белый, синяя полоса
+  policeSuv: { L: 18.5, wheels: [6, -6], r: 1.8, track: 3.6, ly: 4, roof: 7.9, lightCol: "#1f3c78",
+    paint: () => [_cbox(18.5, 3, 7.6, 0, 3.4, 0), _cbox(10.5, .35, 6.8, -1.8, 7.65, 0)],
+    glass: () => [cabinGeo(12.5, 10.8, 2.6, 6.9, -1.6, 4.9, -.4)],
+    trim: () => [...bumpers(18.5, 2.4, 7.7, 1.3), _cbox(18.6, .7, 7.7, 0, 2.1, 0)],
+    light: () => [_cbox(18.56, .8, 7.66, 0, 3.9, 0)] },
+  // фургон ППС/автозак: высокий кузов, синяя полоса, решётки на окнах
+  policeVan: { L: 21, wheels: [6.8, -6.4], r: 1.55, track: 3.8, ly: 3.4, roof: 9.2, lightCol: "#1f3c78",
+    paint: () => [_cbox(21, 3, 7.9, 0, 3, 0), _cbox(15.5, 4.4, 7.9, -2.75, 6.7, 0)],
+    glass: () => [cabinGeo(3, .2, 4.2, 7.6, 7.2, 4.5, -1.4)],
+    trim: () => [...bumpers(21, 2, 8), _cbox(7, 1.8, 7.96, -6, 7.1, 0)],
+    light: () => [_cbox(21.04, .9, 7.96, 0, 4.2, 0)] },
+  // автобус ОМОН/Росгвардии (ПАЗ): короткий, тёмно-синий, решётки
+  omon: { L: 30, wheels: [9.5, -8.5], r: 1.8, track: 4.4, ly: 3.4, roof: 11.6, lightCol: "#c8ccd0",
+    paint: () => [_cbox(30, 8.4, 9.6, 0, 6.2, 0)],
+    glass: () => [_cbox(22, 2.6, 9.7, -2.5, 7.8, 0), _cbox(.15, 4.2, 8.6, 15.02, 7, 0)],
+    trim: () => [...bumpers(30, 2.4, 9.7, 1.2), _cbox(22, 2, 9.75, -2.5, 7.8, 0)],
+    light: () => [_cbox(30.04, .6, 9.66, 0, 4.4, 0)] },
+  // реанимобиль на шасси грузовика: кабина и бело-красный кузов-фургон
+  ambulance2: { L: 24, wheels: [8.6, -7.6], r: 1.7, track: 4.2, ly: 3.6, roof: 11, lightCol: "#d42020",
+    paint: () => [_cbox(6.4, 3.6, 9, 8.8, 3.8, 0), _cbox(5.2, 2.6, 8.8, 8.2, 7, 0), _cbox(17, 8.4, 9.6, -3.4, 6.6, 0)],
+    glass: () => [_cbox(.3, 2, 7.8, 10.85, 6.8, 0), _cbox(2.4, 1.6, 9.1, 9.2, 7, 0), _cbox(5, 1.5, 9.66, -2, 8.4, 0)],
+    trim: () => [_cbox(24, 1, 6, 0, 2.2, 0), _cbox(.8, 1.4, 9.1, 12, 2.6, 0)],
+    light: () => [_cbox(17.04, 1.2, 9.66, -3.4, 5, 0), _cbox(17.04, .5, 9.66, -3.4, 10.4, 0)] },
+  // пожарная автолестница: низкий кузов-платформа под лестницу
+  ladder: { L: 30, wheels: [11, -4, -10], r: 2.1, track: 4.5, ly: 4.4, roof: 12, lightCol: "#e8e2d4",
+    paint: () => [_cbox(8, 7.2, 10, 11, 6.2, 0), _cbox(21, 3.6, 10, -4, 4.6, 0)],
+    glass: () => [_cbox(.3, 2.8, 8.8, 15.02, 8.2, 0), _cbox(6, 2, 10.06, 11, 8.3, 0)],
+    trim: () => [_cbox(30, 1.2, 6.4, 0, 2.4, 0), _cbox(.9, 1.8, 10.1, 15.2, 3, 0), _cbox(19, .6, 10.06, -4, 6.7, 0)],
+    light: () => [_cbox(21.04, .7, 10.06, -4, 4.4, 0)] },
+  // аварийно-спасательная машина: кабина и высокий отсек с рольставнями
+  rescue: { L: 28, wheels: [10, -7], r: 2.1, track: 4.5, ly: 4.4, roof: 13, lightCol: "#e8e2d4",
+    paint: () => [_cbox(7.6, 7.4, 10, 10.2, 6.3, 0), _cbox(19.6, 9.6, 10, -4.2, 7.4, 0)],
+    glass: () => [_cbox(.3, 2.8, 8.8, 14.02, 8.4, 0), _cbox(5.6, 2, 10.06, 10.2, 8.4, 0)],
+    trim: () => [_cbox(28, 1.2, 6.4, 0, 2.4, 0), _cbox(.9, 1.8, 10.1, 14.2, 3, 0), _cbox(5.6, 6, 10.08, -1, 7.6, 0), _cbox(5.6, 6, 10.08, -7.6, 7.6, 0)],
+    light: () => [_cbox(19.64, .9, 10.06, -4.2, 3.4, 0)] },
+  // БТР: восемь колёс, скошенный корпус, башенка с пулемётом
+  btr: { L: 30, wheels: [10.5, 4, -3, -9.5], r: 2.2, track: 4.6, ly: 5.6, roof: 11, lightCol: "#3f4630",
+    paint: () => [_cbox(30, 4.2, 10.4, 0, 4.9, 0), cabinGeo(30, 22, 2.6, 10, -1, 7, -2), new THREE.CylinderGeometry(2.4, 2.8, 2, 12).translate(2, 10.6, 0)],
+    glass: () => [_cbox(1.6, .5, 6, 13.6, 8.2, 0)],
+    trim: () => [new THREE.CylinderGeometry(.35, .35, 9, 6).rotateZ(Math.PI / 2).translate(7.5, 10.9, 0), _cbox(28, .6, .6, -1, 5.2, 5.4), _cbox(28, .6, .6, -1, 5.2, -5.4)] },
+  // бронеавтомобиль «Тигр»: высокий угловатый внедорожник
+  tigr: { L: 22, wheels: [7.2, -7], r: 2.2, track: 4.3, ly: 4.6, roof: 10.2, lightCol: "#3f4630",
+    paint: () => [_cbox(22, 4, 9.2, 0, 4.6, 0), cabinGeo(15, 12, 3.4, 8.8, -1.6, 6.6, -.4)],
+    glass: () => [_cbox(.4, 1.6, 7, 6.6, 8.2, 0), _cbox(10, 1.2, 8.86, -2.4, 8.6, 0)],
+    trim: () => [...bumpers(22, 2.8, 9.3, 1.6), _cbox(1, 2.4, 9.3, 11.3, 4.4, 0), _cbox(4, .5, 7, -2.4, 10.3, 0)] },
+  // эвакуатор с платформой
+  tow: { L: 26, wheels: [9.2, -5, -9], r: 2, track: 4.4, ly: 4, roof: 10,
+    paint: () => [_cbox(6.6, 6.4, 9.6, 9.6, 5.8, 0)],
+    glass: () => [_cbox(.3, 2.4, 8.6, 12.92, 7.6, 0), _cbox(4.6, 1.8, 9.66, 9.6, 7.6, 0)],
+    trim: () => [_cbox(26, 1.2, 6, 0, 2.6, 0), _cbox(.9, 1.6, 9.7, 13.1, 3, 0)],
+    light: () => [_cbox(18, .8, 9.6, -3.6, 4.4, 0), _cbox(1.2, 1.4, 9.6, -12.4, 5.2, 0)] },
+  // трал: седельный тягач и низкорамный полуприцеп, сзади — поднятые сходни; технику возят на платформе
+  lowboy: { L: 51, wheels: [22.5, 13.5, 10.5, -15, -18.5, -22], r: 1.9, track: 4.5, ly: 4.2, roof: 12.4, lightCol: "#f08a1c",
+    paint: () => [_cbox(7.4, 7.6, 10, 21.6, 6.6, 0), _cbox(5.4, 1.8, 9.6, 21, 11.2, 0), _cbox(7, 2.4, 9.8, 12, 5.8, 0), _cbox(22, 1.2, 10, -1.5, 3.4, 0), _cbox(13, 2.6, 10, -18.8, 4.3, 0)],
+    glass: () => [_cbox(.3, 2.8, 8.8, 25.32, 8.6, 0), _cbox(4.4, 1.8, 10.06, 22.2, 8.8, 0)],
+    trim: () => [_cbox(16, 1.6, 6.4, 17, 3, 0), _cbox(.9, 1.8, 10.1, 25.5, 3.2, 0), _cbox(4, 1.6, 2, 15, 3.4, 4.2), _cbox(22, .5, 9.6, -1.5, 2.6, 0), _cbox(.6, 1.2, 6, -25.2, 3.4, 0)],
+    light: () => [_cbox(.8, 4.4, 3.4, -24.9, 7.6, 2.8), _cbox(.8, 4.4, 3.4, -24.9, 7.6, -2.8), _cbox(.3, .9, 9.9, -25.3, 4.6, 0)] },
+  // аварийка коммунальщиков: оранжевый фургон с полосой
+  utility: { L: 21, wheels: [6.8, -6.4], r: 1.55, track: 3.8, ly: 3.4, roof: 9.2, lightCol: "#e8e4dc",
+    paint: () => [_cbox(21, 3, 7.9, 0, 3, 0), _cbox(15.5, 4.4, 7.9, -2.75, 6.7, 0)],
+    glass: () => [cabinGeo(3, .2, 4.2, 7.6, 7.2, 4.5, -1.4), _cbox(4, 1.6, 7.96, 2, 7.2, 0)],
+    trim: () => [...bumpers(21, 2, 8)],
+    light: () => [_cbox(21.04, .8, 7.96, 0, 4.6, 0)] },
 };
+// грузовые машины и автобусы в натуральную ширину (2,5 м) и высоту: [по высоте, по ширине, радиус колёс]
+const MODEL_FIT = { truck: [1.3, 1.28, 2.1], garbage: [1.3, 1.28, 2.1], boxtruck: [1.22, 1.24, 1.9], fire: [1.32, 1.28, 2.1], army: [1.15, 1.28, 2.2], tanker: [1.25, 1.28, 2], bus: [1.18, 1.25, 1.9], suv: [.86, 1, 1.8], van: [1, 1.06, 1.5] };
+for (const k in MODEL_FIT) { const M = CAR_MODELS[k], [sy, sz, r] = MODEL_FIT[k]; M.fit = [sy, sz]; M.track *= sz; M.ly *= sy; M.roof *= sy; M.r = r; }
+
 const CAR_PARTS = ["paint", "glass", "trim", "light"];
 const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .08, metalness: .7 }),
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
 const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
-for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) M.geo[p] = mergeGeo(M[p]()); }
-const wheelGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.2, 12).rotateX(Math.PI / 2);
+for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
+const wheelGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 12).rotateX(Math.PI / 2);
 const lightGeo = new THREE.BoxGeometry(.4, .8, 1.6);
 let cm = null, carCap = 0;
 function carModelOf(c) {
@@ -115,7 +184,7 @@ function makeCarMeshes(cap) {
   carCap = cap;
   const mk = (geo, mat, n, shadow = true) => { const m = new THREE.InstancedMesh(geo, mat, n); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.setColorAt(0, new THREE.Color()); scene.add(m); return m; };
   cm = { parts: [], byModel: {}, fixed: {
-    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .9 }), cap * 6),
+    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .9 }), cap * 8),
     lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 4, false),
     beams: mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), cap, false),
     bars: mk(new THREE.BoxGeometry(1.4, .8, 2.4), new THREE.MeshBasicMaterial({ toneMapped: false }), 200, false),
@@ -141,16 +210,16 @@ function updateCars() {
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.police ? "#e9e9ee" : c.col) : part.p === "glass" ? (dead ? "#0c0b0a" : "#1a2028") : part.p === "trim" ? (dead ? "#0c0b0a" : SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#1a2028") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим
     const ws = M.r / 1.4;
-    for (const wx of M.wheels) for (const s of [-1, 1]) { if (wi >= F.wheels.instanceMatrix.count) break; _cw.makeScale(ws / sx, ws, 1).setPosition(wx, M.r, s * M.track); F.wheels.setMatrixAt(wi++, _cw.premultiply(_cm)); }
+    for (const wx of M.wheels) for (const s of [-1, 1]) { if (wi >= F.wheels.instanceMatrix.count) break; _cw.makeScale(ws / sx, ws, M.r > 1.7 ? 1.15 : 1).setPosition(wx, M.r, s * M.track); F.wheels.setMatrixAt(wi++, _cw.premultiply(_cm)); }
     // фары: днём у едущих — дневные ходовые огни, вечером и ночью — ближний свет с пятном на дороге и красные габариты; при торможении — стоп-сигналы
     const lit = !c.wreck && (c.moving || c.police), hw = M.L / 2 + .1;
     for (let k = 0; k < 4; k++) {
-      _cw.makeTranslation(k < 2 ? hw : -hw, M.ly, k % 2 ? 2.6 : -2.6); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
+      _cw.makeTranslation(k < 2 ? hw : -hw, M.ly, (k % 2 ? 1 : -1) * Math.min(M.track - .3, 2.6 * M.track / 3.45)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
       F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.v < 3 ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
     }
     if (c.moving && dusk) { _cw.makeScale(26, 1, 18).setPosition(M.L / 2 + 7, .25, 0); F.beams.setMatrixAt(bi++, _cw.premultiply(_cm)); }

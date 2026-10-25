@@ -91,9 +91,10 @@ function stepResponse(dt) {
   if (alert >= 4) {
     // танк — крайняя мера: армия воюет уже две с половиной минуты ликвидации, а штабу всё ещё известно больше восьмидесяти зомби; или город потерян
     if (scenOk("tank") && tanks.filter(t => t.hp > 0).length < (alert >= 5 ? 4 : 1) && since("tank") > 60 && (alert >= 5 || (armyTried && K >= 80 && simT - alertT > 150))) { respLog.tank = simT; addTank(...edgePointNear(cl.x, cl.y)); scenUse("tank"); logE("Штаб направил танк", "good"); sfx.radio(); }
-    // авиаудар: только по плотному скоплению вдали от людей и своих, и пока город не потерян — только там, где снаряд не заденет целые дома
+    // авиаудар: только по плотному скоплению вдали от людей и своих и только там, где бомба не заденет целые дома
     let troops = 0; near(cl.x, cl.y, 130, a => { if (a.state === "alive" && (a.role === "army" || a.role === "police")) troops++; });
-    const openGround = alert >= 5 || !buildings.some(b => b.state === "ok" && Math.hypot(clamp(cl.x, b.x0, b.x1) - cl.x, clamp(cl.y, b.y0, b.y1) - cl.y) < 78);
+    // по жилым кварталам штурмовик не бьёт никогда — даже когда город потерян: целые дома в 80 м от цели исключают удар
+    const openGround = !buildings.some(b => b.state === "ok" && Math.hypot(clamp(cl.x, b.x0, b.x1) - cl.x, clamp(cl.y, b.y0, b.y1) - cl.y) < 78);
     if (scenOk("strike") && since("strike") > 90 && (alert >= 5 || simT - alertT > 60) && cl.n >= 15 && civNear(cl.x, cl.y, 90) === 0 && troops === 0 && openGround && !strikes.length) { respLog.strike = simT; strikes.push({ x: cl.x, y: cl.y, t: 3 }); scenUse("strike"); logE("Авиация бьёт по скоплению зомби", "bad"); radio("Штаб: штурмовик на боевом курсе, всем отойти"); }
   }
   // 5. город потерян: вторая волна вертолётов без пауз, армия отходит к лагерям
