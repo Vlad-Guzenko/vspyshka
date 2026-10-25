@@ -54,7 +54,8 @@ function startGame() {
 /* ---------- настройки: громкость и графика ---------- */
 const prefs = { master: 80, weap: 90, voice: 85, amb: 70, music: 50, quality: "medium", particles: "high", shadows: true, post: true, realPeople: true, radioVoice: true, slowmo: true };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem("vspyshka-prefs") || "{}")); } catch (e) {}
-function savePrefs() { try { localStorage.setItem("vspyshka-prefs", JSON.stringify(prefs)); } catch (e) {} }
+// сохраняем выбор игрока, а не временное снижение автоподстройки (perf.saved — что было до него)
+function savePrefs() { try { localStorage.setItem("vspyshka-prefs", JSON.stringify({ ...prefs, ...(typeof perf !== "undefined" ? perf.saved : {}) })); } catch (e) {} }
 function applyPrefs() {
   if (master) master.gain.value = muted ? 0 : prefs.master / 100; if (busW) busW.gain.value = prefs.weap / 100; if (busV) busV.gain.value = prefs.voice / 100; if (ambBus) ambBus.gain.value = prefs.amb / 100; if (musicBus) musicBus.gain.value = musicOn ? prefs.music / 100 : 0;
   const q = prefs.quality, pr = q === "low" ? .75 : q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1;
@@ -68,6 +69,7 @@ function applyPrefs() {
 }
 $("settings").addEventListener("input", e => {
   const t = e.target, k = t.id.replace("s_", "");
+  if (typeof perf !== "undefined") delete perf.saved[k]; // игрок сам выбрал — его выбор и сохраняем
   if (t.type === "range") prefs[k] = +t.value;
   else if (t.type === "checkbox") prefs[k] = t.checked;
   else prefs[k] = t.value;

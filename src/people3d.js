@@ -1,6 +1,6 @@
 /* ---------- настоящие люди вблизи камеры: скелет и анимации ---------- */
 // модель Quaternius «Animated Human» (CC0): ходьба, бег, стойка, удар, смерть; цвета — палитра 32×32 на человека
-const REAL = { ready: false, N: 44, slots: [], clips: {}, tpl: null, scale: 1, t: 0 };
+const REAL = { ready: false, N: 64, slots: [], clips: {}, tpl: null, scale: 1, t: 0 };
 function initRealPeople() {
   if (!window.HUMAN_FBX || !THREE.FBXLoader || !THREE.SkeletonUtils) return;
   try {
@@ -32,6 +32,15 @@ function makeSlot() {
   const hat = new THREE.Group(); hat.visible = false; holder.add(hat);
   const capM = new THREE.Mesh(PARTS.cap, hatMat), visM = new THREE.Mesh(PARTS.visor, hatMat), domeM = new THREE.Mesh(PARTS.dome, hatMat);
   hat.add(capM, visM, domeM); hat.userData = { capM, visM, domeM, hatMat };
+  // у модели босые ступни (они в полосе кожи палитры) — обуваем: капсула на кости стопы, от пятки к носку
+  const shoeMat = new THREE.MeshStandardMaterial({ color: pick([0x1e1c1a, 0x2a2420, 0x3a2a20, 0x1a1d22, 0xd8d8d0]), roughness: .6 });
+  for (const side of ["Left", "Right"]) {
+    const foot = bones[side + "Foot"], toe = bones[side + "ToeBase"]; if (!foot || !toe) continue;
+    const d = toe.position.clone(), L = d.length(); if (L < 1e-3) continue;
+    const sh = new THREE.Mesh(new THREE.CapsuleGeometry(L * .36, L * 1.45, 3, 8), shoeMat);
+    sh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); sh.position.copy(d).multiplyScalar(.38); sh.castShadow = true; // от пятки до носка
+    foot.add(sh);
+  }
   return { holder, root, mixer, actions, cur: null, agent: null, cv: cv2, tex, mat, bones, gun, hat, palKey: "" };
 }
 // палитра: кожа, тёмные детали, волосы, рубашка, брюки
@@ -82,8 +91,8 @@ function updateRealPeople(dt) {
   // раз в четверть секунды выбираем ближайших к камере
   if (REAL.t <= 0) {
     REAL.t = .25;
-    const cp = camera.position, maxD = fps.on ? 110 : 150, cand = [];
-    if (prefs.realPeople !== false && (fps.on || camC.dist < 420)) for (const a of agents) {
+    const cp = camera.position, maxD = fps.on ? 120 : prefs.quality === "low" ? 150 : 200, cand = [];
+    if (prefs.realPeople !== false && (fps.on || camC.dist < 520)) for (const a of agents) {
       if (a.state === "saved" || (a.hidden && !a.onRoof) || (a.player && fps.on)) continue;
       const d = Math.hypot(X(a.x) - cp.x, Z(a.y) - cp.z, (a.onRoof ? a.roofZ : 0) - cp.y * .3);
       if (d < maxD) cand.push([d, a]);

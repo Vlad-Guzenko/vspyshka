@@ -1,11 +1,21 @@
 /* ---------- машины: модели кузовов ---------- */
 // у каждой модели четыре части, каждая — отдельный InstancedMesh: краска (цвет машины), стёкла, тёмная отделка, светлая часть (фургон, тент, полоса);
 // модель строится в натуральную длину L и растягивается по длине до c.len * 18 — длины, по которой машина считается в симуляции
-const _cbox = (sx, sy, sz, x, y, z) => new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z);
+// кузова со скруглёнными рёбрами: прямоугольник со скруглёнными углами, выдавленный с фаской — все двенадцать рёбер мягкие
+function rboxGeo(sx, sy, sz, r) {
+  const hx = sx / 2 - r, hy = sy / 2 - r, c = Math.min(r, hx, hy) * .9, s = new THREE.Shape();
+  s.moveTo(-hx + c, -hy); s.lineTo(hx - c, -hy); s.quadraticCurveTo(hx, -hy, hx, -hy + c); s.lineTo(hx, hy - c); s.quadraticCurveTo(hx, hy, hx - c, hy);
+  s.lineTo(-hx + c, hy); s.quadraticCurveTo(-hx, hy, -hx, hy - c); s.lineTo(-hx, -hy + c); s.quadraticCurveTo(-hx, -hy, -hx + c, -hy);
+  const d = Math.max(.01, sz - 2 * r);
+  return new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 2, curveSegments: 3 }).translate(0, 0, -d / 2);
+}
+let CAR_ROUND = true; // скругляем только кузова машин; после постройки моделей — обычные коробки
+const _cbox = (sx, sy, sz, x, y, z) => (CAR_ROUND && Math.min(sx, sy, sz) >= 1.2 ? rboxGeo(sx, sy, sz, Math.min(.55, Math.min(sx, sy, sz) * .2)) : new THREE.BoxGeometry(sx, sy, sz)).translate(x, y, z);
 // кабина-трапеция: низ lb, верх lt (сдвинут на dx), высота h, ширина w; низ в точке (x, y0)
 function cabinGeo(lb, lt, h, w, x, y0, dx = 0) {
   const s = new THREE.Shape([new THREE.Vector2(-lb / 2, 0), new THREE.Vector2(lb / 2, 0), new THREE.Vector2(lt / 2 + dx, h), new THREE.Vector2(-lt / 2 + dx, h)]);
-  return new THREE.ExtrudeGeometry(s, { depth: w, bevelEnabled: false }).translate(x, y0, -w / 2);
+  // стойки и крыша кабины скруглены фаской
+  return new THREE.ExtrudeGeometry(s, { depth: Math.max(.1, w - .6), bevelEnabled: true, bevelThickness: .3, bevelSize: .3, bevelSegments: 2 }).translate(x, y0, -(w - .6) / 2);
 }
 function mergeGeo(list) {
   const gs = list.map(g => g.index ? g.toNonIndexed() : g);
@@ -170,7 +180,14 @@ const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
 const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
 for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
-const wheelGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 12).rotateX(Math.PI / 2);
+CAR_ROUND = false;
+const wheelGeo = (() => {
+  const tyre = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 16).rotateX(Math.PI / 2).toNonIndexed(), rim = new THREE.CylinderGeometry(.82, .82, 1.68, 12).rotateX(Math.PI / 2).toNonIndexed(), hub = new THREE.CylinderGeometry(.3, .3, 1.76, 8).rotateX(Math.PI / 2).toNonIndexed();
+  const parts = [[tyre, [.08, .08, .085]], [rim, [.55, .56, .58]], [hub, [.3, .3, .32]]], p = [], n = [], c = [];
+  for (const [g, col] of parts) { p.push(...g.attributes.position.array); n.push(...g.attributes.normal.array); for (let i = 0; i < g.attributes.position.count; i++) c.push(...col); }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(n, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(c, 3));
+  return g;
+})();
 const lightGeo = new THREE.BoxGeometry(.4, .8, 1.6);
 let cm = null, carCap = 0;
 function carModelOf(c) {
@@ -184,12 +201,13 @@ function makeCarMeshes(cap) {
   carCap = cap;
   const mk = (geo, mat, n, shadow = true) => { const m = new THREE.InstancedMesh(geo, mat, n); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.setColorAt(0, new THREE.Color()); scene.add(m); return m; };
   cm = { parts: [], byModel: {}, fixed: {
-    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .9 }), cap * 8),
+    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .75, metalness: .25 }), cap * 8),
     lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 4, false),
     beams: mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), cap, false),
     bars: mk(new THREE.BoxGeometry(1.4, .8, 2.4), new THREE.MeshBasicMaterial({ toneMapped: false }), 200, false),
   } };
   cm.fixed.beams.renderOrder = 2;
+  cm.fixed.wheels.instanceColor = null; // цвет шины и диска — в самой модели колеса
   // модель может достаться любой машине, поэтому ёмкость каждой — на весь парк; пустые не рисуются
   for (const k in CAR_MODELS) { const M = CAR_MODELS[k], list = []; for (const p of CAR_PARTS) if (M.geo[p]) { const part = { p, mesh: mk(M.geo[p], CAR_MATS[p], cap) }; list.push(part); cm.parts.push(part); } cm.byModel[k] = { list, n: 0 }; }
 }

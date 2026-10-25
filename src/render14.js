@@ -23,7 +23,7 @@ const steelPostMat = new THREE.MeshStandardMaterial({ color: 0x5c5f62, roughness
 const awningGeo = new THREE.BoxGeometry(1, .3, 2.6);
 // окна в пролётах по BAY: центры колонн окон на лицевой (+z) и задней (−z) гранях, как их кладёт boxUV
 function bayCenters(w, back) { const out = []; for (let i = 0; ; i++) { const x = BAY * (i + .5) - w / 2; if (x > w / 2 - 5) break; if (x >= -w / 2 + 5) out.push(back ? -x : x); } return out; }
-const BALC_RAIL = [0xe2e0d8, 0xb8b4aa, 0x8a8478, 0x6a5a48], BALC_GLAZE = [0xdcdcd2, 0xc9cfd2, 0xe8e2d0, 0x9aa8b0];
+const BALC_RAIL = [0xb2afa5, 0x9a968c, 0x8a8478, 0x6a5a48], BALC_GLAZE = [0xa9a99f, 0x9ca3a6, 0xb4ae9e, 0x7f8c94];
 function facadeDetails(b, obj, w, d) {
   const st = STYLES[b.style] || {}, apt = b.kind === "apt", old = b.kind === "oldhouse";
   if (!(apt || old) || st.curtain) return;

@@ -30,7 +30,7 @@ function updateCamera(dt) {
   camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
   camera.lookAt(camC.tx, lookY, camC.tz);
   shake = Math.max(0, shake - dt * 14);
-  scene.fog.near = camC.dist * 1.1 + 500; scene.fog.far = camC.dist * 4.2 + 2600; // горы за городом не тонут в дымке
+  scene.fog.near = camC.dist * .5 + 200; scene.fog.far = camC.dist * 3.4 + 2400; // воздушная перспектива: даль бледнеет
 }
 // доля отрезка от точки взгляда к камере, свободная от зданий (1 — вся); шаг 1.5 м, камера останавливается чуть ближе стены
 function cameraClearT(ax, ay, az, bx, by, bz) {
@@ -439,7 +439,7 @@ function frameBody(now) {
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
   updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
-  updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
+  updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);

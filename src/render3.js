@@ -282,7 +282,7 @@ function updateLighting(dt, simDt) {
   sun.intensity = (2.5 * day * (1 - gloom * .7) + .28 * nightK) * (1 - world.fogK * .3);
   sun.color.setHex(0xfff2dc).lerp(_lc1.setHex(0xff9a50), dusk * .8).lerp(_lc2.setHex(0x8fa8ff), nightK);
   hemi.intensity = (.14 + .5 * day * (1 - gloom * .3) + gloom * .1) * (scene.environment ? .55 : 1);
-  hemi.color.setHex(0xcfe0ff).lerp(_lc1.setHex(0x3a4a70), nightK);
+  hemi.color.setHex(0xe4eaf2).lerp(_lc1.setHex(0x3a4a70), nightK);
   R3.toneMappingExposure = 1 - nightK * .05 + world.flash * 2;
   const sp = camera.position;
   sunDisc.position.set(sp.x - Math.cos(az) * 7000, Math.sin((h - 6) / 12 * Math.PI) * 6000, sp.z - Math.sin(az) * 4000 - 2500);

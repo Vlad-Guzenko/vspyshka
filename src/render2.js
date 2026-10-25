@@ -1,22 +1,38 @@
 /* ---------- люди: одно тело из 9 частей на InstancedMesh, анимация в коде ---------- */
 // модель смотрит вдоль +X, рост 7,3 ед. (1,8 м), бёдра на высоте 3,6
 const HIP = 3.6, SHO = 6.05;
+// конечность: капсула с сужением к концу — бедро толще у таза, голень у щиколотки, плечо у локтя
+function limbGeo(r0, r1, len, seg = 10) {
+  const g = new THREE.CapsuleGeometry(1, len, 4, seg), p = g.attributes.position, h = len / 2;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    if (y > h) p.setXYZ(i, x * r0, h + (y - h) * r0, z * r0);
+    else if (y < -h) p.setXYZ(i, x * r1, -h + (y + h) * r1, z * r1);
+    else { const r = r0 + (r1 - r0) * (h - y) / len; p.setXYZ(i, x * r, y, z * r); }
+  }
+  g.computeVertexNormals(); return g.translate(0, -h, 0); // шарнир — в центре верхнего закругления
+}
+// туловище: тело вращения — таз, талия, грудь, покатые плечи; поперёк тела шире, чем спереди назад
+function torsoGeo(sx, sy, sz, k = 1) {
+  const pr = [[0, 0], [.78, .02], [.84, .55], [.75, 1.2], [.86, 1.85], [.97, 2.3], [.92, 2.52], [.62, 2.68], [.28, 2.76], [0, 2.8]].map(([r, y]) => new THREE.Vector2(r * k, y * sy / 2.8));
+  return new THREE.LatheGeometry(pr, 16).scale(sx / 1.95, 1, sz / 1.95 * 1.0);
+}
 const PARTS = {
-  legL: new THREE.BoxGeometry(.74, 1.8, .8).translate(0, -.9, 0),
-  shin: new THREE.BoxGeometry(.62, 1.8, .66).translate(0, -.9, 0),
-  shoe: new THREE.BoxGeometry(1.1, .4, .66).translate(.25, -.2, 0),
-  fore: new THREE.BoxGeometry(.5, 1.45, .5).translate(0, -.7, 0),
-  bag: new THREE.BoxGeometry(1.1, 1, .45),
+  legL: limbGeo(.43, .34, 1.8),
+  shin: limbGeo(.34, .25, 1.75),
+  shoe: new THREE.CapsuleGeometry(.3, .62, 4, 8).rotateZ(Math.PI / 2).scale(1, .62, 1.05).translate(.25, -.18, 0),
+  fore: limbGeo(.24, .21, 1.3),
+  bag: new THREE.CapsuleGeometry(.4, .35, 3, 8).scale(1.25, 1, .55),
   skirt: new THREE.CylinderGeometry(.95, 1.35, 1.5, 10).translate(0, -.75, 0),
-  torso: new THREE.BoxGeometry(1.15, 2.7, 1.95).translate(0, 1.35, 0),
-  arm: new THREE.BoxGeometry(.56, 1.4, .56).translate(0, -.65, 0),
+  torso: torsoGeo(1.15, 2.7, 1.95),
+  arm: limbGeo(.3, .25, 1.25),
   head: new THREE.SphereGeometry(.62, 12, 9).scale(.95, 1.12, .9),
   hair: new THREE.SphereGeometry(.68, 12, 8, 0, TAU, 0, Math.PI * .55).scale(1, 1.05, .95),
   gun: new THREE.BoxGeometry(3, .38, .3),
   cap: new THREE.CylinderGeometry(.7, .72, .42, 12).translate(0, .2, 0),
   visor: new THREE.BoxGeometry(.9, .08, 1.1).translate(.7, .1, 0),
   dome: new THREE.SphereGeometry(.76, 12, 8, 0, TAU, 0, Math.PI * .5).scale(1, 1, .95),
-  vest: new THREE.BoxGeometry(1.32, 1.8, 2.12).translate(0, 1.55, 0),
+  vest: torsoGeo(1.3, 2.2, 2.05, 1.06).translate(0, .45, 0),
   beard: new THREE.BoxGeometry(.42, .5, .85).translate(.2, -.1, 0),
   glasses: new THREE.BoxGeometry(.16, .26, 1.3),
   lhair: new THREE.BoxGeometry(.6, 1.5, 1.25).translate(-.1, -.5, 0),

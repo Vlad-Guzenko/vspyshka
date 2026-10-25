@@ -6356,7 +6356,7 @@ R3.shadowMap.type = THREE.PCFShadowMap; // мягкие тени дороже, �
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(42, 1, 3, 12000);
 scene.fog = new THREE.Fog(0xaebccb, 900, 3200);
-const hemi = new THREE.HemisphereLight(0xcfe0ff, 0x52483c, .6);
+const hemi = new THREE.HemisphereLight(0xe4eaf2, 0x52483c, .6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0d8, 2.4);
 sun.position.set(-520, 760, -340);
@@ -6485,6 +6485,7 @@ function paintGround(g) {
     // бульвар: газон с липами посередине
     if (e.trees) { g.strokeStyle = "#4e6e36"; g.lineWidth = 7; g.lineCap = "round"; if (along(e, t0 + 6, t1 - 6, 0)) g.stroke(); g.strokeStyle = "#b9b8b0"; g.lineWidth = .8; g.lineCap = "butt"; for (const o of [-3.9, 3.9]) if (along(e, t0 + 6, t1 - 6, o)) g.stroke(); }
   }
+  markingWear(g);
   // у светофоров — зебры и стоп-линии; на второстепенных въездах — «зубы» уступи дорогу
   g.fillStyle = "rgba(236,236,230,.85)";
   for (const n of RN) {
@@ -6505,15 +6506,75 @@ function paintGround(g) {
       }
     }
   }
+  // износ асфальта: колея по полосам, грязь у бордюров, заплаты и трещины по длине улиц, масло у стоп-линий, стёртая разметка
+  asphaltWear(g, along);
   // люки
   for (let i = 0; i < 70 && RE.length; i++) { const e = pick(RE); if (e.rural) continue; const p = edgePos(e, rnd(e.ra + 10, Math.max(e.ra + 11, e.len - e.rb - 10))), o = rnd(-e.hw * .6, e.hw * .6); g.fillStyle = "#2a2b2c"; g.beginPath(); g.arc(p.x - p.ty * o, p.y + p.tx * o, 2.4, 0, TAU); g.fill(); g.strokeStyle = "#4a4b4c"; g.lineWidth = .3; g.stroke(); }
   g.lineJoin = "miter"; g.lineCap = "butt";
   g.restore();
 }
+// износ асфальта на текстуре земли (в мировых единицах; g уже масштабирован)
+function asphaltWear(g, along) {
+  g.save(); g.lineCap = "round"; g.lineJoin = "round";
+  for (const e of RE) {
+    const t0 = e.ra + 1, t1 = e.len - e.rb - 1; if (t1 - t0 < 6) continue;
+    // колея: колёса за годы протирают по две тёмные полосы на каждой полосе движения
+    const lanes = e.oneway ? [0] : e.hw >= 22 ? [-e.hw * .75, -e.hw * .25, e.hw * .25, e.hw * .75] : [-e.hw / 2, e.hw / 2];
+    g.lineWidth = 1.3;
+    for (const lc of lanes) for (const w of [-2.1, 2.1]) { g.strokeStyle = `rgba(16,16,18,${rnd(.05, .1)})`; if (along(e, t0, t1, lc + w)) g.stroke(); }
+    // у бордюров копится грязь и песок
+    if (!e.rural) { g.lineWidth = 1.6; g.strokeStyle = "rgba(70,60,48,.14)"; for (const o of [-e.hw + .8, e.hw - .8]) if (along(e, t0, t1, o)) g.stroke(); }
+    else { g.lineWidth = 2.4; g.strokeStyle = "rgba(96,88,64,.16)"; for (const o of [-e.hw + 1.1, e.hw - 1.1]) if (along(e, t0, t1, o)) g.stroke(); }
+    // заплаты: свежий тёмный асфальт и выгоревшие светлые пятна
+    for (let k = 0, n = Math.round((t1 - t0) / 38 * rnd(.6, 1.4)); k < n; k++) {
+      const p = edgePos(e, rnd(t0, t1)), o = rnd(-e.hw * .75, e.hw * .75), x = p.x - p.ty * o, y = p.y + p.tx * o;
+      g.save(); g.translate(x, y); g.rotate(Math.atan2(p.ty, p.tx) + rnd(-.08, .08));
+      const w = rnd(5, 20), h = rnd(3, Math.min(10, e.hw)), fresh = Math.random() < .6;
+      g.fillStyle = fresh ? `rgba(22,24,26,${rnd(.25, .45)})` : `rgba(128,124,116,${rnd(.1, .2)})`; g.fillRect(-w / 2, -h / 2, w, h);
+      if (fresh) { g.strokeStyle = "rgba(12,12,12,.35)"; g.lineWidth = .35; g.strokeRect(-w / 2, -h / 2, w, h); }
+      g.restore();
+    }
+    // трещины: продольные вдоль колеи и поперечные, извилистые
+    g.strokeStyle = "rgba(14,14,15,.42)";
+    for (let k = 0, n = Math.round((t1 - t0) / 26 * rnd(.5, 1.5)); k < n; k++) {
+      const t = rnd(t0, t1), p = edgePos(e, t), lon = Math.random() < .55, o = lon ? pick(lanes) + rnd(-3, 3) : rnd(-e.hw * .8, e.hw * .8);
+      let x = p.x - p.ty * o, y = p.y + p.tx * o, a = Math.atan2(p.ty, p.tx) + (lon ? 0 : Math.PI / 2) + rnd(-.3, .3);
+      g.lineWidth = rnd(.3, .55); g.beginPath(); g.moveTo(x, y);
+      for (let s = 0, m = 4 + Math.floor(Math.random() * 9); s < m; s++) { a += rnd(-.6, .6); const l = rnd(1.2, 3.2); x += Math.cos(a) * l; y += Math.sin(a) * l; g.lineTo(x, y); if (Math.random() < .2) { const bx = x + Math.cos(a + 1.2) * 1.5, by = y + Math.sin(a + 1.2) * 1.5; g.lineTo(bx, by); g.moveTo(x, y); } }
+      g.stroke();
+    }
+  }
+  // масляные пятна в полосах перед перекрёстками — там машины стоят
+  for (const n of RN) {
+    if (n.ed.length < 3) continue;
+    for (const e of n.ed) {
+      const atA = e.a === n, r = atA ? e.ra : e.rb;
+      for (let k = 0; k < 3; k++) {
+        const t = atA ? r + rnd(4, 30) : e.len - r - rnd(4, 30); if (t < 0 || t > e.len) continue;
+        const p = edgePos(e, t), o = (atA ? -1 : 1) * e.hw / 2 * (e.oneway ? 0 : 1) + rnd(-1.5, 1.5), x = p.x - p.ty * o, y = p.y + p.tx * o, rr = rnd(1.5, 3.5);
+        const gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, "rgba(8,8,10,.32)"); gr.addColorStop(1, "rgba(8,8,10,0)"); g.fillStyle = gr; g.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+      }
+    }
+  }
+  g.restore();
+}
+// стёртая разметка: поверх линий — пятна цвета асфальта
+function markingWear(g) {
+  g.save();
+  for (const e of RE) {
+    if (e.rural && Math.random() < .5) continue;
+    const t0 = e.ra + 2, t1 = e.len - e.rb - 2;
+    for (let t = t0; t < t1; t += rnd(3, 9)) {
+      const p = edgePos(e, t), o = pick(e.hw >= 22 ? [-.8, .8, -e.hw / 2, e.hw / 2] : [0]) + rnd(-.3, .3);
+      g.fillStyle = e.rural ? "rgba(69,72,74,.55)" : "rgba(59,62,64,.55)"; g.fillRect(p.x - p.ty * o - rnd(.5, 1.5), p.y + p.tx * o - .6, rnd(1, 3), 1.2);
+    }
+  }
+  g.restore();
+}
 const groundCv = document.createElement("canvas"); groundCv.width = W * GS; groundCv.height = H * GS;
 const groundTex = new THREE.CanvasTexture(groundCv);
 groundTex.encoding = THREE.sRGBEncoding; groundTex.anisotropy = Math.min(16, R3.capabilities.getMaxAnisotropy());
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(W, H, GW, GH), new THREE.MeshStandardMaterial({ map: groundTex, roughness: .93, metalness: 0 }));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(W, H, GW, GH), new THREE.MeshStandardMaterial({ map: groundTex, roughness: .93, metalness: 0, envMapIntensity: .45 }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
 scene.add(ground);
 const grassTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#4a5a37"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#55663e", "#405030", "#5d6d44", "#3b4a2c", "#6a6a48"], 2); });
@@ -6596,10 +6657,34 @@ const STYLES = [
   { wall: "#f1ede3", glass: "#2c3a48", frame: "#e0d2b0", win: .32, arch: true, house: true }, // храм: белёные стены, арочные окна, без витрин
   { wall: "#6c7050", glass: "#33404a", frame: "#c7c6b4", win: .42 }, // воинская часть: казармы и штаб
 ];
+// фактура стены: кирпичная кладка у красных и рыжих стен, швы панелей у панельных домов, неровная штукатурка у остальных
+function wallDetail(g, w, h, st) {
+  const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, gg = (n >> 8) & 255, b = n & 255;
+  const brick = !st.metal && !st.curtain && r > gg + 25 && r > b + 30 && r < 200;
+  if (brick) {
+    // кладка: ряды по 4 пикселя, перевязка в полкирпича, каждый кирпич своего тона, светлые швы
+    for (let y = 0, row = 0; y < h; y += 4, row++) for (let x = (row % 2) * -6; x < w; x += 12) {
+      g.fillStyle = shade(st.wall, rnd(-22, 14)); g.fillRect(x, y, 11, 3);
+    }
+    g.fillStyle = "rgba(220,210,190,.18)"; for (let y = 3; y < h; y += 4) g.fillRect(0, y, w, 1);
+    return;
+  }
+  if (!st.house && !st.metal && !st.curtain && !st.arch) {
+    // панельный дом: швы между панелями — по этажам и через две оси окон, тон панелей чуть разный
+    for (let f = 0; f < TFL; f++) for (let k = 0; k < TBX; k += 2) { g.fillStyle = `rgba(${Math.random() < .5 ? "0,0,0" : "255,255,255"},${rnd(.02, .06)})`; g.fillRect(k * TPX, h - (f + 1) * TPY, TPX * 2, TPY); }
+    g.fillStyle = "rgba(0,0,0,.2)"; for (let f = 0; f < TFL; f++) g.fillRect(0, h - f * TPY - TPY * .02 - 1, w, 1.5);
+    for (let k = 0; k <= TBX; k += 2) g.fillRect(k * TPX - 1, 0, 1.5, h);
+    return;
+  }
+  if (!st.metal && !st.curtain) {
+    // штукатурка: крупные мягкие пятна, местами отвалившаяся краска
+    for (let i = 0; i < 260; i++) { const x = rnd(0, w), y = rnd(0, h), rr = rnd(6, 26); const rg = g.createRadialGradient(x, y, 0, x, y, rr); const dark = Math.random() < .55; rg.addColorStop(0, dark ? "rgba(60,50,40,.07)" : "rgba(255,250,240,.06)"); rg.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = rg; g.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
+  }
+}
 function facadeTex(st, emissive) {
   return canvasTex(TBX * TPX, TFL * TPY, (g, w, h) => {
     if (emissive) { g.fillStyle = "#000"; g.fillRect(0, 0, w, h); }
-    else { g.fillStyle = st.wall; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 9000, ["rgba(0,0,0,.06)", "rgba(255,255,255,.05)"], 2); }
+    else { g.fillStyle = st.wall; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 9000, ["rgba(0,0,0,.06)", "rgba(255,255,255,.05)"], 2); wallDetail(g, w, h, st); }
     if (st.metal) { if (!emissive) for (let x = 0; x < w; x += 8) { g.fillStyle = "rgba(0,0,0,.16)"; g.fillRect(x, 0, 3, h); g.fillStyle = "rgba(255,255,255,.08)"; g.fillRect(x + 4, 0, 2, h); } if (st.blank) return; }
     if (st.curtain) {
       // стеклянная навесная стена: сплошное стекло, тонкие импосты
@@ -6623,14 +6708,30 @@ function facadeTex(st, emissive) {
         if (Math.random() < (ground ? .5 : .32)) { g.fillStyle = pick(["#ffcf8a", "#ffd9a0", "#f6e7c8", "#bcd4ff", "#ffb870"]); g.globalAlpha = rnd(.5, 1); g.fillRect(wx + 2, wy + 2, ww - 4, wh - 4); g.globalAlpha = 1; }
         continue;
       }
+      // откос: тень в проёме сверху и слева, рама
+      g.fillStyle = "rgba(0,0,0,.28)"; g.fillRect(wx - 3, wy - 3, ww + 5, wh + 4);
       g.fillStyle = st.frame; g.fillRect(wx - 2, wy - 2, ww + 4, wh + 4);
       if (st.arch) { g.beginPath(); g.arc(wx + ww / 2, wy, ww / 2 + 2, Math.PI, 0); g.fill(); g.fillStyle = shade(st.wall, -25); g.fillRect(x0, y0 + TPY - 4, TPX, 4); g.fillStyle = st.frame; }
-      const gr = g.createLinearGradient(wx, wy, wx + ww, wy + wh);
-      gr.addColorStop(0, st.glass); gr.addColorStop(.5, shade(st.glass, rnd(10, 35))); gr.addColorStop(1, shade(st.glass, -15));
+      // стекло: за ним тёмная комната, отражение неба только сверху, у каждого окна своё
+      const kind = Math.random(), dark = kind < .22;
+      const gr = g.createLinearGradient(wx, wy, wx + ww * .3, wy + wh);
+      gr.addColorStop(0, shade(st.glass, dark ? -10 : rnd(18, 40))); gr.addColorStop(.45, shade(st.glass, dark ? -30 : rnd(-12, 4))); gr.addColorStop(1, shade(st.glass, rnd(-38, -26)));
       g.fillStyle = gr; g.fillRect(wx, wy, ww, wh);
-      if (!ground && Math.random() < .35) { g.fillStyle = pick(["rgba(230,220,200,.55)", "rgba(180,60,50,.35)", "rgba(200,200,190,.5)"]); g.fillRect(wx, wy, ww * rnd(.2, .5), wh); } // шторы
+      if (!ground) {
+        if (kind > .78) { g.fillStyle = "rgba(225,218,200,.6)"; for (let yy = wy + 1; yy < wy + wh * rnd(.3, .95); yy += 3) g.fillRect(wx, yy, ww, 1.4); } // жалюзи
+        else if (kind > .45) { g.fillStyle = pick(["rgba(230,220,200,.6)", "rgba(180,60,50,.4)", "rgba(200,200,190,.55)", "rgba(120,140,110,.45)"]); const cw = ww * rnd(.18, .4); g.fillRect(wx, wy, cw, wh); if (Math.random() < .5) g.fillRect(wx + ww - cw, wy, cw, wh); } // шторы
+        else if (kind > .35) { g.fillStyle = "rgba(255,226,170,.12)"; g.fillRect(wx + 2, wy + wh * .4, ww - 4, wh * .6); } // в глубине комнаты лампа
+      }
       g.fillStyle = st.frame; g.fillRect(wx + ww / 2 - 1, wy, 2, wh);
-      if (!ground) { g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(wx - 3, wy + wh + 2, ww + 6, 3); }
+      if (!st.house && !ground && Math.random() < .5) g.fillRect(wx, wy + wh * .3, ww, 2); // фрамуга
+      if (!ground) {
+        // подоконник со светлой кромкой и тенью под ним, кое-где кондиционер
+        g.fillStyle = shade(st.wall.length === 7 ? st.wall : "#999999", 28); g.fillRect(wx - 4, wy + wh + 1, ww + 8, 3);
+        g.fillStyle = "rgba(0,0,0,.22)"; g.fillRect(wx - 3, wy + wh + 4, ww + 6, 3);
+        if (!st.house && Math.random() < .07) { const ax = wx + rnd(0, ww - 16); g.fillStyle = "#cfd0cc"; g.fillRect(ax, wy + wh + 6, 16, 10); g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(ax + 2, wy + wh + 8, 12, 1); g.fillRect(ax + 2, wy + wh + 11, 12, 1); g.fillRect(ax, wy + wh + 16, 16, 2); }
+        // потёк из-под подоконника
+        if (Math.random() < .3) { const sx = wx + rnd(0, ww), sl = rnd(8, 30); const sg = g.createLinearGradient(0, wy + wh + 4, 0, wy + wh + 4 + sl); sg.addColorStop(0, "rgba(40,36,30,.22)"); sg.addColorStop(1, "rgba(40,36,30,0)"); g.fillStyle = sg; g.fillRect(sx, wy + wh + 4, rnd(2, 5), sl); }
+      }
       else if (Math.random() < .5) { g.fillStyle = pick(["#7a2a24", "#24507a", "#2e6a3c", "#8a6a20"]); g.fillRect(x0 + 2, y0 + 4, TPX - 4, 7); }
     }
     if (!emissive) { g.fillStyle = "rgba(0,0,0,.18)"; for (let f = 1; f < TFL; f++) g.fillRect(0, h - f * TPY - 2, w, 3); }
@@ -6640,7 +6741,7 @@ function shade(hex, d) { const n = parseInt(hex.slice(1), 16); const c = k => cl
 const facadeMats = STYLES.map(st => { const m = facadeTex(st, false), e = facadeTex(st, true); m.wrapS = m.wrapT = e.wrapS = e.wrapT = THREE.RepeatWrapping; return new THREE.MeshStandardMaterial({ map: m, emissiveMap: e, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0, roughness: .78, metalness: .05 }); });
 const roofTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#5a5b5c"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 30000, ["#4f5051", "#636465", "#48494a", "#6b6c6d"], 1); g.strokeStyle = "rgba(0,0,0,.12)"; g.lineWidth = 1; for (let y = 0; y < h; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); } });
 roofTex.wrapS = roofTex.wrapT = THREE.RepeatWrapping;
-const roofMat = new THREE.MeshStandardMaterial({ map: roofTex, roughness: .95 });
+const roofMat = new THREE.MeshStandardMaterial({ map: roofTex, roughness: .95, envMapIntensity: .35 }); // отражённое небо не красит крыши в синий
 const parapetMat = new THREE.MeshStandardMaterial({ color: 0x6d6b66, roughness: .9 });
 const tileTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#fff"; g.fillRect(0, 0, w, h); for (let y = 0; y < h; y += 16) for (let x = (y / 16 % 2) * 8; x < w; x += 16) { g.fillStyle = `rgba(0,0,0,${rnd(.05, .25)})`; g.fillRect(x, y, 15, 14); g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(x, y + 13, 15, 2); } });
 tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping; tileTex.repeat.set(.12, .12);
@@ -6738,6 +6839,7 @@ function buildCity() {
   }
   const box = new THREE.BoxGeometry(1, 1, 1);
   roofStuff = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ roughness: .85 }), Math.max(1, instBoxes.length));
+  if (typeof weatherMat === "function") weatherMat(roofStuff.material, 1.1);
   const m = new THREE.Matrix4(), col = new THREE.Color();
   for (const b of buildings) { b.roofIdx = []; b.roofBox = []; }
   const rq = new THREE.Quaternion(), ry = new THREE.Vector3(0, 1, 0), rp = new THREE.Vector3(), rsc = new THREE.Vector3();
@@ -6750,11 +6852,37 @@ function buildCity() {
 let roofStuff = null;
 
 /* ---------- деревья, фонари, фонтаны ---------- */
-let lampHeads, lampPools, lampPole, lampArm, treeCrown, treeTrunk;
+let lampHeads, lampPools, lampPole, lampArm, treeCrown, treeTrunk, treeLeaf = null, treeCrownM = null, leafLod = null;
+const LEAF_CAP = 3000;
+// листва рядом с камерой: кроны ближних деревьев переезжают из шаров в листву, при сдвиге камеры — обратно
+const _lc = new THREE.Color();
+function updateLeafLOD() {
+  if (!treeLeaf || !treeCrownM || !leafLod) return;
+  const off = prefs.quality === "low" || camC.dist > 650;
+  const cx = camC.tx + W / 2, cy = camC.tz + H / 2, R = clamp(camC.dist * .75, 150, 320);
+  if (!off && !leafLod.dirty && Math.hypot(cx - leafLod.cx, cy - leafLod.cy) < 45 && Math.abs(R - leafLod.r) < 35) return;
+  if (off && !leafLod.near.length && treeLeaf.count === 0) return;
+  const A = treeCrown.instanceMatrix.array, Lm = treeLeaf.instanceMatrix.array;
+  for (const i of leafLod.near) A.set(treeCrownM.subarray(i * 48, i * 48 + 48), i * 48);
+  const near = [];
+  if (!off) for (let i = 0; i < trees.length && near.length * 3 < LEAF_CAP; i++) { const t = trees[i]; if (Math.abs(t.x - cx) < R && Math.abs(t.y - cy) < R && Math.hypot(t.x - cx, t.y - cy) < R) near.push(i); }
+  let n = 0;
+  for (const i of near) for (let k = 0; k < 3; k++) { const j = i * 3 + k; Lm.set(treeCrownM.subarray(j * 16, j * 16 + 16), n * 16); treeCrown.getColorAt(j, _lc); treeLeaf.setColorAt(n, _lc); A.fill(0, j * 16, j * 16 + 16); n++; }
+  treeLeaf.count = n; treeLeaf.instanceMatrix.needsUpdate = true; if (treeLeaf.instanceColor) treeLeaf.instanceColor.needsUpdate = true; treeCrown.instanceMatrix.needsUpdate = true;
+  leafLod = { cx, cy, r: R, near, dirty: false };
+}
 function buildTrees() {
   treeTrunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.7, 1.1, 1, 6).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 }), Math.max(1, trees.length));
-  const crownGeo = organicCrown();
-  treeCrown = new THREE.InstancedMesh(crownGeo, new THREE.MeshStandardMaterial({ roughness: .85, vertexColors: true, envMapIntensity: .4 }), Math.max(1, trees.length * 3));
+  // кроны: у всех деревьев — бугристые шары; у деревьев рядом с камерой их подменяют кроны из листвы (updateLeafLOD):
+  // деревьев в городе тысячи, и листва на всех разом не по силам видеокарте
+  const crownGeo = organicCrown(), sphereMat = new THREE.MeshStandardMaterial({ roughness: .9, vertexColors: true, envMapIntensity: .3, normalMap: typeof leafNormal !== "undefined" ? leafNormal : null, normalScale: new THREE.Vector2(1.4, 1.4) });
+  treeCrown = new THREE.InstancedMesh(crownGeo, sphereMat, Math.max(1, trees.length * 3));
+  if (treeLeaf) { cityGroup.remove(treeLeaf); treeLeaf.dispose(); treeLeaf = null; }
+  if (typeof leafCrownGeo === "function") {
+    const lm = leafMaterial(); treeLeaf = new THREE.InstancedMesh(leafCrownGeo(), lm, LEAF_CAP); treeLeaf.customDepthMaterial = lm.userData.depth;
+    treeLeaf.count = 0; treeLeaf.frustumCulled = false; treeLeaf.castShadow = treeLeaf.receiveShadow = true; treeLeaf.setColorAt(0, new THREE.Color()); cityGroup.add(treeLeaf);
+  }
+  leafLod = { cx: 1e9, cy: 1e9, r: 0, near: [], dirty: true };
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
   trees.forEach((t, i) => {
     const ty = gY(t.x, t.y);
@@ -6765,11 +6893,12 @@ function buildTrees() {
       const r = trr * rnd(.6, .9);
       q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
       m.compose(new THREE.Vector3(X(t.x) + rnd(-trr, trr) * .4, ty + th * rnd(.6, .85), Z(t.y) + rnd(-trr, trr) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r));
-      treeCrown.setMatrixAt(i * 3 + k, m); col.setHSL(rnd(.22, .3), rnd(.35, .5), rnd(.2, .3)); treeCrown.setColorAt(i * 3 + k, col);
+      treeCrown.setMatrixAt(i * 3 + k, m); col.setHSL(rnd(.2, .29), rnd(.22, .38), rnd(.17, .26)); treeCrown.setColorAt(i * 3 + k, col);
     }
   });
   treeTrunk.castShadow = treeCrown.castShadow = true; treeCrown.receiveShadow = true;
   cityGroup.add(treeTrunk, treeCrown);
+  treeCrownM = treeCrown.instanceMatrix.array.slice();
   // лесополоса за городом, кроме воды
   const out = [];
   const wet = (x, y) => waterD(x, y) < 8;
@@ -6782,7 +6911,7 @@ function buildTrees() {
     if (hh > 330 || sl > .55) continue;
     out.push([x, y, rnd(10, 19) * (hh > 180 ? .7 : 1), rnd(26, 50) * (hh > 180 ? .7 : 1), hh]);
   }
-  const ot = new THREE.InstancedMesh(treeTrunk.geometry, treeTrunk.material, Math.max(1, out.length)), oc = new THREE.InstancedMesh(crownGeo, treeCrown.material, Math.max(1, out.length * 2));
+  const ot = new THREE.InstancedMesh(treeTrunk.geometry, treeTrunk.material, Math.max(1, out.length)), oc = new THREE.InstancedMesh(crownGeo, sphereMat, Math.max(1, out.length * 2));
   out.forEach(([x, y, r, h, hh], i) => {
     m.makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)); ot.setMatrixAt(i, m);
     for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); m.compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)); oc.setMatrixAt(i * 2 + k, m); col.setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)); oc.setColorAt(i * 2 + k, col); }
@@ -6792,6 +6921,7 @@ function buildTrees() {
 }
 function refreshTrees() {
   if (!treeCrown) return;
+  if (leafLod) leafLod.dirty = true;
   const col = new THREE.Color("#1b1714");
   trees.forEach((t, i) => { if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) treeCrown.setColorAt(i * 3 + k, col); } });
   if (treeCrown.instanceColor) treeCrown.instanceColor.needsUpdate = true;
@@ -7096,22 +7226,38 @@ function flushChunks() { if (!dirtyChunks.size) return; for (const k of dirtyChu
 /* ---------- люди: одно тело из 9 частей на InstancedMesh, анимация в коде ---------- */
 // модель смотрит вдоль +X, рост 7,3 ед. (1,8 м), бёдра на высоте 3,6
 const HIP = 3.6, SHO = 6.05;
+// конечность: капсула с сужением к концу — бедро толще у таза, голень у щиколотки, плечо у локтя
+function limbGeo(r0, r1, len, seg = 10) {
+  const g = new THREE.CapsuleGeometry(1, len, 4, seg), p = g.attributes.position, h = len / 2;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    if (y > h) p.setXYZ(i, x * r0, h + (y - h) * r0, z * r0);
+    else if (y < -h) p.setXYZ(i, x * r1, -h + (y + h) * r1, z * r1);
+    else { const r = r0 + (r1 - r0) * (h - y) / len; p.setXYZ(i, x * r, y, z * r); }
+  }
+  g.computeVertexNormals(); return g.translate(0, -h, 0); // шарнир — в центре верхнего закругления
+}
+// туловище: тело вращения — таз, талия, грудь, покатые плечи; поперёк тела шире, чем спереди назад
+function torsoGeo(sx, sy, sz, k = 1) {
+  const pr = [[0, 0], [.78, .02], [.84, .55], [.75, 1.2], [.86, 1.85], [.97, 2.3], [.92, 2.52], [.62, 2.68], [.28, 2.76], [0, 2.8]].map(([r, y]) => new THREE.Vector2(r * k, y * sy / 2.8));
+  return new THREE.LatheGeometry(pr, 16).scale(sx / 1.95, 1, sz / 1.95 * 1.0);
+}
 const PARTS = {
-  legL: new THREE.BoxGeometry(.74, 1.8, .8).translate(0, -.9, 0),
-  shin: new THREE.BoxGeometry(.62, 1.8, .66).translate(0, -.9, 0),
-  shoe: new THREE.BoxGeometry(1.1, .4, .66).translate(.25, -.2, 0),
-  fore: new THREE.BoxGeometry(.5, 1.45, .5).translate(0, -.7, 0),
-  bag: new THREE.BoxGeometry(1.1, 1, .45),
+  legL: limbGeo(.43, .34, 1.8),
+  shin: limbGeo(.34, .25, 1.75),
+  shoe: new THREE.CapsuleGeometry(.3, .62, 4, 8).rotateZ(Math.PI / 2).scale(1, .62, 1.05).translate(.25, -.18, 0),
+  fore: limbGeo(.24, .21, 1.3),
+  bag: new THREE.CapsuleGeometry(.4, .35, 3, 8).scale(1.25, 1, .55),
   skirt: new THREE.CylinderGeometry(.95, 1.35, 1.5, 10).translate(0, -.75, 0),
-  torso: new THREE.BoxGeometry(1.15, 2.7, 1.95).translate(0, 1.35, 0),
-  arm: new THREE.BoxGeometry(.56, 1.4, .56).translate(0, -.65, 0),
+  torso: torsoGeo(1.15, 2.7, 1.95),
+  arm: limbGeo(.3, .25, 1.25),
   head: new THREE.SphereGeometry(.62, 12, 9).scale(.95, 1.12, .9),
   hair: new THREE.SphereGeometry(.68, 12, 8, 0, TAU, 0, Math.PI * .55).scale(1, 1.05, .95),
   gun: new THREE.BoxGeometry(3, .38, .3),
   cap: new THREE.CylinderGeometry(.7, .72, .42, 12).translate(0, .2, 0),
   visor: new THREE.BoxGeometry(.9, .08, 1.1).translate(.7, .1, 0),
   dome: new THREE.SphereGeometry(.76, 12, 8, 0, TAU, 0, Math.PI * .5).scale(1, 1, .95),
-  vest: new THREE.BoxGeometry(1.32, 1.8, 2.12).translate(0, 1.55, 0),
+  vest: torsoGeo(1.3, 2.2, 2.05, 1.06).translate(0, .45, 0),
   beard: new THREE.BoxGeometry(.42, .5, .85).translate(.2, -.1, 0),
   glasses: new THREE.BoxGeometry(.16, .26, 1.3),
   lhair: new THREE.BoxGeometry(.6, 1.5, 1.25).translate(-.1, -.5, 0),
@@ -7606,7 +7752,7 @@ function updateLighting(dt, simDt) {
   sun.intensity = (2.5 * day * (1 - gloom * .7) + .28 * nightK) * (1 - world.fogK * .3);
   sun.color.setHex(0xfff2dc).lerp(_lc1.setHex(0xff9a50), dusk * .8).lerp(_lc2.setHex(0x8fa8ff), nightK);
   hemi.intensity = (.14 + .5 * day * (1 - gloom * .3) + gloom * .1) * (scene.environment ? .55 : 1);
-  hemi.color.setHex(0xcfe0ff).lerp(_lc1.setHex(0x3a4a70), nightK);
+  hemi.color.setHex(0xe4eaf2).lerp(_lc1.setHex(0x3a4a70), nightK);
   R3.toneMappingExposure = 1 - nightK * .05 + world.flash * 2;
   const sp = camera.position;
   sunDisc.position.set(sp.x - Math.cos(az) * 7000, Math.sin((h - 6) / 12 * Math.PI) * 6000, sp.z - Math.sin(az) * 4000 - 2500);
@@ -8621,11 +8767,21 @@ function hospitalExtras(b, obj, w, d) {
 /* ---------- машины: модели кузовов ---------- */
 // у каждой модели четыре части, каждая — отдельный InstancedMesh: краска (цвет машины), стёкла, тёмная отделка, светлая часть (фургон, тент, полоса);
 // модель строится в натуральную длину L и растягивается по длине до c.len * 18 — длины, по которой машина считается в симуляции
-const _cbox = (sx, sy, sz, x, y, z) => new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z);
+// кузова со скруглёнными рёбрами: прямоугольник со скруглёнными углами, выдавленный с фаской — все двенадцать рёбер мягкие
+function rboxGeo(sx, sy, sz, r) {
+  const hx = sx / 2 - r, hy = sy / 2 - r, c = Math.min(r, hx, hy) * .9, s = new THREE.Shape();
+  s.moveTo(-hx + c, -hy); s.lineTo(hx - c, -hy); s.quadraticCurveTo(hx, -hy, hx, -hy + c); s.lineTo(hx, hy - c); s.quadraticCurveTo(hx, hy, hx - c, hy);
+  s.lineTo(-hx + c, hy); s.quadraticCurveTo(-hx, hy, -hx, hy - c); s.lineTo(-hx, -hy + c); s.quadraticCurveTo(-hx, -hy, -hx + c, -hy);
+  const d = Math.max(.01, sz - 2 * r);
+  return new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 2, curveSegments: 3 }).translate(0, 0, -d / 2);
+}
+let CAR_ROUND = true; // скругляем только кузова машин; после постройки моделей — обычные коробки
+const _cbox = (sx, sy, sz, x, y, z) => (CAR_ROUND && Math.min(sx, sy, sz) >= 1.2 ? rboxGeo(sx, sy, sz, Math.min(.55, Math.min(sx, sy, sz) * .2)) : new THREE.BoxGeometry(sx, sy, sz)).translate(x, y, z);
 // кабина-трапеция: низ lb, верх lt (сдвинут на dx), высота h, ширина w; низ в точке (x, y0)
 function cabinGeo(lb, lt, h, w, x, y0, dx = 0) {
   const s = new THREE.Shape([new THREE.Vector2(-lb / 2, 0), new THREE.Vector2(lb / 2, 0), new THREE.Vector2(lt / 2 + dx, h), new THREE.Vector2(-lt / 2 + dx, h)]);
-  return new THREE.ExtrudeGeometry(s, { depth: w, bevelEnabled: false }).translate(x, y0, -w / 2);
+  // стойки и крыша кабины скруглены фаской
+  return new THREE.ExtrudeGeometry(s, { depth: Math.max(.1, w - .6), bevelEnabled: true, bevelThickness: .3, bevelSize: .3, bevelSegments: 2 }).translate(x, y0, -(w - .6) / 2);
 }
 function mergeGeo(list) {
   const gs = list.map(g => g.index ? g.toNonIndexed() : g);
@@ -8790,7 +8946,14 @@ const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
 const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
 for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
-const wheelGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 12).rotateX(Math.PI / 2);
+CAR_ROUND = false;
+const wheelGeo = (() => {
+  const tyre = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 16).rotateX(Math.PI / 2).toNonIndexed(), rim = new THREE.CylinderGeometry(.82, .82, 1.68, 12).rotateX(Math.PI / 2).toNonIndexed(), hub = new THREE.CylinderGeometry(.3, .3, 1.76, 8).rotateX(Math.PI / 2).toNonIndexed();
+  const parts = [[tyre, [.08, .08, .085]], [rim, [.55, .56, .58]], [hub, [.3, .3, .32]]], p = [], n = [], c = [];
+  for (const [g, col] of parts) { p.push(...g.attributes.position.array); n.push(...g.attributes.normal.array); for (let i = 0; i < g.attributes.position.count; i++) c.push(...col); }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(n, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(c, 3));
+  return g;
+})();
 const lightGeo = new THREE.BoxGeometry(.4, .8, 1.6);
 let cm = null, carCap = 0;
 function carModelOf(c) {
@@ -8804,12 +8967,13 @@ function makeCarMeshes(cap) {
   carCap = cap;
   const mk = (geo, mat, n, shadow = true) => { const m = new THREE.InstancedMesh(geo, mat, n); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.setColorAt(0, new THREE.Color()); scene.add(m); return m; };
   cm = { parts: [], byModel: {}, fixed: {
-    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .9 }), cap * 8),
+    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .75, metalness: .25 }), cap * 8),
     lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 4, false),
     beams: mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), cap, false),
     bars: mk(new THREE.BoxGeometry(1.4, .8, 2.4), new THREE.MeshBasicMaterial({ toneMapped: false }), 200, false),
   } };
   cm.fixed.beams.renderOrder = 2;
+  cm.fixed.wheels.instanceColor = null; // цвет шины и диска — в самой модели колеса
   // модель может достаться любой машине, поэтому ёмкость каждой — на весь парк; пустые не рисуются
   for (const k in CAR_MODELS) { const M = CAR_MODELS[k], list = []; for (const p of CAR_PARTS) if (M.geo[p]) { const part = { p, mesh: mk(M.geo[p], CAR_MATS[p], cap) }; list.push(part); cm.parts.push(part); } cm.byModel[k] = { list, n: 0 }; }
 }
@@ -8881,7 +9045,7 @@ const steelPostMat = new THREE.MeshStandardMaterial({ color: 0x5c5f62, roughness
 const awningGeo = new THREE.BoxGeometry(1, .3, 2.6);
 // окна в пролётах по BAY: центры колонн окон на лицевой (+z) и задней (−z) гранях, как их кладёт boxUV
 function bayCenters(w, back) { const out = []; for (let i = 0; ; i++) { const x = BAY * (i + .5) - w / 2; if (x > w / 2 - 5) break; if (x >= -w / 2 + 5) out.push(back ? -x : x); } return out; }
-const BALC_RAIL = [0xe2e0d8, 0xb8b4aa, 0x8a8478, 0x6a5a48], BALC_GLAZE = [0xdcdcd2, 0xc9cfd2, 0xe8e2d0, 0x9aa8b0];
+const BALC_RAIL = [0xb2afa5, 0x9a968c, 0x8a8478, 0x6a5a48], BALC_GLAZE = [0xa9a99f, 0x9ca3a6, 0xb4ae9e, 0x7f8c94];
 function facadeDetails(b, obj, w, d) {
   const st = STYLES[b.style] || {}, apt = b.kind === "apt", old = b.kind === "oldhouse";
   if (!(apt || old) || st.curtain) return;
@@ -9263,7 +9427,7 @@ function updateThreatMarks(dt) {
 /* ---------- обработка картинки: свечение, затенение, цветокоррекция ---------- */
 // финальный проход: тональная кривая ACES, насыщенность, контраст, тёплый оттенок, виньетка, плёночное зерно, перевод в sRGB
 const GRADE = {
-  uniforms: { tDiffuse: { value: null }, exposure: { value: 1 }, sat: { value: 1.08 }, contrast: { value: 1.06 }, warm: { value: 0 }, vig: { value: .32 }, grain: { value: .025 }, time: { value: 0 }, flashK: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, exposure: { value: 1 }, sat: { value: .9 }, contrast: { value: 1.05 }, warm: { value: 0 }, vig: { value: .32 }, grain: { value: .025 }, time: { value: 0 }, flashK: { value: 0 } },
   vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }",
   fragmentShader: `uniform sampler2D tDiffuse; uniform float exposure, sat, contrast, warm, vig, grain, time, flashK; varying vec2 vUv;
     vec3 aces(vec3 x){ return clamp((x * (2.51 * x + .03)) / (x * (2.43 * x + .59) + .14), 0., 1.); }
@@ -9274,6 +9438,10 @@ const GRADE = {
       float l = dot(c, vec3(.2126, .7152, .0722));
       c = mix(vec3(l), c, sat);
       c = (c - .5) * contrast + .5;
+      // тонировка: тени уходят в холодный сине-зелёный, света — в тёплый; чёрный слегка приподнят, как на плёнке
+      float lum = dot(c, vec3(.2126, .7152, .0722));
+      c += mix(vec3(-.004, .002, .007), vec3(.016, .006, -.014), smoothstep(.2, .8, lum));
+      c = c * .97 + .018;
       c *= vec3(1. + warm * .08, 1., 1. - warm * .08);
       vec2 d = vUv - .5; c *= 1. - vig * smoothstep(.25, .85, dot(d, d) * 2.2);
       c += (rnd(vUv * 1000.) - .5) * grain;
@@ -9298,10 +9466,11 @@ function renderFrame(dt) {
     g.time.value = (g.time.value + dt) % 100;
     g.exposure.value = 1 + world.flash * 2.5;
     g.warm.value = (world.nukeGlow || 0) * 1.5 + clamp(1 - Math.abs(world.hour - 19) / 1.5) * .6 - nightK * .4;
-    g.sat.value = fps.on && fps.mode === "zombie" ? .55 : 1.08 - world.rain * .2 - world.fogK * .15;
+    g.sat.value = fps.on && fps.mode === "zombie" ? .55 : .9 - world.rain * .18 - world.fogK * .15;
     bloomPass.strength = .45 + nightK * .55;
     // затенение в углах только на высоком качестве и только вблизи — иначе дорого
-    if (ssaoPass) ssaoPass.enabled = prefs.quality === "high" && camC.dist < 700;
+    // затенение в углах (SSAOPass) выключено: на нашей дальности камеры оно считает всё затенённым и даёт чёрный кадр
+    if (ssaoPass) ssaoPass.enabled = false;
     composer.render(dt);
   } else R3.render(scene, camera);
 }
@@ -9318,7 +9487,9 @@ function updateEnv(dt) {
   envT -= dt; if (envT > 0) return; envT = 1.5;
   const kq = c => Math.round(c.r * 24) * 625 + Math.round(c.g * 24) * 25 + Math.round(c.b * 24), key = kq(skyU.top.value) + ":" + kq(skyU.bot.value);
   if (key === envKey) return; envKey = key;
-  envU.top.value.copy(skyU.top.value); envU.bot.value.copy(skyU.bot.value); envU.gnd.value.setRGB(.5, .49, .47).multiplyScalar(.3 + (1 - nightK) * .7);
+  // отражённое небо приглушено к серому: иначе всё в тени (асфальт, стены, машины) уходит в густой синий
+  const gr = c => { const l = c.r * .3 + c.g * .59 + c.b * .11; return c.lerp(new THREE.Color(l, l, l), .5); };
+  envU.top.value.copy(skyU.top.value); envU.bot.value.copy(skyU.bot.value); gr(envU.top.value); gr(envU.bot.value); envU.gnd.value.setRGB(.5, .49, .47).multiplyScalar(.3 + (1 - nightK) * .7);
   const rt = pmrem.fromScene(envScene, .02);
   if (envRT) envRT.dispose(); envRT = rt; scene.environment = rt.texture;
 }
@@ -9343,17 +9514,143 @@ function upgradeFacades() {
   STYLES.forEach((st, i) => {
     const m = facadeMats[i]; if (!m || m.userData.spec) return;
     const t = specTex(st); t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    m.roughnessMap = t; m.metalnessMap = t; m.roughness = 1; m.metalness = 1; m.envMapIntensity = .9; m.userData.spec = true; m.needsUpdate = true;
+    m.roughnessMap = t; m.metalnessMap = t; m.roughness = 1; m.metalness = 1; m.envMapIntensity = .55; m.userData.spec = true; m.needsUpdate = true;
   });
+}
+
+/* ---------- износ поверхностей: грязь у земли, потёки, пятна, разнобой тона ----------
+   Шейдерная добавка к материалам фасадов и крыш: считается по мировым координатам, без новых текстур */
+const WEATHER_NOISE = `
+float wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float wn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(wh(i), wh(i + vec2(1., 0.)), f.x), mix(wh(i + vec2(0., 1.)), wh(i + vec2(1., 1.)), f.x), f.y); }
+float wf(vec2 p){ return wn(p) * .5 + wn(p * 2.03) * .25 + wn(p * 4.01) * .125; }`;
+function weatherMat(m, k = 1, roof = false) {
+  if (!m || m.userData.weather) return; m.userData.weather = true;
+  const prev = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;").replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
+      #ifdef USE_INSTANCING
+        vWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
+      #else
+        vWPos = (modelMatrix * vec4(transformed, 1.)).xyz;
+      #endif`);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;" + WEATHER_NOISE).replace("#include <map_fragment>", `#include <map_fragment>
+      {
+        float hgt = vWPos.y;
+        ${roof ? `
+        // крыша: пятна гудрона, лужицы, выгоревшие участки
+        float blot = wf(vWPos.xz * .035), pat = wf(vWPos.xz * .12);
+        diffuseColor.rgb *= 1. - ${k.toFixed(2)} * (.22 * smoothstep(.45, .8, blot) - .1 * (pat - .5));` : `
+        // у земли сырость и грязь: первые три метра темнее
+        float grime = 1. - smoothstep(1., 14., hgt);
+        // потёки под окнами и с карнизов: полосы, вытянутые по высоте
+        float streak = wf(vec2((vWPos.x + vWPos.z) * .33, hgt * .022));
+        // пятна и неровный тон стены; у каждого дома свой оттенок
+        float blot = wf(vWPos.xz * .018 + hgt * .008), tone = wh(floor(vWPos.xz / 48.));
+        float d = 1. - ${k.toFixed(2)} * (.2 * grime + .13 * smoothstep(.5, .85, streak) + .1 * (blot - .5));
+        diffuseColor.rgb *= d * mix(vec3(.96, .97, 1.), vec3(1.04, 1., .95), tone);`}
+      }`);
+  };
+  m.customProgramCacheKey = () => "weather" + k + roof;
+  m.needsUpdate = true;
+}
+function weatherCity() {
+  facadeMats.forEach(m => weatherMat(m, 1.5));
+  weatherMat(roofMat, 1, true);
+  if (typeof metalRoofMat !== "undefined") weatherMat(metalRoofMat, .7, true);
+}
+weatherCity();
+
+/* ---------- листва: карта нормалей из мелких «листьев», чтобы крона не была гладким шаром ---------- */
+function leafNormalTex() {
+  const N = 128, hgt = new Float32Array(N * N);
+  for (let k = 0; k < 900; k++) {
+    const cx = Math.random() * N, cy = Math.random() * N, r = 2 + Math.random() * 4, a = Math.random() * 3;
+    for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) {
+      const lx = (x * Math.cos(a) + y * Math.sin(a)) / r, ly = (-x * Math.sin(a) + y * Math.cos(a)) / (r * .55), d = lx * lx + ly * ly;
+      if (d < 1) { const i = ((Math.floor(cy + y) + N) % N) * N + (Math.floor(cx + x) + N) % N; hgt[i] = Math.max(hgt[i], (1 - d) * (.6 + Math.random() * .4)); }
+    }
+  }
+  return canvasTex(N, N, (g, w, h) => {
+    const img = g.createImageData(N, N), H = (x, y) => hgt[((y + N) % N) * N + (x + N) % N];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const dx = (H(x + 1, y) - H(x - 1, y)) * 2.2, dy = (H(x, y + 1) - H(x, y - 1)) * 2.2, l = Math.hypot(dx, dy, 1), i = (y * N + x) * 4;
+      img.data[i] = (-dx / l * .5 + .5) * 255; img.data[i + 1] = (-dy / l * .5 + .5) * 255; img.data[i + 2] = (1 / l * .5 + .5) * 255; img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  }, false);
+}
+var leafNormal = leafNormalTex(); leafNormal.wrapS = leafNormal.wrapT = THREE.RepeatWrapping; leafNormal.repeat.set(4, 3);
+/* ---------- листва: крона из пластинок с листьями ----------
+   Атлас: слева — плотные россыпи светлых листьев с прозрачностью (оттенок даёт цвет дерева), справа — сплошная полоса
+   для внутреннего объёма кроны. Пластинки двусторонние (две копии с обратным обходом), нормали смотрят от центра
+   кроны — свет ложится как на шар, а силуэт рваный, из листьев */
+var leafAtlas = canvasTex(256, 256, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  for (let i = 0; i < 2600; i++) {
+    const x = rnd(4, 188), y = rnd(4, 252), s = rnd(3, 7.5), a = rnd(0, TAU), hue = rnd(70, 105), l = rnd(52, 80);
+    g.save(); g.translate(x, y); g.rotate(a);
+    g.fillStyle = `hsl(${hue},${rnd(14, 32)}%,${l}%)`; g.beginPath(); g.ellipse(0, 0, s, s * .48, 0, 0, TAU); g.fill();
+    g.strokeStyle = `hsla(${hue},25%,${l - 22}%,.5)`; g.lineWidth = .6; g.beginPath(); g.moveTo(-s, 0); g.lineTo(s, 0); g.stroke();
+    g.restore();
+  }
+  g.fillStyle = "hsl(88,22%,52%)"; g.fillRect(200, 0, 56, 256);
+});
+leafAtlas.wrapS = leafAtlas.wrapT = THREE.ClampToEdgeWrapping;
+function leafCrownGeo(nCards = 26) {
+  const P = [], N = [], U = [], C = [], v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const push = (p, n, u, k) => { P.push(p.x, p.y, p.z); N.push(n.x, n.y, n.z); U.push(u[0], u[1]); C.push(k, k, k); };
+  for (let i = 0; i < nCards; i++) {
+    // центр пластинки — ближе к поверхности кроны; ориентация случайная
+    c.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(.78 * (.5 + .5 * Math.sqrt(Math.random())));
+    const nrm = new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().lerp(c.clone().normalize(), .5).normalize();
+    a.set(1, 0, 0); if (Math.abs(nrm.x) > .9) a.set(0, 1, 0); a.cross(nrm).normalize(); b.copy(nrm).cross(a).normalize();
+    const s = rnd(.42, .62), u0 = rnd(0, .52), v0 = rnd(0, .72), du = .22, dv = .25;
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => c.clone().addScaledVector(a, x * s).addScaledVector(b, y * s));
+    const uvs = [[u0, v0], [u0 + du, v0], [u0 + du, v0 + dv], [u0, v0 + dv]];
+    const shade = .5 + .5 * (c.length() / .78) * (.8 + .2 * (c.y / .78 + 1) / 2);
+    for (const order of [[0, 1, 2, 0, 2, 3], [0, 2, 1, 0, 3, 2]]) for (const k of order) {
+      // нормаль — от центра кроны с примесью нормали пластинки: объём как у шара, но с игрой света на листьях
+      v.copy(corners[k]).normalize().multiplyScalar(.75).addScaledVector(nrm, order[1] === 1 ? .25 : -.25).normalize();
+      push(corners[k], v, uvs[k], shade);
+    }
+  }
+  // внутренний объём: тёмный шар, чтобы сквозь крону не просвечивало небо
+  const sp = new THREE.SphereGeometry(.62, 8, 6).toNonIndexed(), sp_p = sp.attributes.position, sp_n = sp.attributes.normal;
+  for (let i = 0; i < sp_p.count; i++) { v.fromBufferAttribute(sp_p, i); a.fromBufferAttribute(sp_n, i); push(v, a, [.89, .5], .42); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2)); g.setAttribute("color", new THREE.Float32BufferAttribute(C, 3));
+  g.computeBoundingSphere(); return g;
+}
+function leafMaterial() {
+  const m = new THREE.MeshStandardMaterial({ map: leafAtlas, alphaTest: .5, vertexColors: true, roughness: .85, envMapIntensity: .3 });
+  m.userData.depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leafAtlas, alphaTest: .5 });
+  return m;
 }
 
 /* ---------- асфальт вблизи: мелкая фактура поверх общей карты ---------- */
 const detailTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#6a6a6a", "#959595", "#777", "#8c8c8c", "#5e5e5e"], 1.5); }, false);
 detailTex.wrapS = detailTex.wrapT = THREE.RepeatWrapping;
 ground.material.onBeforeCompile = sh => {
-  sh.uniforms.detailMap = { value: detailTex };
+  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = { value: new THREE.Vector2(W, H) };
   sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
-    diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28);`).replace("void main() {", "uniform sampler2D detailMap;\nvoid main() {");
+    diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28);
+    {
+      // сетка тонких трещин: гребни шума с искажением; видна только на тёмном сером асфальте и вблизи
+      vec3 bc = diffuseColor.rgb; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
+      float asph = (1. - smoothstep(.06, .11, mx)) * (1. - smoothstep(.012, .03, mx - mn));
+      float near = 1. - smoothstep(120., 420., length(vViewPosition));
+      if (asph * near > .01) {
+        vec2 wp = vUv * worldSize;
+        vec2 q = wp * .16 + vec2(wn(wp * .05), wn(wp * .05 + 7.3)) * 3.;
+        float r1 = abs(wn(q) - .5), r2 = abs(wn(q * 2.3 + 4.1) - .5);
+        // трещины короткие и редкие: гребень шума виден только там, где высокочастотная маска открыта
+        float crack = (1. - smoothstep(.0, .022, r1)) * step(.72, wn(wp * .11 + 2.)) + (1. - smoothstep(.0, .018, r2)) * .6 * step(.78, wn(wp * .13 + 9.));
+        diffuseColor.rgb *= 1. - .38 * clamp(crack, 0., 1.) * asph * near;
+      }
+    }`).replace("void main() {", "uniform sampler2D detailMap; uniform vec2 worldSize;\n" + WEATHER_NOISE + "\nvoid main() {");
 };
 ground.material.needsUpdate = true;
 
@@ -9385,12 +9682,13 @@ function placePuddles() {
 function updatePuddles() { puddles.material.opacity = clamp(world.wet * 1.1) * .9; puddles.visible = world.wet > .03; }
 
 /* ---------- кроны деревьев: неровные, светлее сверху ---------- */
+// крона: гладкая сфера с бугристой поверхностью (шум зависит только от положения, швов нет), темнее снизу и внутри
 function organicCrown() {
-  const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position, col = [];
+  const g = new THREE.SphereGeometry(1, 18, 12), p = g.attributes.position, col = [];
   for (let i = 0; i < p.count; i++) {
-    const v = new THREE.Vector3().fromBufferAttribute(p, i), n = Math.sin(v.x * 5.1 + v.y * 3.3) * Math.cos(v.z * 4.7 - v.y * 2.1);
-    v.multiplyScalar(1 + n * .16 + (Math.random() - .5) * .08); p.setXYZ(i, v.x, v.y * .9, v.z);
-    const k = .7 + (v.y + 1) * .2; col.push(k, k, k);
+    const v = new THREE.Vector3().fromBufferAttribute(p, i), n = Math.sin(v.x * 5.1 + v.y * 3.3) * Math.cos(v.z * 4.7 - v.y * 2.1) + .5 * Math.sin(v.x * 9.3 - v.z * 7.7 + v.y * 4.1);
+    v.multiplyScalar(1 + n * .12); p.setXYZ(i, v.x, v.y * .88, v.z);
+    const k = .62 + (v.y + 1) * .2 + n * .05; col.push(k, k, k);
   }
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.computeVertexNormals();
   return g;
@@ -9398,7 +9696,7 @@ function organicCrown() {
 
 /* ---------- настоящие люди вблизи камеры: скелет и анимации ---------- */
 // модель Quaternius «Animated Human» (CC0): ходьба, бег, стойка, удар, смерть; цвета — палитра 32×32 на человека
-const REAL = { ready: false, N: 44, slots: [], clips: {}, tpl: null, scale: 1, t: 0 };
+const REAL = { ready: false, N: 64, slots: [], clips: {}, tpl: null, scale: 1, t: 0 };
 function initRealPeople() {
   if (!window.HUMAN_FBX || !THREE.FBXLoader || !THREE.SkeletonUtils) return;
   try {
@@ -9430,6 +9728,15 @@ function makeSlot() {
   const hat = new THREE.Group(); hat.visible = false; holder.add(hat);
   const capM = new THREE.Mesh(PARTS.cap, hatMat), visM = new THREE.Mesh(PARTS.visor, hatMat), domeM = new THREE.Mesh(PARTS.dome, hatMat);
   hat.add(capM, visM, domeM); hat.userData = { capM, visM, domeM, hatMat };
+  // у модели босые ступни (они в полосе кожи палитры) — обуваем: капсула на кости стопы, от пятки к носку
+  const shoeMat = new THREE.MeshStandardMaterial({ color: pick([0x1e1c1a, 0x2a2420, 0x3a2a20, 0x1a1d22, 0xd8d8d0]), roughness: .6 });
+  for (const side of ["Left", "Right"]) {
+    const foot = bones[side + "Foot"], toe = bones[side + "ToeBase"]; if (!foot || !toe) continue;
+    const d = toe.position.clone(), L = d.length(); if (L < 1e-3) continue;
+    const sh = new THREE.Mesh(new THREE.CapsuleGeometry(L * .36, L * 1.45, 3, 8), shoeMat);
+    sh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); sh.position.copy(d).multiplyScalar(.38); sh.castShadow = true; // от пятки до носка
+    foot.add(sh);
+  }
   return { holder, root, mixer, actions, cur: null, agent: null, cv: cv2, tex, mat, bones, gun, hat, palKey: "" };
 }
 // палитра: кожа, тёмные детали, волосы, рубашка, брюки
@@ -9480,8 +9787,8 @@ function updateRealPeople(dt) {
   // раз в четверть секунды выбираем ближайших к камере
   if (REAL.t <= 0) {
     REAL.t = .25;
-    const cp = camera.position, maxD = fps.on ? 110 : 150, cand = [];
-    if (prefs.realPeople !== false && (fps.on || camC.dist < 420)) for (const a of agents) {
+    const cp = camera.position, maxD = fps.on ? 120 : prefs.quality === "low" ? 150 : 200, cand = [];
+    if (prefs.realPeople !== false && (fps.on || camC.dist < 520)) for (const a of agents) {
       if (a.state === "saved" || (a.hidden && !a.onRoof) || (a.player && fps.on)) continue;
       const d = Math.hypot(X(a.x) - cp.x, Z(a.y) - cp.z, (a.onRoof ? a.roofZ : 0) - cp.y * .3);
       if (d < maxD) cand.push([d, a]);
@@ -10753,7 +11060,8 @@ function startGame() {
 /* ---------- настройки: громкость и графика ---------- */
 const prefs = { master: 80, weap: 90, voice: 85, amb: 70, music: 50, quality: "medium", particles: "high", shadows: true, post: true, realPeople: true, radioVoice: true, slowmo: true };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem("vspyshka-prefs") || "{}")); } catch (e) {}
-function savePrefs() { try { localStorage.setItem("vspyshka-prefs", JSON.stringify(prefs)); } catch (e) {} }
+// сохраняем выбор игрока, а не временное снижение автоподстройки (perf.saved — что было до него)
+function savePrefs() { try { localStorage.setItem("vspyshka-prefs", JSON.stringify({ ...prefs, ...(typeof perf !== "undefined" ? perf.saved : {}) })); } catch (e) {} }
 function applyPrefs() {
   if (master) master.gain.value = muted ? 0 : prefs.master / 100; if (busW) busW.gain.value = prefs.weap / 100; if (busV) busV.gain.value = prefs.voice / 100; if (ambBus) ambBus.gain.value = prefs.amb / 100; if (musicBus) musicBus.gain.value = musicOn ? prefs.music / 100 : 0;
   const q = prefs.quality, pr = q === "low" ? .75 : q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1;
@@ -10767,6 +11075,7 @@ function applyPrefs() {
 }
 $("settings").addEventListener("input", e => {
   const t = e.target, k = t.id.replace("s_", "");
+  if (typeof perf !== "undefined") delete perf.saved[k]; // игрок сам выбрал — его выбор и сохраняем
   if (t.type === "range") prefs[k] = +t.value;
   else if (t.type === "checkbox") prefs[k] = t.checked;
   else prefs[k] = t.value;
@@ -10825,29 +11134,31 @@ $("tutNext").addEventListener("click", () => showTut(tutI + 1));
 $("tutSkip").addEventListener("click", () => showTut(TUT.length));
 function maybeTutorial() { let done = false; try { done = localStorage.getItem("vspyshka-tut") === "1"; } catch (e) {} if (!done) setTimeout(() => showTut(0), 600); }
 
-/* ---------- автоматическое качество: если кадров мало, снижаем нагрузку по шагам ---------- */
-const perf = { acc: 0, n: 0, t: 0, low: 0, level: 0 };
+/* ---------- автоматическое качество: если кадров совсем мало, снижаем нагрузку по шагам ----------
+   Снижение — только на этот сеанс: в сохранённых настройках остаётся то, что выбрал игрок (perf.saved),
+   иначе одна просадка (тяжёлая сцена, фоновая программа) навсегда оставляла игру без обработки картинки */
+var perf = { acc: 0, n: 0, t: 0, low: 0, level: 0, saved: {} };
 function autoQuality(dt) {
   if (document.hidden || paused) return;
   perf.acc += dt; perf.n++; perf.t += dt;
   if (perf.t < 2) return;
   const fpsNow = perf.n / perf.acc; perf.acc = perf.n = perf.t = 0;
-  if (fpsNow < 26) perf.low++; else perf.low = 0;
-  if (perf.low >= 2 && perf.level < 4) {
+  if (fpsNow < 18) perf.low++; else perf.low = 0;
+  if (perf.low >= 3 && perf.level < 3) {
     perf.low = 0; perf.level++;
-    const steps = ["затенение в углах выключено", "настоящих людей меньше", "чёткость снижена", "обработка картинки выключена"];
-    if (perf.level === 1) prefs.quality = prefs.quality === "high" ? "medium" : prefs.quality;
-    if (perf.level === 2) REAL.N = Math.min(REAL.N, 18);
-    if (perf.level === 3) prefs.quality = "low";
-    if (perf.level === 4) prefs.post = false;
-    applyPrefs(); onRadio(`Игра тормозит: ${steps[perf.level - 1]}. Настроить можно в «Настройках»`);
+    const steps = ["настоящих людей меньше", "чёткость снижена, листва упрощена", "обработка картинки выключена"];
+    if (perf.level === 1) REAL.N = Math.min(REAL.N, 24);
+    if (perf.level === 2) { if (!("quality" in perf.saved)) perf.saved.quality = prefs.quality; prefs.quality = "low"; }
+    if (perf.level === 3) { if (!("post" in perf.saved)) perf.saved.post = prefs.post; prefs.post = false; }
+    applyPrefs(); onRadio(`Игра тормозит: ${steps[perf.level - 1]} — до перезапуска. Настроить можно в «Настройках»`);
   }
 }
 
 /* ---------- трава в парках вблизи камеры ---------- */
 const grassTexA = canvasTex(64, 64, g => { for (let i = 0; i < 26; i++) { const x = rnd(4, 60); g.strokeStyle = `rgba(${pick(["86,128,58", "70,110,46", "104,140,66", "60,96,40"])},1)`; g.lineWidth = rnd(1.2, 2.4); g.beginPath(); g.moveTo(x, 64); g.quadraticCurveTo(x + rnd(-6, 6), 40, x + rnd(-10, 10), rnd(8, 30)); g.stroke(); } }, true);
-const grassGeo = (() => { const a = new THREE.PlaneGeometry(4, 2.2).translate(0, 1.1, 0), b = a.clone().rotateY(Math.PI / 2); const g = new THREE.BufferGeometry(); const merge = [a, b]; let pos = [], uv = [], idx = [], off = 0; for (const m of merge) { pos.push(...m.attributes.position.array); uv.push(...m.attributes.uv.array); idx.push(...Array.from(m.index.array, i => i + off)); off += m.attributes.position.count; } g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g; })();
-const grass = new THREE.InstancedMesh(grassGeo, new THREE.MeshStandardMaterial({ map: grassTexA, alphaTest: .5, side: THREE.DoubleSide, roughness: 1 }), 6000);
+// газон: низкие пучки по 15–20 см, а не бурьян по пояс
+const grassGeo = (() => { const a = new THREE.PlaneGeometry(2.6, .8).translate(0, .4, 0), b = a.clone().rotateY(Math.PI / 2); const g = new THREE.BufferGeometry(); const merge = [a, b]; let pos = [], uv = [], idx = [], off = 0; for (const m of merge) { pos.push(...m.attributes.position.array); uv.push(...m.attributes.uv.array); idx.push(...Array.from(m.index.array, i => i + off)); off += m.attributes.position.count; } g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g; })();
+const grass = new THREE.InstancedMesh(grassGeo, new THREE.MeshStandardMaterial({ map: grassTexA, alphaTest: .5, side: THREE.DoubleSide, roughness: 1 }), 9000);
 grass.count = 0; grass.frustumCulled = false; scene.add(grass);
 let grassAt = null;
 function updateGrass() {
@@ -10857,11 +11168,11 @@ function updateGrass() {
   if (grassAt && Math.hypot(grassAt[0] - cx, grassAt[1] - cy) < 60) return;
   grassAt = [cx, cy];
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0); let n = 0;
-  for (let k = 0; k < 30000 && n < 6000; k++) {
+  for (let k = 0; k < 45000 && n < 9000; k++) {
     const x = cx + rnd(-180, 180), y = cy + rnd(-180, 180), c = cellAt(x, y);
     if (c !== 2) continue;
-    q.setFromAxisAngle(up, rnd(0, TAU)); const s = rnd(.7, 1.3);
-    m.compose(new THREE.Vector3(X(x), hasHills ? gY(x, y) : 0, Z(y)), q, new THREE.Vector3(s, s * rnd(.7, 1.2), s)); grass.setMatrixAt(n++, m);
+    q.setFromAxisAngle(up, rnd(0, TAU)); const s = rnd(.7, 1.2);
+    m.compose(new THREE.Vector3(X(x), hasHills ? gY(x, y) : 0, Z(y)), q, new THREE.Vector3(s, s * rnd(.6, 1.1), s)); grass.setMatrixAt(n++, m);
   }
   grass.count = n; grass.instanceMatrix.needsUpdate = true;
 }
@@ -11052,7 +11363,7 @@ function updateCamera(dt) {
   camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
   camera.lookAt(camC.tx, lookY, camC.tz);
   shake = Math.max(0, shake - dt * 14);
-  scene.fog.near = camC.dist * 1.1 + 500; scene.fog.far = camC.dist * 4.2 + 2600; // горы за городом не тонут в дымке
+  scene.fog.near = camC.dist * .5 + 200; scene.fog.far = camC.dist * 3.4 + 2400; // воздушная перспектива: даль бледнеет
 }
 // доля отрезка от точки взгляда к камере, свободная от зданий (1 — вся); шаг 1.5 м, камера останавливается чуть ближе стены
 function cameraClearT(ax, ay, az, bx, by, bz) {
@@ -11461,7 +11772,7 @@ function frameBody(now) {
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
   updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
-  updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
+  updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);
