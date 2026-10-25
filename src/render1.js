@@ -311,11 +311,13 @@ const STYLES = [
   { wall: "#f1ede3", glass: "#2c3a48", frame: "#e0d2b0", win: .32, arch: true, house: true }, // храм: белёные стены, арочные окна, без витрин
   { wall: "#6c7050", glass: "#33404a", frame: "#c7c6b4", win: .42 }, // воинская часть: казармы и штаб
 ];
+// кирпичные — красные и рыжие стены
+function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && r > g + 25 && r > b + 30 && r < 200; }
+let realBrick = false; // загрузилась настоящая кладка (gfx.js) — рисованную не нужно
 // фактура стены: кирпичная кладка у красных и рыжих стен, швы панелей у панельных домов, неровная штукатурка у остальных
 function wallDetail(g, w, h, st) {
-  const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, gg = (n >> 8) & 255, b = n & 255;
-  const brick = !st.metal && !st.curtain && r > gg + 25 && r > b + 30 && r < 200;
-  if (brick) {
+  if (isBrick(st)) {
+    if (realBrick) return;
     // кладка: ряды по 4 пикселя, перевязка в полкирпича, каждый кирпич своего тона, светлые швы
     for (let y = 0, row = 0; y < h; y += 4, row++) for (let x = (row % 2) * -6; x < w; x += 12) {
       g.fillStyle = shade(st.wall, rnd(-22, 14)); g.fillRect(x, y, 11, 3);

@@ -446,6 +446,6 @@ function frameBody(now) {
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);
   uiT -= dt; if (uiT <= 0) { uiT = .25; updateUI(); }
 }
-setupPost(); upgradeFacades(); initRealPeople(); renderTools(); setMuted(muted); setMusic(musicOn); resize(); newCity(); applyPrefs(); openWizard();
+setupPost(); upgradeFacades(); loadRealTextures(); initRealPeople(); renderTools(); setMuted(muted); setMusic(musicOn); resize(); newCity(); applyPrefs(); openWizard();
 $("loading").hidden = true;
 requestAnimationFrame(frame);

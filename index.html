@@ -477,7 +477,9 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/libs/fflate.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/FBXLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/utils/SkeletonUtils.js"></script>
-<script src="human.js"></script>
+<script src="people.js"></script>
+<script src="textures.js"></script>
+<script src="cars.js"></script>
 <script>
 (() => {
 "use strict";
@@ -534,6 +536,7 @@ function addBuilding(bb) {
 function markRural() { for (const e of RE) { let n = 0, out = 0; for (let t = 0; t <= e.len; t += 20) { const p = edgePos(e, t); n++; if (cityK(p.x, p.y) < .42) out++; } e.rural = out / n > .55; } }
 function genCity(layout = "random") {
   layoutKey = layout === "random" || !LAYOUTS[layout] ? pick(Object.keys(LAYOUTS).filter(k => !LAYOUTS[k].hidden)) : layout; L = LAYOUTS[layoutKey];
+  WIDE_SEED = Math.random() * 1000; // какие улицы будут широкими — в каждом городе по-своему
   for (let attempt = 0; attempt < 4; attempt++) {
     grid.fill(2); bhp.fill(0); TH.fill(0); underRubble.fill(0);
     buildings = []; trees = []; cars = []; lamps = []; fountains = []; fences = []; special = {}; blocks = []; props = []; waters = []; bridges = []; walls = []; hydrants = [];
@@ -1005,7 +1008,19 @@ function exitDist() {
 // каждая планировка строит граф: проспекты, улицы, кольца; пересечения становятся перекрёстками сами
 const RHW = { hw: 18, av: 24, st: 16, ln: 11, ring: 12 };
 let presets = [], zoneAt = () => null, plazas = [];
-function road(pts, kind, opt) { return addRoad(pts, (opt && opt.hw) || RHW[kind], kind, opt); }
+// часть обычных улиц — широкие, на две полосы в каждую сторону. Решение зависит от прямой, на которой лежит улица,
+// поэтому улица, проложенная кусками между перекрёстками, не меняет ширину от квартала к кварталу
+let WIDE_SEED = Math.random() * 1000;
+function wideStreet(pts) {
+  const a = pts[0], b = pts[pts.length - 1], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), A = ((ang % Math.PI) + Math.PI) % Math.PI;
+  const ka = Math.round(A / (Math.PI / 24)), d = Math.round((a[0] * Math.sin(A) - a[1] * Math.cos(A)) / 36);
+  return Math.abs(Math.sin(ka * 12.9898 + d * 78.233 + WIDE_SEED) * 43758.5453) % 1 < .22;
+}
+function road(pts, kind, opt) {
+  let hw = (opt && opt.hw) || RHW[kind];
+  if (kind === "st" && !(opt && opt.hw) && pts.length >= 2 && wideStreet(pts)) hw = 23;
+  return addRoad(pts, hw, kind, opt);
+}
 // замкнутая дорога из нескольких дуг: концы дуг сходятся в общих узлах
 function loopRoad(pts, kind, opt) {
   const n = pts.length, parts = Math.max(4, Math.round(n / 10));
@@ -2045,7 +2060,7 @@ function scanAhead(c, x, y, tx, ty, l) {
   let clear = 1e9, ahead = null, people = false, zNear = 0, zAhead = false;
   nearCars(x + tx * 25, y + ty * 25, 34, o => {
     if (o === c || o.gone || o.towedBy || (!o.moving && !o.stopped && !o.tank)) return;
-    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 5) { clear = g; ahead = o; } return; }
+    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
     const al = (o.x - x) * tx + (o.y - y) * ty, lat = Math.abs((o.x - x) * ty - (o.y - y) * tx);
     if (al > 0 && lat < 5.5 && al < clear) { clear = al; ahead = o; }
     else if (al > 2 && al < 22 && lat < 9 && o.moving && o.v > 2 && al + 6 < clear) clear = al + 6;
@@ -2073,11 +2088,13 @@ function stepRoadCar(c, dt) {
   c.dt = dt;
   if (c.turn) return stepTurnCar(c, dt);
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
+  if (c.pulled && !c.deployed) { c.pulled = false; if (!c.over) c.latTgt = 0; }
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && !c.leaving && !c.deployed) {
-    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
+    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" && c.phase === "go" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
+    if (gd < 70 && R && l.e === R.e && !c.over) c.latTgt = curbShift(l);
     // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
     if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }
   }
@@ -2181,7 +2198,8 @@ function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.le
 const CIV_CARS = [
   { k: "sedan", w: 30, len: 1 }, { k: "hatch", w: 18, len: .86 }, { k: "lada", w: 14, len: .92, cols: ["#d8cfa8", "#e8e6dc", "#a8322a", "#3f6b4a", "#3a5f8a", "#c9b47a", "#7a2a2a"] },
   { k: "suv", w: 12, len: 1.03 }, { k: "van", w: 7, len: 1 }, { k: "pickup", w: 6, len: 1.08 }, { k: "taxi", w: 6, len: 1, cols: ["#e8b81a"] },
-  { k: "sport", w: 3, len: 1, cols: ["#c81e1e", "#e8b81a", "#e0601a", "#1e5ac8", "#1d1f22"] }, { k: "boxtruck", w: 4, len: 1.33, cols: ["#e9e9e4", "#2a4a7a", "#a8322a", "#2f5a3a"], noPark: true },
+  { k: "sport", w: 3, len: 1, cols: ["#c81e1e", "#e8b81a", "#e0601a", "#1e5ac8", "#1d1f22"] }, { k: "muscle", w: 2, len: 1.08 }, { k: "muscle2", w: 2, len: 1.08 },
+  { k: "roadster", w: 1, len: 1, cols: ["#c81e1e", "#e8e2d0", "#1d1f22", "#2a4a7a"] }, { k: "limo", w: .6, len: 1.6, cols: ["#151618", "#e8e6e0"], noPark: true }, { k: "boxtruck", w: 4, len: 1.33, cols: ["#e9e9e4", "#2a4a7a", "#a8322a", "#2f5a3a"], noPark: true },
 ];
 function pickCarModel(parked) {
   const pool = parked ? CIV_CARS.filter(m => !m.noPark) : CIV_CARS; let r = Math.random() * pool.reduce((a, m) => a + m.w, 0);
@@ -2405,7 +2423,7 @@ function newAgent(role, x, y) {
     wanderT: 0, wx: 0, wy: 0, idleT: 0, deadT: 0, wakeAt: 1e9, reanimate: false, zhp: 4, phase: rnd(0, TAU), speed: 0,
     feedT: 0, grabT: 0, shotT: -9, aim: 0, aimT: 0, riseT: 0, burnt: false, bleed: 0, z: 0, vz: 0, roll: 0, spin: 0, poolId: -1, poolR: 0, poolMax: 0, goal: null,
     // все поля заданы сразу: объекты одной формы, иначе движок теряет оптимизацию горячих циклов
-    sex: Math.random() < .5 ? "f" : "m", age: null, skirt: false, bag: null, short: false, build: 1, longHair: false, beard: false, hat: null, glasses: false, vest: null,
+    sex: Math.random() < .5 ? "f" : "m", age: null, skirt: false, bag: null, short: false, build: 1, longHair: false, beard: false, hat: null, glasses: false, vest: null, pmodel: null,
     name: "", first: "", last: "", years: 0, fam: 0, home: -1, work: undefined, dest: null, homeGoal: false, homeTrip: false, alert: false, called: false,
     hero: null, kills: 0, cures: 0, rifle: false, diedT: 0, deathBy: null, deathWhere: "", spitCd: 0, spitAnim: 0, stam: rnd(.6, 1), hidden: false, onFire: 0, burn: 0,
     ztype: null, stuck: 0, lod: false, dry: false, immune: false, shriek: 0, shriekCd: 0, bash: 0, player: false, hideGoal: null, vacGoal: null, unit: null, job: null, done: false,
@@ -3384,8 +3402,16 @@ function spawnService(type, gx, gy, from) {
   if (S.siren) sfx.siren(c);
   return c;
 }
+// встать у бордюра: центр машины — за краем проезжей части, наполовину на тротуаре (на трассе — на обочине)
+function curbShift(l) { return -Math.max(0, l.e.hw + (l.e.rural ? 3.5 : 2.2) - l.off); }
+function pullOver(c) {
+  if (!c.lane || c.turn || c.tank) return;
+  const l = c.lane; c.latTgt = c.latOff = curbShift(l); c.pulled = true;
+  const q = lanePos(l, c.s); c.x = q.x + q.ty * c.latOff + (c.offx || 0); c.y = q.y - q.tx * c.latOff + (c.offy || 0);
+}
 function deployCrew(c) {
   if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
+  pullOver(c);
   const S = SERVICE[c.service], sid = S.crew === "army" && !c.posts ? ++squadSeq : 0;
   for (let i = 0; i < (c.crewN || S.n); i++) {
     const [x, y] = freeNear(c.x, c.y, 14);
@@ -4015,7 +4041,7 @@ function steerTo(m, tx, ty, sp, dt) {
 }
 // куда подъезжать технике и бригадам: к фасаду дома со стороны улицы
 function siteGoal(b) { return b.front ? [b.front.x, b.front.y] : b.door ? [b.door[0], b.door[1]] : [(b.x0 + b.x1) / 2, b.y1 + 10]; }
-const DUMP_CAP = 6; // ковшей в один самосвал
+const DUMP_CAP = 10; // ковшей в один самосвал: двадцатитонный, а не малый
 function rubbleBounds(m, b) {
   let x0 = b ? b.x0 - 40 : m.x - 120, x1 = b ? b.x1 + 40 : m.x + 120, y0 = b ? b.y0 - 40 : m.y - 120, y1 = b ? b.y1 + 40 : m.y + 120;
   if (b && b.fallZone) { const z = b.fallZone, ex = z.px + z.ca * z.L, ey = z.py + z.sa * z.L; x0 = Math.min(x0, ex - z.half); x1 = Math.max(x1, ex + z.half); y0 = Math.min(y0, ey - z.half); y1 = Math.max(y1, ey + z.half); }
@@ -4033,13 +4059,14 @@ function ruinRubble(b) { const [x0, y0, x1, y1] = rubbleBounds(null, b); let n =
 // самосвал под погрузку: стоит у этой руины, не уезжает, не полон
 function truckFor(m, b) {
   const ok = c => c && !c.gone && !c.leaving && !c.wreck && c.deployed && (c.load || 0) < DUMP_CAP;
-  if (ok(m.truck)) return m.truck;
-  m.truck = null; let bd = 1e9;
-  for (const c of cars) if (c.service === "dump" && c.job && c.job.dump === b && ok(c)) { const d = Math.hypot(c.x - m.x, c.y - m.y); if (d < bd) { bd = d; m.truck = c; } }
+  // грузим сначала самый заполненный самосвал поблизости: он уходит полным, а не каждый с половиной кузова
+  let best = null, bs = -1e9;
+  for (const c of cars) if (c.service === "dump" && c.job && c.job.dump === b && ok(c)) { const d = Math.hypot(c.x - m.x, c.y - m.y), sc = (c.load || 0) * 60 - d - (d > 220 ? 1e6 : 0); if (sc > bs) { bs = sc; best = c; } }
+  m.truck = best || (ok(m.truck) ? m.truck : null);
   return m.truck;
 }
 // сколько техники нужно: по объёму завала
-function fleetFor(b) { const r = ruinRubble(b); return { loaders: r > 120 ? 3 : 2, trucks: clamp(1 + Math.ceil(r / 70), 1, 3) }; }
+function fleetFor(b) { const r = ruinRubble(b); return { loaders: r > 90 ? 3 : 2, trucks: clamp(1 + Math.ceil(r / 110), 2, 4) }; } // самосвал увозит до 90 клеток завала
 function clearRubbleAt(b, px, py) {
   const gx = Math.floor(px / CS), gy = Math.floor(py / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return false;
   const gi = gy * GW + gx; if (grid[gi] !== 8) return false;
@@ -4153,7 +4180,7 @@ function stepMachines(dt) {
     }
     const b = J.ruin;
     if (b && !b.siteCells && Math.hypot(m.x - (b.x0 + b.x1) / 2, m.y - (b.y0 + b.y1) / 2) < 110) fenceSite(b);
-    const scoop = (t) => { const d = Math.hypot(t[0] - m.x, t[1] - m.y); if (d > 26) { steerTo(m, t[0], t[1], 11, dt); return false; } m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > 1.1) { m.workT = 0; const cells = []; for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const px = t[0] + ox * CS, py = t[1] + oy * CS; if (Math.hypot(px - m.x, py - m.y) <= 30 && cellAt(px, py) === 8) cells.push([px, py, Math.hypot(px - t[0], py - t[1])]); } cells.sort((p, q) => p[2] - q[2]); let n = 0; for (const [px, py] of cells.slice(0, 6)) if (clearRubbleAt(b, px, py)) n++; if (n) { fieldT = 0; gridDirty = true; return true; } } return false; };
+    const scoop = (t) => { const d = Math.hypot(t[0] - m.x, t[1] - m.y); if (d > 26) { steerTo(m, t[0], t[1], 11, dt); return false; } m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > .85) { m.workT = 0; const cells = []; for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const px = t[0] + ox * CS, py = t[1] + oy * CS; if (Math.hypot(px - m.x, py - m.y) <= 30 && cellAt(px, py) === 8) cells.push([px, py, Math.hypot(px - t[0], py - t[1])]); } cells.sort((p, q) => p[2] - q[2]); let n = 0; for (const [px, py] of cells.slice(0, 9)) if (clearRubbleAt(b, px, py)) n++; if (n) { fieldT = 0; gridDirty = true; return true; } } return false; };
     // полный ковш — к самосвалу; самосвала нет — пока расчищаем проезжую часть, чтобы он смог подъехать
     if (m.carry) {
       const tr = truckFor(m, b);
@@ -4165,7 +4192,7 @@ function stepMachines(dt) {
       if (d > 5 && Math.hypot(tr.x - m.x, tr.y - m.y) > 30) { steerTo(m, px, py, 9, dt); continue; }
       m.v *= .5; m.bucket = .6; m.workT += dt; m.loading = true;
       { const want = Math.atan2(tr.y - m.y, tr.x - m.x); let dd = want - m.ang; dd -= Math.round(dd / TAU) * TAU; m.ang += clamp(dd, -dt * 2, dt * 2); }
-      if (m.workT > 1.2) { m.workT = 0; m.carry = 0; m.loading = false; tr.load = (tr.load || 0) + 1; if (tr.load >= DUMP_CAP) { releaseUnit(tr); m.truck = null; logT("dumpgo", "Самосвал увёз обломки на свалку", "", 25); } }
+      if (m.workT > .95) { m.workT = 0; m.carry = 0; m.loading = false; tr.load = (tr.load || 0) + 1; if (tr.load >= DUMP_CAP) { releaseUnit(tr); m.truck = null; logT("dumpgo", "Самосвал увёз обломки на свалку", "", 25); } }
       continue;
     }
     if (b && !m.carry && b.state === "ruin" && !nearestRubble(m, b, true) && typeof roadSiteFor === "function") { const ob = roadSiteFor(m, b); if (ob) { m.job = { ruin: ob }; m.truck = null; if (!machines.some(o => o !== m && !o.gone && !o.leave && o.job && o.job.ruin === b)) b.clearAssigned = false; ob.clearAssigned = true; if (!cars.some(c => c.service === "dump" && !c.gone && !c.leaving && c.job && c.job.dump === ob)) { const [gx, gy] = siteGoal(ob); spawnService("dump", gx, gy, null).job = { dump: ob }; ob.truckN = fleetFor(ob).trucks; ob.dumpSentT = simT; } continue; } }
@@ -5687,7 +5714,7 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
     c.overT += dt;
     // встречная появилась или впереди перекрёсток — возвращаемся и тормозим
     let oncoming = false; nearCars(c.x + dx * 30, c.y + dy * 30, 40, o => { if (oncoming || o === c || o.gone || !o.moving) return; const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = Math.abs((o.x - c.x) * dy - (o.y - c.y) * dx); if (al > 4 && al < 50 && lt < 5 && Math.cos(o.ang) * dx + Math.sin(o.ang) * dy < -.3) oncoming = true; });
-    if ((oncoming && c.over === 1) || (!c.contra && c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > (c.contra ? 40 : 14) || laneEnd(l) - c.s < 26) { c.over = 0; c.contra = false; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
+    if ((oncoming && c.over === 1) || (!c.contra && c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > (c.contra ? 40 : 14) || laneEnd(l) - c.s < (c.over === 3 ? 8 : 26)) { c.over = 0; c.contra = false; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
     return;
   }
   // реверс: при эвакуации (тревога 3+) бегущие по трассам и проспектам к выезду занимают и встречную полосу, если она пуста на 110 м
@@ -5697,6 +5724,12 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
   const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine);
   if (!obstacle) return;
   if (!opp) return;
+  // широкая улица (две полосы в каждую сторону): объезжаем по своей левой полосе, встречную не трогаем, можно и у перекрёстка
+  if (l.e.hw >= 22 && !l.e.oneway && laneEnd(l) - c.s > 14) {
+    const tgt = l.off - .6; let busy = false; // центр машины у осевой: от стоящей и от встречной — больше двух ширин кузова
+    nearCars(c.x + dx * 18, c.y + dy * 18, 34, o => { if (busy || o === c || o.gone) return; if (o.lane === l && !o.turn && Math.abs((o.latOff || 0) - tgt) < 6 && o.s > c.s - 12 && o.s < c.s + 40) busy = true; });
+    if (!busy) { c.over = 3; c.overT = 0; c.latTgt = tgt; c.wait = 0; return; }
+  }
   // у перекрёстка на встречку не выезжаем, но развернуться можно, если давно стоим, а встречная свободна
   if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) { if (c.wait > 12 && opp) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; routeCache.clear(); placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } } return; }
   if (oppClear(c, opp, dx, dy)) { c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c); return; }
@@ -6659,11 +6692,13 @@ const STYLES = [
   { wall: "#f1ede3", glass: "#2c3a48", frame: "#e0d2b0", win: .32, arch: true, house: true }, // храм: белёные стены, арочные окна, без витрин
   { wall: "#6c7050", glass: "#33404a", frame: "#c7c6b4", win: .42 }, // воинская часть: казармы и штаб
 ];
+// кирпичные — красные и рыжие стены
+function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && r > g + 25 && r > b + 30 && r < 200; }
+let realBrick = false; // загрузилась настоящая кладка (gfx.js) — рисованную не нужно
 // фактура стены: кирпичная кладка у красных и рыжих стен, швы панелей у панельных домов, неровная штукатурка у остальных
 function wallDetail(g, w, h, st) {
-  const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, gg = (n >> 8) & 255, b = n & 255;
-  const brick = !st.metal && !st.curtain && r > gg + 25 && r > b + 30 && r < 200;
-  if (brick) {
+  if (isBrick(st)) {
+    if (realBrick) return;
     // кладка: ряды по 4 пикселя, перевязка в полкирпича, каждый кирпич своего тона, светлые швы
     for (let y = 0, row = 0; y < h; y += 4, row++) for (let x = (row % 2) * -6; x < w; x += 12) {
       g.fillStyle = shade(st.wall, rnd(-22, 14)); g.fillRect(x, y, 11, 3);
@@ -8950,16 +8985,139 @@ const CAR_MODELS = {
     trim: () => [...bumpers(21, 2, 8)],
     light: () => [_cbox(21.04, .8, 7.96, 0, 4.6, 0)] },
 };
+// ещё легковые для разнообразия; их кузова из коробок — запасные, на случай если настоящие модели не загрузились
+Object.assign(CAR_MODELS, { muscle: { ...CAR_MODELS.sport }, muscle2: { ...CAR_MODELS.sport }, roadster: { ...CAR_MODELS.sport }, limo: { ...CAR_MODELS.sedan } });
 // грузовые машины и автобусы в натуральную ширину (2,5 м) и высоту: [по высоте, по ширине, радиус колёс]
 const MODEL_FIT = { truck: [1.3, 1.28, 2.1], garbage: [1.3, 1.28, 2.1], boxtruck: [1.22, 1.24, 1.9], fire: [1.32, 1.28, 2.1], army: [1.15, 1.28, 2.2], tanker: [1.25, 1.28, 2], bus: [1.18, 1.25, 1.9], suv: [.86, 1, 1.8], van: [1, 1.06, 1.5] };
 for (const k in MODEL_FIT) { const M = CAR_MODELS[k], [sy, sz, r] = MODEL_FIT[k]; M.fit = [sy, sz]; M.track *= sz; M.ly *= sy; M.roof *= sy; M.r = r; }
 
-const CAR_PARTS = ["paint", "glass", "trim", "light"];
+// base — части в своих цветах (у моделей с палитрой цвет зашит в вершины), не перекрашиваются
+const CAR_PARTS = ["paint", "glass", "trim", "light", "base"];
 const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .06, metalness: .8, envMapIntensity: 1.5 }), // стекло отражает небо и улицу, а не глухо-чёрное
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
-const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
+const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat, base: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .6, metalness: .25 }) };
 for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
 CAR_ROUND = false;
+
+/* ---------- настоящие модели машин: «Free Low Poly Vehicles Pack» от Rgsdev (CC0), лежат в cars.js ----------
+   Кузов из FBX раскладывается по материалам на те же четыре части: самый большой по площади цветной материал — краска,
+   стёкла и фары — стекло, чёрное, шины, задние фонари и мигалки — отделка, остальное (белые детали, полосы, табличка
+   такси) — светлая часть. Модели у автора широкие и высокие, как игрушки, — сжимаем до натуральных размеров: длина
+   прежней модели, ширина и высота по таблице. Колёса, фары и маячки ставим туда, где они у модели.
+   Нет cars.js или FBXLoader — остаются кузова из коробок */
+// w, h — ширина и высота в единицах мира (1 = 25 см); href — высота кузова у модели без таблички и маячков, см;
+// main — основной цвет кузова, если он не самый большой по площади; paint — какие ещё материалы красить в цвет машины (у полиции чёрные капот и двери — у нас машины белые с синей полосой)
+const FBX_CARS = {
+  sedan: { f: "Sedan", w: 7.3, h: 5.9 }, lada: { f: "Sedan", w: 6.9, h: 5.8 }, hatch: { f: "Hatchback", w: 7.1, h: 6.1 }, suv: { f: "SUV", w: 7.7, h: 7.2 },
+  pickup: { f: "Pickup", w: 7.6, h: 7.2 }, sport: { f: "Sports", w: 7.5, h: 5 }, van: { f: "Van", w: 7.9, h: 8.6 },
+  taxi: { f: "Taxi", w: 7.3, h: 5.9, href: 200 }, muscle: { f: "Muscle", w: 7.5, h: 5.3 }, muscle2: { f: "Muscle_2", w: 7.5, h: 5.3 },
+  roadster: { f: "Roadster", w: 7.3, h: 5 }, limo: { f: "Limousine", w: 7.6, h: 5.9, main: "body black" },
+  police: { f: "Police_Sedan", w: 7.3, h: 5.9, href: 200, paint: ["body black"], stripe: true },
+  policeSuv: { f: "Police_SUV", w: 7.7, h: 7.2, href: 205, paint: ["body black"], stripe: true },
+  ambulance: { f: "Ambulance", w: 7.9, h: 10.2 }, bus: { f: "Bus", w: 10, h: 12.4 },
+};
+// грузовики со стройки Majadroid (CC0): шасси с кабиной — основа самосвала, миксера, эвакуатора, мусоровоза, фургона,
+// бензовоза, армейского и пожарного; что на шасси (будка, цистерна, тент, кузов АЦ) — коробки по месту.
+// Цвета у этих моделей — из палитры по UV: основной цвет кабины перекрашивается в цвет машины, стёкла — стекло, остальное как есть
+const box3 = (sx, sy, sz, x, y, z) => new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z);
+const TRUCK = { f: "S_Trucks", mesh: "Base_Truck", w: 10, h: 12.4, pal: true };
+const FBX_PAL = {
+  truck: TRUCK,
+  garbage: { ...TRUCK, add: { light: () => [box3(15, 8.6, 9.8, -4.4, 8.9, 0)] } },
+  boxtruck: { ...TRUCK, add: { light: () => [box3(15, 9, 9.8, -4.5, 9.1, 0)] } },
+  tanker: { ...TRUCK, add: { paint: () => [new THREE.CylinderGeometry(4.2, 4.2, 17, 18).rotateZ(Math.PI / 2).translate(-5.5, 8.8, 0)],
+    light: () => [-11, -5.5, 0].map(x => new THREE.CylinderGeometry(4.3, 4.3, .6, 18).rotateZ(Math.PI / 2).translate(x, 8.8, 0)) } },
+  army: { ...TRUCK, add: { paint: () => [box3(15, 2.4, 9.8, -4.5, 5.6, 0)], light: () => [box3(15, 5.6, 9.8, -4.5, 9.6, 0)] } },
+  fire: { ...TRUCK, add: { paint: () => [box3(19, 6.2, 10, -4, 7.6, 0)], light: () => [box3(19.04, .8, 10.06, -4, 6.4, 0), box3(19.04, .5, 10.06, -4, 10.5, 0)] } },
+};
+function fbxCar(key, spec, pal) {
+  const src = window.CAR_FBX && window.CAR_FBX[spec.f], M = CAR_MODELS[key]; if (!src || !M || !THREE.FBXLoader || (spec.pal && !pal)) return;
+  const bin = atob(src), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  // у автора многоугольники не разбиты на треугольники — загрузчик разбивает их сам и ругается на каждый; молчим
+  const warn = console.warn; console.warn = () => {}; let obj; try { obj = new THREE.FBXLoader().parse(u8.buffer, ""); } finally { console.warn = warn; }
+  obj.updateMatrixWorld(true);
+  const body = [], wheels = []; obj.traverse(o => { if (o.isMesh && (!spec.mesh || o.name === spec.mesh)) (/wheel/i.test(o.name) ? wheels : body).push(o); });
+  const bb = new THREE.Box3(); body.forEach(o => bb.expandByObject(o));
+  // у модели x — вбок, y — вверх, z — вперёд (см); у машины игры x — вперёд, y — вверх, z — вбок
+  const kx = M.L / (bb.max.z - bb.min.z), kz = spec.w / (bb.max.x - bb.min.x), ky = spec.h / (spec.href || bb.max.y), cz = (bb.max.z + bb.min.z) / 2;
+  const T = new THREE.Matrix4().set(0, 0, kx, -cz * kx, 0, ky, 0, 0, -kz, 0, 0, 0, 0, 0, 0, 1);
+  // треугольники по материалам, сразу в координатах игры
+  const byMat = {}, v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  for (const o of body) {
+    const m = new THREE.Matrix4().multiplyMatrices(T, o.matrixWorld), nm = new THREE.Matrix3().getNormalMatrix(m), g = o.geometry, P = g.attributes.position, N = g.attributes.normal, I = g.index, UV = g.attributes.uv;
+    const mats = Array.isArray(o.material) ? o.material : [o.material], groups = g.groups.length ? g.groups : [{ start: 0, count: I ? I.count : P.count, materialIndex: 0 }];
+    for (const gr of groups) {
+      const mname = (mats[gr.materialIndex] || mats[0]).name.toLowerCase();
+      for (let t = gr.start; t + 2 < gr.start + gr.count; t += 3) {
+        // у модели с палитрой «материал» треугольника — цвет палитры в середине его UV
+        let name = mname;
+        if (spec.pal && UV) {
+          let u = 0, w = 0; for (let k = 0; k < 3; k++) { const vi = I ? I.getX(t + k) : t + k; u += UV.getX(vi) / 3; w += UV.getY(vi) / 3; }
+          const px = Math.min(pal.w - 1, Math.max(0, Math.floor((u - Math.floor(u)) * pal.w))), py = Math.min(pal.h - 1, Math.max(0, Math.floor((1 - (w - Math.floor(w))) * pal.h))), i4 = (py * pal.w + px) * 4;
+          name = "#" + [0, 1, 2].map(k => pal.d[i4 + k].toString(16).padStart(2, "0")).join("");
+        }
+        const B = byMat[name] || (byMat[name] = { p: [], n: [], area: 0 });
+        for (let k = 0; k < 3; k++) { const vi = I ? I.getX(t + k) : t + k; v[k].fromBufferAttribute(P, vi).applyMatrix4(m); n.fromBufferAttribute(N, vi).applyMatrix3(nm).normalize(); B.p.push(v[k].x, v[k].y, v[k].z); B.n.push(n.x, n.y, n.z); }
+        B.area += e1.subVectors(v[1], v[0]).cross(e2.subVectors(v[2], v[0])).length() / 2;
+      }
+    }
+  }
+  // цвет палитры: насыщенность и светлота; стекло — светлое голубое
+  const hsl = k => { const n = parseInt(k.slice(1), 16), r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    const h = !d ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return { h: h / 6, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }; };
+  const glassy = k => { const o = hsl(k); return o.h > .5 && o.h < .7 && o.s > .3 && o.l > .3 && o.l < .8; };
+  const main = spec.main || (spec.pal ? Object.keys(byMat).filter(k => { const o = hsl(k); return o.s > .35 && o.l > .2 && o.l < .8 && !glassy(k); })
+    : Object.keys(byMat).filter(k => /^body /.test(k) && k !== "body black")).sort((a, b) => byMat[b].area - byMat[a].area)[0];
+  const partOf = k => spec.pal ? (k === main ? "paint" : glassy(k) ? "glass" : "base")
+    : /window|headlight/.test(k) ? "glass" : k === main || (spec.paint || []).includes(k) ? "paint" : /black|tire|rear light|flasher/.test(k) ? "trim" : "light";
+  const acc = { paint: { p: [], n: [] }, glass: { p: [], n: [] }, trim: { p: [], n: [] }, light: { p: [], n: [] }, base: { p: [], n: [], c: [] } };
+  for (const k in byMat) {
+    const part = partOf(k), a = acc[part]; a.p.push(...byMat[k].p); a.n.push(...byMat[k].n);
+    if (part === "base") { const c = new THREE.Color(k); for (let i = 0; i < byMat[k].p.length; i += 3) a.c.push(c.r, c.g, c.b); }
+  }
+  // надстройки по месту: будка, цистерна, тент, кузов
+  if (spec.add) for (const p in spec.add) for (const g0 of spec.add[p]()) { const g = g0.index ? g0.toNonIndexed() : g0; acc[p].p.push(...g.attributes.position.array); acc[p].n.push(...g.attributes.normal.array); }
+  const box = k => { const B = byMat[k]; if (!B) return null; const b = new THREE.Box3(); for (let i = 0; i < B.p.length; i += 3) b.expandByPoint(v[0].fromArray(B.p, i)); return b; };
+  // полоса ДПС по бортам: синяя, на уровне ручек дверей
+  if (spec.stripe) { const bx = box(main), w = (bx.max.z - bx.min.z) / 2 + .05, g = new THREE.BoxGeometry(M.L * .78, .8, w * 2).translate(-.3, bx.min.y + (bx.max.y - bx.min.y) * .28, 0).toNonIndexed(); acc.light.p.push(...g.attributes.position.array); acc.light.n.push(...g.attributes.normal.array); }
+  M.geo = {};
+  for (const p of CAR_PARTS) {
+    const a = acc[p]; if (!a.p.length) continue;
+    const gg = new THREE.BufferGeometry(); gg.setAttribute("position", new THREE.Float32BufferAttribute(a.p, 3)); gg.setAttribute("normal", new THREE.Float32BufferAttribute(a.n, 3));
+    if (a.c) gg.setAttribute("color", new THREE.Float32BufferAttribute(a.c, 3));
+    gg.computeBoundingSphere(); M.geo[p] = gg;
+  }
+  // колёса: оси, радиус и колея — как у модели
+  const ws = wheels.map(o => new THREE.Box3().setFromObject(o));
+  if (spec.mesh) M.wheels = []; // колёса — часть модели
+  else if (ws.length) {
+    // левое и правое колесо у модели стоят чуть несимметрично — оси ближе метра считаем одной
+    const xs = ws.map(b => ((b.min.z + b.max.z) / 2 - cz) * kx).sort((a, b) => b - a); M.wheels = [];
+    for (const x of xs) { const last = M.wheels[M.wheels.length - 1]; if (last === undefined || last - x > 4) M.wheels.push(x); else M.wheels[M.wheels.length - 1] = (last + x) / 2; }
+    M.r = (ws[0].max.y - ws[0].min.y) / 2 * ky; M.track = Math.max(...ws.map(b => Math.abs(b.min.x + b.max.x) / 2)) * kz + .2;
+  }
+  // фары: высота и разнос — по фарам модели; маячки — над мигалками модели
+  // светящиеся блоки (фары и фонари на всех машинах одни) прячем в фары модели: снаружи видна только их передняя грань
+  const hl = box("headlights"), rl = box("rear lights"), lzOf = b => Math.max(Math.abs(b.min.z), Math.abs(b.max.z)) - .9;
+  if (hl) { M.ly = (hl.min.y + hl.max.y) / 2; M.lz = lzOf(hl); M.lf = hl.max.x - .12; }
+  if (rl) { M.lyr = (rl.min.y + rl.max.y) / 2; M.lzr = lzOf(rl); M.lr = rl.min.x + .12; }
+  const fl = Object.keys(byMat).filter(k => /flasher/.test(k)).map(box);
+  if (fl.length) { const b = fl.reduce((a, x) => a.union(x), fl[0].clone()); M.roof = b.max.y - .6; M.barX = (b.min.x + b.max.x) / 2; }
+  else M.roof = box(main) ? box(main).max.y : M.roof;
+  delete M.fit; M.fbx = true;
+}
+for (const k in FBX_CARS) { try { fbxCar(k, FBX_CARS[k]); } catch (e) { console.warn("модель машины не загрузилась", k, e); } }
+// палитра — картинка, она раскодируется не сразу: грузовики встают на место чуть позже, вместе с пересборкой машин
+if (window.CAR_PAL) {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+    const pal = { w: img.width, h: img.height, d: g.getImageData(0, 0, img.width, img.height).data };
+    for (const k in FBX_PAL) { try { fbxCar(k, FBX_PAL[k], pal); } catch (e) { console.warn("модель машины не загрузилась", k, e); } }
+    if (cm) makeCarMeshes(carCap);
+  };
+  img.src = window.CAR_PAL;
+}
 const wheelGeo = (() => {
   const tyre = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 16).rotateX(Math.PI / 2).toNonIndexed(), rim = new THREE.CylinderGeometry(.82, .82, 1.68, 12).rotateX(Math.PI / 2).toNonIndexed(), hub = new THREE.CylinderGeometry(.3, .3, 1.76, 8).rotateX(Math.PI / 2).toNonIndexed();
   const parts = [[tyre, [.08, .08, .085]], [rim, [.55, .56, .58]], [hub, [.3, .3, .32]]], p = [], n = [], c = [];
@@ -9007,22 +9165,23 @@ function updateCars() {
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : part.p === "base" ? (dead ? "#2a2724" : "#ffffff") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим
     const ws = M.r / 1.4;
     for (const wx of M.wheels) for (const s of [-1, 1]) { if (wi >= F.wheels.instanceMatrix.count) break; _cw.makeScale(ws / sx, ws, M.r > 1.7 ? 1.15 : 1).setPosition(wx, M.r, s * M.track); F.wheels.setMatrixAt(wi++, _cw.premultiply(_cm)); }
     // фары: днём у едущих — дневные ходовые огни, вечером и ночью — ближний свет с пятном на дороге и красные габариты; при торможении — стоп-сигналы
-    const lit = !c.wreck && (c.moving || c.police), hw = M.L / 2 + .1;
+    const lit = !c.wreck && (c.moving || c.police), hw = M.L / 2 + .1, lz = M.lz || Math.min(M.track - .3, 2.6 * M.track / 3.45);
     for (let k = 0; k < 4; k++) {
-      _cw.makeTranslation(k < 2 ? hw : -hw, M.ly, (k % 2 ? 1 : -1) * Math.min(M.track - .3, 2.6 * M.track / 3.45)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
+      const front = k < 2;
+      _cw.makeTranslation(front ? (M.lf !== undefined ? M.lf : hw) : (M.lr !== undefined ? M.lr : -hw), front ? M.ly : (M.lyr || M.ly), (k % 2 ? 1 : -1) * (front ? lz : M.lzr || lz)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
       F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.v < 3 ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
     }
     if (c.moving && dusk) { _cw.makeScale(26, 1, 18).setPosition(M.L / 2 + 7, .25, 0); F.beams.setMatrixAt(bi++, _cw.premultiply(_cm)); }
     const sir = c.police ? "police" : c.siren;
     if (sir && !c.wreck && bar < 198 && (c.moving || c.deployed || c.police)) for (let k = 0; k < 2; k++) {
-      _cw.makeTranslation(M.L > 22 ? M.L / 2 - 4 : -1, M.roof + .4, k ? 1.3 : -1.3); F.bars.setMatrixAt(bar, _cw.premultiply(_cm));
+      _cw.makeTranslation(M.barX !== undefined ? M.barX : M.L > 22 ? M.L / 2 - 4 : -1, M.roof + .4, k ? 1.3 : -1.3); F.bars.setMatrixAt(bar, _cw.premultiply(_cm));
       const on = (k === 0) === ph, col = sir === "police" ? (k ? "#2050ff" : "#ff2020") : sir === "amber" ? "#ffa020" : "#ff2020";
       F.bars.setColorAt(bar, _cc.set(on ? col : "#111")); bar++;
     }
@@ -9551,18 +9710,88 @@ const WEATHER_NOISE = `
 float wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float wn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(wh(i), wh(i + vec2(1., 0.)), f.x), mix(wh(i + vec2(0., 1.)), wh(i + vec2(1., 1.)), f.x), f.y); }
 float wf(vec2 p){ return wn(p) * .5 + wn(p * 2.03) * .25 + wn(p * 4.01) * .125; }`;
-function weatherMat(m, k = 1, roof = false) {
+
+/* ---------- настоящие фактуры (Poly Haven, CC0): кирпич, штукатурка, бетон, асфальт, плитка, газон, гравий, черепица ----------
+   Лежат в textures.js — jpg в base64, как модели людей в people.js, поэтому грузятся и с диска, без сервера.
+   Пока не загрузились (или файла нет) — в шейдерах серая заглушка и выключенный detOn, картинка как раньше */
+const RT = {}, RT_GREY = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1), RT_FLAT = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+RT_GREY.needsUpdate = RT_FLAT.needsUpdate = true;
+function rtSlot(n) { return RT[n] || (RT[n] = { diff: { value: RT_GREY }, nor: { value: RT_FLAT }, mean: { value: new THREE.Vector3(.5, .5, .5) }, ok: false }); }
+// средний тон фактуры в линейных цветах: поверхность умножается на «фактура / среднее», и её общий цвет не меняется
+function rtMean(img) {
+  const c = document.createElement("canvas"); c.width = c.height = 32; const g = c.getContext("2d"); g.drawImage(img, 0, 0, 32, 32);
+  const d = g.getImageData(0, 0, 32, 32).data, s = [0, 0, 0];
+  for (let i = 0; i < d.length; i += 4) for (let k = 0; k < 3; k++) s[k] += Math.pow(d[i + k] / 255, 2.2);
+  return new THREE.Vector3(s[0], s[1], s[2]).multiplyScalar(1 / 1024);
+}
+function loadRealTextures() {
+  const src = window.REAL_TEX; if (!src || prefs.quality === "low") return;
+  const jobs = [];
+  for (const n in src) for (const k of ["diff", "nor"]) if (src[n][k]) jobs.push(new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const t = new THREE.Texture(img), s = rtSlot(n); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = Math.min(8, R3.capabilities.getMaxAnisotropy());
+      if (k === "diff") { t.encoding = THREE.sRGBEncoding; s.mean.value.copy(rtMean(img)); s.ok = true; }
+      t.needsUpdate = true; s[k].value = t; res();
+    };
+    img.onerror = () => res(); img.src = src[n][k];
+  }));
+  Promise.all(jobs).then(applyRealTextures);
+}
+// фактура на материале фасада или крыши: какая текстура, размер плитки в единицах мира, насыщенность, сила, рельеф
+const DET = new Map();
+function detUniforms(m, o) {
+  const s = rtSlot(o.tex), w = new THREE.Color(o.wall || "#808080"); // цвет из hex уже в линейном пространстве (legacyMode = false)
+  const u = { detOn: { value: 0 }, detDiff: s.diff, detNor: s.nor, detMean: s.mean, detWall: { value: new THREE.Vector3(w.r, w.g, w.b) },
+    detP: { value: new THREE.Vector4(1 / o.scale, o.sat, o.amt, o.bump) }, detFlat: { value: o.flat ? 1 : 0 } };
+  DET.set(m, { o, u }); return u;
+}
+// рельеф из карты нормалей без касательных: базис по производным координат фактуры (как perturbNormal2Arb в three.js)
+const DET_FN = `
+vec3 detPerturb(vec3 eye, vec3 n, vec2 uv, vec3 mN) {
+  vec3 q0 = dFdx(eye), q1 = dFdy(eye); vec2 s0 = dFdx(uv), s1 = dFdy(uv);
+  vec3 q1p = cross(q1, n), q0p = cross(n, q0), T = q1p * s0.x + q0p * s1.x, B = q1p * s0.y + q0p * s1.y;
+  float dd = max(dot(T, T), dot(B, B)), sc = dd == 0. ? 0. : inversesqrt(dd);
+  return normalize(T * (mN.x * sc) + B * (mN.y * sc) + n * mN.z);
+}`;
+const DET_GLSL = `
+uniform float detOn, detFlat; uniform sampler2D detDiff, detNor; uniform vec3 detMean, detWall; uniform vec4 detP;` + DET_FN;
+// стены: координаты фактуры — единицы вдоль стены (u фасада × 128) и высота; окна, рамы и подоконники не трогаем — фактура
+// ложится только там, где цвет близок к цвету стены. Крыши: координаты — по плану, фактура на всей поверхности
+function detCode(roof) {
+  return `
+      vec2 dUV = vec2(0.); float dK = 0.;
+      if (detOn > .5) {
+        vec3 base = diffuseColor.rgb;
+        ${roof ? `dUV = vWPos.xz * detP.x; dK = 1.;` : `dUV = vec2(vUv.x * ${BAY * TBX}., vWPos.y) * detP.x;
+        dK = 1. - smoothstep(.12, .3, length(base - detWall) / max(.04, length(detWall)));`}
+        if (dK > .001) {
+          vec3 rel = texture2D(detDiff, dUV).rgb / max(detMean, vec3(.01));
+          vec3 mulC = mix(vec3(dot(rel, vec3(.3, .59, .11))), rel, detP.y);
+          diffuseColor.rgb = mix(base, mix(base, detWall, detFlat) * mix(vec3(1.), mulC, detP.z), dK);
+        }
+      }`;
+}
+const DET_NORMAL = `#include <normal_fragment_maps>
+      if (dK > .001) {
+        vec3 mN = texture2D(detNor, dUV).xyz * 2. - 1.; mN.xy *= detP.w * dK * (1. - smoothstep(120., 420., length(vViewPosition)));
+        normal = detPerturb(-vViewPosition, normal, dUV, mN);
+      }`;
+function weatherMat(m, k = 1, roof = false, det = null) {
   if (!m || m.userData.weather) return; m.userData.weather = true;
-  const prev = m.onBeforeCompile;
+  const prev = m.onBeforeCompile, du = det ? detUniforms(m, det) : null;
+  if (du) m.extensions = Object.assign(m.extensions || {}, { derivatives: true });
   m.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
+    if (du) Object.assign(sh.uniforms, du);
     sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;").replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
       #ifdef USE_INSTANCING
         vWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
       #else
         vWPos = (modelMatrix * vec4(transformed, 1.)).xyz;
       #endif`);
-    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;" + WEATHER_NOISE).replace("#include <map_fragment>", `#include <map_fragment>
+    if (du) sh.fragmentShader = sh.fragmentShader.replace("#include <normal_fragment_maps>", DET_NORMAL);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;" + WEATHER_NOISE + (du ? DET_GLSL : "")).replace("#include <map_fragment>", `#include <map_fragment>${du ? detCode(roof) : ""}
       {
         float hgt = vWPos.y;
         ${roof ? `
@@ -9579,15 +9808,46 @@ function weatherMat(m, k = 1, roof = false) {
         diffuseColor.rgb *= d * mix(vec3(.96, .97, 1.), vec3(1.04, 1., .95), tone);`}
       }`);
   };
-  m.customProgramCacheKey = () => "weather" + k + roof;
+  m.customProgramCacheKey = () => "weather" + k + roof + (du ? "det" : "");
   m.needsUpdate = true;
 }
+// фактура фасада по стилю: кирпич — настоящая кладка вместо цвета стены; частные дома и старый город — штукатурка;
+// панельные и общественные здания — бетон; стекло и металл без фактуры
+function facadeDet(st) {
+  if (st.metal || st.curtain) return null;
+  if (isBrick(st)) return { tex: "brick", scale: 4.8, sat: 1, amt: 1, bump: 1.3, flat: true, wall: st.wall };
+  if (st.house || st.arch) return { tex: "plaster", scale: 12, sat: .2, amt: .55, bump: .6, wall: st.wall };
+  return { tex: "panel", scale: 14, sat: .15, amt: .65, bump: .5, wall: st.wall };
+}
 function weatherCity() {
-  facadeMats.forEach(m => weatherMat(m, 1.5));
-  weatherMat(roofMat, 1, true);
+  facadeMats.forEach((m, i) => weatherMat(m, 1.5, false, facadeDet(STYLES[i])));
+  weatherMat(roofMat, 1, true, { tex: "roofgravel", scale: 9, sat: 0, amt: .75, bump: .8 });
   if (typeof metalRoofMat !== "undefined") weatherMat(metalRoofMat, .7, true);
 }
 weatherCity();
+// все текстуры на месте: включить фактуры в шейдерах, перерисовать кирпичные фасады без нарисованной кладки,
+// черепицу и поля за городом — сменить карты
+function applyRealTextures() {
+  for (const [m, d] of DET) if (rtSlot(d.o.tex).ok) d.u.detOn.value = 1;
+  if (RT.brick && RT.brick.ok) {
+    realBrick = true;
+    STYLES.forEach((st, i) => { if (!isBrick(st)) return; const m = facadeMats[i], t = facadeTex(st, false); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (m.map) m.map.dispose(); m.map = t; });
+  }
+  groundDet.gOn.value = ["asphalt", "pavement", "grass"].every(n => RT[n] && RT[n].ok) ? 1 : 0;
+  const tl = RT.rooftiles;
+  if (tl && tl.ok) {
+    // ряды черепицы идут вдоль ската: у двускатной крыши u — поперёк конька, поэтому фактура повёрнута
+    const t = tl.diff.value.clone(), n = tl.nor.value.clone();
+    for (const x of [t, n]) { x.repeat.set(.09, .09); x.center.set(.5, .5); x.rotation = Math.PI / 2; x.needsUpdate = true; }
+    tileMats.forEach(m => { m.map = t; m.normalMap = n; m.normalScale.set(.8, .8); m.needsUpdate = true; });
+  }
+  const gr = RT.grass;
+  if (gr && gr.ok) {
+    // поля за городом: та же трава, подкрашенная под прежний тон, мелкие повторы съедает дальность
+    const t = gr.diff.value.clone(), m = gr.mean.value; t.repeat.set(16000 / 14, 16000 / 14); t.needsUpdate = true;
+    outskirts.material.map = t; outskirts.material.color.setRGB(.069 / m.x, .102 / m.y, .038 / m.z); outskirts.material.needsUpdate = true;
+  }
+}
 
 /* ---------- листва: карта нормалей из мелких «листьев», чтобы крона не была гладким шаром ---------- */
 function leafNormalTex() {
@@ -9660,27 +9920,52 @@ function leafMaterial() {
 /* ---------- асфальт вблизи: мелкая фактура поверх общей карты ---------- */
 const detailTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#6a6a6a", "#959595", "#777", "#8c8c8c", "#5e5e5e"], 1.5); }, false);
 detailTex.wrapS = detailTex.wrapT = THREE.RepeatWrapping;
+// настоящие фактуры земли: асфальт, плитка тротуаров и площадей, газон. Какая поверхность под пикселем — по цвету
+// нарисованной карты земли (тёмный серый — асфальт, светлый серый — плитка, зелёный — трава); завалы и прочее не трогаем
+const groundDet = { gOn: { value: 0 } };
+for (const [k, n] of [["gA", "asphalt"], ["gP", "pavement"], ["gG", "grass"]]) { const s = rtSlot(n); groundDet[k + "D"] = s.diff; groundDet[k + "N"] = s.nor; groundDet[k + "M"] = s.mean; }
+ground.material.extensions = { derivatives: true };
 ground.material.onBeforeCompile = sh => {
-  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = { value: new THREE.Vector2(W, H) };
+  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = { value: new THREE.Vector2(W, H) }; Object.assign(sh.uniforms, groundDet);
   sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
-    diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28);
+    vec3 bc0 = diffuseColor.rgb; vec2 gWP = vUv * worldSize; vec3 gK = vec3(0.);
+    diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28 * (1. - .6 * gOn));
     {
       // сетка тонких трещин: гребни шума с искажением; видна только на тёмном сером асфальте и вблизи
-      vec3 bc = diffuseColor.rgb; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
+      vec3 bc = bc0; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
       float asph = (1. - smoothstep(.06, .11, mx)) * (1. - smoothstep(.012, .03, mx - mn));
       float near = 1. - smoothstep(120., 420., length(vViewPosition));
       // газон вблизи: мелкая пятнистость, чтобы не распадался на квадраты текстуры
       float grassM = smoothstep(.0, .03, bc.g - max(bc.r, bc.b) * 1.05);
-      if (grassM * near > .01) { vec2 gp = vUv * worldSize; diffuseColor.rgb *= mix(1., .78 + .4 * wn(gp * 1.3) * wn(gp * .37 + 3.1) + .12 * wn(gp * 4.1), grassM * near); }
+      // плитка: светлый серый тротуаров, бордюров, площадей; завал темнее и сюда не попадает
+      float pave = smoothstep(.245, .265, mx) * (1. - smoothstep(.55, .65, mx)) * (1. - smoothstep(.38, .5, (mx - mn) / max(mx, .01)));
+      if (gOn > .5) {
+        float far = 1. - smoothstep(1100., 2200., length(vViewPosition)), L = 0.;
+        if (asph > .01) {
+          // асфальт: две выборки разного масштаба и поворота, чтобы плитка текстуры не повторялась рисунком
+          vec3 a = (texture2D(gAD, gWP / 16.).rgb + texture2D(gAD, mat2(.8, -.6, .6, .8) * gWP / 37. + .31).rgb) * .5 / gAM;
+          diffuseColor.rgb *= mix(1., dot(a, vec3(.3, .59, .11)), .95 * asph * far);
+        }
+        if (pave > .01) { vec3 p = texture2D(gPD, gWP / 12.).rgb / gPM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(p, vec3(.3, .59, .11))), p, .3), .75 * pave * far); }
+        if (grassM > .01) { vec3 g = texture2D(gGD, gWP / 10.).rgb / gGM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(g, vec3(.3, .59, .11))), g, .45), .85 * grassM * far); }
+        gK = vec3(asph, pave, grassM);
+      } else if (grassM * near > .01) diffuseColor.rgb *= mix(1., .78 + .4 * wn(gWP * 1.3) * wn(gWP * .37 + 3.1) + .12 * wn(gWP * 4.1), grassM * near);
       if (asph * near > .01) {
-        vec2 wp = vUv * worldSize;
+        vec2 wp = gWP;
         vec2 q = wp * .16 + vec2(wn(wp * .05), wn(wp * .05 + 7.3)) * 3.;
         float r1 = abs(wn(q) - .5), r2 = abs(wn(q * 2.3 + 4.1) - .5);
         // трещины короткие и редкие: гребень шума виден только там, где высокочастотная маска открыта
         float crack = (1. - smoothstep(.0, .022, r1)) * step(.72, wn(wp * .11 + 2.)) + (1. - smoothstep(.0, .018, r2)) * .6 * step(.78, wn(wp * .13 + 9.));
-        diffuseColor.rgb *= 1. - .38 * clamp(crack, 0., 1.) * asph * near;
+        diffuseColor.rgb *= 1. - .38 * (1. - .5 * gOn) * clamp(crack, 0., 1.) * asph * near;
       }
-    }`).replace("void main() {", "uniform sampler2D detailMap; uniform vec2 worldSize;\n" + WEATHER_NOISE + "\nvoid main() {");
+    }`).replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+    if (gK.x + gK.y + gK.z > .01) {
+      float nb = 1. - smoothstep(100., 380., length(vViewPosition));
+      vec3 mN = (texture2D(gAN, gWP / 16.).xyz * 2. - 1.) * gK.x + (texture2D(gPN, gWP / 12.).xyz * 2. - 1.) * gK.y + (texture2D(gGN, gWP / 10.).xyz * 2. - 1.) * gK.z;
+      if (nb > .001) normal = detPerturb(-vViewPosition, normal, gWP, normalize(vec3(mN.xy * nb * 1.1, 1.)));
+    }`).replace("void main() {", `uniform sampler2D detailMap, gAD, gAN, gPD, gPN, gGD, gGN; uniform vec2 worldSize; uniform vec3 gAM, gPM, gGM; uniform float gOn;
+${WEATHER_NOISE}${DET_FN}
+void main() {`);
 };
 ground.material.needsUpdate = true;
 
@@ -9724,66 +10009,138 @@ function organicCrown() {
   return g;
 }
 
-/* ---------- настоящие люди вблизи камеры: скелет и анимации ---------- */
-// модель Quaternius «Animated Human» (CC0): ходьба, бег, стойка, удар, смерть; цвета — палитра 32×32 на человека
-const REAL = { ready: false, N: 64, slots: [], clips: {}, tpl: null, scale: 1, t: 0 };
+/* ---------- настоящие люди вблизи камеры: скелет и анимации ----------
+   Модели — «Ultimate Animated Character Pack» от Quaternius (CC0), упакованы в people.js (tools/pack_people.html):
+   общий скелет с анимациями и 23 персонажа — горожане, пожилые, в костюмах, рабочие, врачи, солдаты, полиция, зомби.
+   У автора фигуры «чиби», голова в треть роста: в игре голова меньше, руки и ноги длиннее — пропорции ближе к настоящим.
+   Раскраска — материалами по частям (кожа, рубашка, брюки, волосы), у каждого горожанина свои цвета */
+const REAL = { ready: false, N: 64, slots: [], clips: {}, tpl: null, chars: {}, scale: 1, lift: 0, t: 0 };
+// пропорции: голова меньше, ноги и руки длиннее (вдоль кости; нижние звенья растягиваются вместе с верхними)
+const PROP_LEG = 1.3, PROP_ARM = 1.16, PROP_HEAD = .62;
+// кого кем одевать: по роли, полу и возрасту; у кого своя каска или шляпа — головной убор агента не надеваем
+const PEOPLE_BY = {
+  m: ["Casual_Male", "Casual2_Male", "Casual3_Male", "Casual_Bald", "Suit_Male", "Worker_Male", "Casual_Male", "Casual3_Male"],
+  f: ["Casual_Female", "Casual2_Female", "Casual3_Female", "Suit_Female", "Worker_Female", "Casual_Female", "Casual2_Female"],
+  oldm: ["OldClassy_Male", "Casual_Bald", "Doctor_Male_Old"], oldf: ["OldClassy_Female", "Doctor_Female_Old", "Casual3_Female"],
+  medicm: ["Doctor_Male_Young", "Doctor_Male_Old"], medicf: ["Doctor_Female_Young", "Doctor_Female_Old"],
+  armym: ["Soldier_Male"], armyf: ["Soldier_Female"], policem: ["BlueSoldier_Male"], policef: ["BlueSoldier_Female"],
+  workm: ["Worker_Male"], workf: ["Worker_Female"], zm: ["Zombie_Male"], zf: ["Zombie_Female"],
+};
+const OWN_HAT = new Set(["OldClassy_Male", "Worker_Male", "Soldier_Male", "Soldier_Female", "BlueSoldier_Male", "BlueSoldier_Female"]);
+// у горожан рубашка и брюки — цвета агента; у формы (врачи, военные, полиция, рабочие) — свои
+const UNIFORM = /^(Doctor|Soldier|BlueSoldier|Worker)/;
+function charOf(a) {
+  if (a.pmodel && REAL.chars[a.pmodel]) return a.pmodel;
+  const f = a.sex === "f", h = (a.id * 2654435761) >>> 0, pk = list => list[h % list.length];
+  let k;
+  if (a.role === "zombie") k = h % 10 < 3 ? (f ? "zf" : "zm") : a.age === "old" ? (f ? "oldf" : "oldm") : f ? "f" : "m";
+  else if (a.role === "medic") k = f ? "medicf" : "medicm";
+  else if (a.role === "army") k = f && h % 5 === 0 ? "armyf" : "armym";
+  else if (a.role === "police") k = f && h % 4 === 0 ? "policef" : "policem";
+  else if (a.role === "worker" || a.role === "builder" || a.role === "sanitar" || a.role === "fire") k = f && h % 3 === 0 ? "workf" : "workm";
+  else k = a.age === "old" ? (f ? "oldf" : "oldm") : f ? "f" : "m";
+  a.pmodel = pk(PEOPLE_BY[k]); if (!REAL.chars[a.pmodel]) a.pmodel = Object.keys(REAL.chars)[0];
+  return a.pmodel;
+}
+// people.js: gzip в base64 — распаковка асинхронная, люди появляются через долю секунды после загрузки
 function initRealPeople() {
-  if (!window.HUMAN_FBX || !THREE.FBXLoader || !THREE.SkeletonUtils) return;
+  if (!window.PEOPLE_GZ || !THREE.SkeletonUtils || typeof DecompressionStream === "undefined") return;
+  const bin = atob(window.PEOPLE_GZ), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"))).text().then(t => buildPeople(JSON.parse(t))).catch(e => console.warn("модели людей не загрузились", e));
+}
+const _b64 = (s, T) => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new T(u.buffer); };
+function charGeo(c) {
+  const q = _b64(c.pos, Int16Array), p = new Float32Array(q.length);
+  for (let i = 0; i < q.length; i++) { const a = i % 3; p[i] = c.mn[a] + (q[i] + 32768) / 65535 * (c.mx[a] - c.mn[a]); }
+  const sw = _b64(c.sw, Uint8Array), w = new Float32Array(sw.length); for (let i = 0; i < sw.length; i++) w[i] = sw[i] / 255;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(p, 3)); g.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(_b64(c.si, Uint8Array)), 4)); g.setAttribute("skinWeight", new THREE.BufferAttribute(w, 4));
+  g.setIndex(new THREE.BufferAttribute(_b64(c.idx, Uint16Array), 1));
+  for (const [s, n, m] of c.groups) g.addGroup(s, n, m);
+  g.computeVertexNormals(); g.computeBoundingSphere();
+  return g;
+}
+function buildPeople(P) {
   try {
-    const bin = atob(window.HUMAN_FBX), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    const obj = new THREE.FBXLoader().parse(u8.buffer, "");
-    obj.updateMatrixWorld(true);
-    let top = 0; obj.traverse(o => { if (o.isBone && o.name === "HeadTop_End") top = o.getWorldPosition(new THREE.Vector3()).y; });
-    REAL.scale = 7.5 / (top || 525);
-    for (const a of obj.animations) REAL.clips[a.name.split("|").pop()] = a;
-    obj.traverse(o => { if (o.isSkinnedMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
-    REAL.tpl = obj;
+    const R = P.rig, root = new THREE.Group(), dec = (o, arr) => { o.matrix.fromArray(arr); o.matrix.decompose(o.position, o.quaternion, o.scale); };
+    dec(root, R.root);
+    const bones = R.bones.map(r => { const b = new THREE.Bone(); b.name = r[0]; b.position.set(r[2], r[3], r[4]); b.quaternion.set(r[5], r[6], r[7], r[8]); b.scale.set(r[9], r[10], r[11]); return b; });
+    // у арматуры своё имя: на него ссылаются дорожки анимации (без него three.js применил бы их к корню)
+    const arm = new THREE.Group(); arm.name = R.armName || "CharacterArmature"; if (R.arm) dec(arm, R.arm); root.add(arm);
+    R.bones.forEach((r, i) => (r[1] >= 0 ? bones[r[1]] : arm).add(bones[i]));
+    for (const n in P.chars) { const c = P.chars[n]; REAL.chars[n] = { geo: charGeo(c), mats: c.mats }; }
+    const first = Object.keys(REAL.chars)[0], mesh = new THREE.SkinnedMesh(REAL.chars[first].geo, new THREE.MeshStandardMaterial());
+    dec(mesh, R.mesh); root.add(mesh); root.updateMatrixWorld(true);
+    mesh.bind(new THREE.Skeleton(R.order.map(i => bones[i]), R.inv.map(m => new THREE.Matrix4().fromArray(m))), new THREE.Matrix4().fromArray(R.bind));
+    mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = false;
+    for (const j of P.clips) { const c = THREE.AnimationClip.parse(j); REAL.clips[c.name] = c; }
+    // рост после правки пропорций: макушка над ступнями; ноги длиннее — таз поднимается на прибавку длины ноги
+    const B = {}; bones.forEach(b => B[b.name] = b);
+    REAL.lift = (PROP_LEG - 1) * (B.LowerLegL.position.length() + (B.LowerLegL_end ? B.LowerLegL_end.position.length() : 0));
+    // рост меряем на правленой фигуре, а в заготовку для слотов идёт исходная поза
+    const saved = bones.map(b => [b.position.clone(), b.quaternion.clone(), b.scale.clone()]);
+    applyProps(B); root.updateMatrixWorld(true);
+    const top = B.Head_end.getWorldPosition(new THREE.Vector3()).y - Math.min(B.FootL.getWorldPosition(new THREE.Vector3()).y, 0);
+    REAL.scale = 7.3 / top;
+    bones.forEach((b, i) => { b.position.copy(saved[i][0]); b.quaternion.copy(saved[i][1]); b.scale.copy(saved[i][2]); });
+    REAL.tpl = root;
     for (let i = 0; i < REAL.N; i++) REAL.slots.push(makeSlot());
     REAL.ready = true;
-  } catch (e) { console.warn("модель людей не загрузилась", e); }
+  } catch (e) { console.warn("модели людей не собрались", e); }
+}
+// пропорции поверх позы из анимации: анимация каждый кадр ставит масштаб костей заново
+function applyProps(B) {
+  B.Head.scale.setScalar(PROP_HEAD);
+  for (const k of ["UpperLegL", "UpperLegR"]) B[k].scale.set(1, PROP_LEG, 1);
+  for (const k of ["UpperArmL", "UpperArmR"]) B[k].scale.set(1, PROP_ARM, 1);
+  for (const k of ["FistL", "FistR"]) B[k].scale.set(1, 1 / PROP_ARM, 1);
+  B.Body.position.y += REAL.lift; // позицию таза анимация ставит каждый кадр
 }
 function makeSlot() {
   const root = THREE.SkeletonUtils.clone(REAL.tpl);
-  const cv2 = document.createElement("canvas"); cv2.width = cv2.height = 32;
-  const tex = new THREE.CanvasTexture(cv2); tex.encoding = THREE.sRGBEncoding; tex.magFilter = THREE.NearestFilter;
-  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: .75, envMapIntensity: .5 });
   const bones = {}; let mesh = null;
-  root.traverse(o => { if (o.isSkinnedMesh) { o.material = mat; mesh = o; } if (o.isBone) bones[o.name] = o; });
-  const holder = new THREE.Group(); holder.add(root); root.scale.setScalar(REAL.scale); holder.visible = false; scene.add(holder);
+  root.traverse(o => { if (o.isSkinnedMesh) mesh = o; if (o.isBone) bones[o.name] = o; });
+  // прежние имена костей для прицеливания, оружия и головных уборов
+  Object.assign(bones, { LeftArm: bones.UpperArmL, LeftForeArm: bones.LowerArmL, LeftHand: bones.FistL, RightArm: bones.UpperArmR, RightForeArm: bones.LowerArmR, RightHand: bones.FistR, Spine1: bones.Abdomen });
+  const holder = new THREE.Group(); holder.add(root); root.scale.multiplyScalar(REAL.scale); holder.visible = false; scene.add(holder);
   const mixer = new THREE.AnimationMixer(root), actions = {};
-  for (const k of ["Walk", "Run", "Idle", "Death", "Punch"]) if (REAL.clips[k]) { actions[k] = mixer.clipAction(REAL.clips[k]); }
-  if (actions.Death) { actions.Death.setLoop(THREE.LoopOnce); actions.Death.clampWhenFinished = true; }
+  for (const k of ["Walk", "Run", "Idle", "Death", "Punch", "StandUp", "RecieveHit"]) if (REAL.clips[k]) actions[k] = mixer.clipAction(REAL.clips[k]);
+  for (const k of ["Death", "StandUp"]) if (actions[k]) { actions[k].setLoop(THREE.LoopOnce); actions[k].clampWhenFinished = true; }
   const gun = new THREE.Mesh(new THREE.BoxGeometry(.3, .35, 2.6), gunMat); gun.visible = false; holder.add(gun);
   const hatMat = new THREE.MeshStandardMaterial({ roughness: .8 });
   const hat = new THREE.Group(); hat.visible = false; holder.add(hat);
   const capM = new THREE.Mesh(PARTS.cap, hatMat), visM = new THREE.Mesh(PARTS.visor, hatMat), domeM = new THREE.Mesh(PARTS.dome, hatMat);
   hat.add(capM, visM, domeM); hat.userData = { capM, visM, domeM, hatMat };
-  // у модели босые ступни (они в полосе кожи палитры) — обуваем: капсула на кости стопы, от пятки к носку
-  const shoeMat = new THREE.MeshStandardMaterial({ color: pick([0x1e1c1a, 0x2a2420, 0x3a2a20, 0x1a1d22, 0xd8d8d0]), roughness: .6 });
-  for (const side of ["Left", "Right"]) {
-    const foot = bones[side + "Foot"], toe = bones[side + "ToeBase"]; if (!foot || !toe) continue;
-    const d = toe.position.clone(), L = d.length(); if (L < 1e-3) continue;
-    const sh = new THREE.Mesh(new THREE.CapsuleGeometry(L * .36, L * 1.45, 3, 8), shoeMat);
-    sh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); sh.position.copy(d).multiplyScalar(.38); sh.castShadow = true; // от пятки до носка
-    foot.add(sh);
-  }
-  return { holder, root, mixer, actions, cur: null, agent: null, cv: cv2, tex, mat, bones, gun, hat, palKey: "" };
+  // исходная поза костей, которые подправляются поверх анимации: у части из них в анимации нет ключей,
+  // и без сброса правка копилась бы кадр за кадром
+  const rest = ["Body", "Hips", "Abdomen", "Torso", "Head", "UpperLegL", "UpperLegR", "UpperArmL", "UpperArmR", "LowerArmL", "LowerArmR", "FistL", "FistR"]
+    .filter(n => bones[n]).map(n => [bones[n], bones[n].position.clone(), bones[n].quaternion.clone(), bones[n].scale.clone()]);
+  return { holder, root, mesh, mixer, actions, cur: null, agent: null, bones, gun, hat, mats: {}, char: null, palKey: "", rest };
 }
-// палитра: кожа, тёмные детали, волосы, рубашка, брюки
+// материалы слота по именам: у каждого персонажа свой набор частей, цвета ставятся при смене человека
+function slotMat(s, name) { return s.mats[name] || (s.mats[name] = new THREE.MeshStandardMaterial({ roughness: name === "Face" ? .5 : .8, envMapIntensity: .5 })); }
+function setChar(s, n) {
+  if (s.char === n) return; s.char = n; s.palKey = "";
+  const C = REAL.chars[n]; s.mesh.geometry = C.geo; s.mesh.material = C.mats.map(([m]) => slotMat(s, m));
+}
+// раскраска: кожа, волосы, одежда; у зомби кожа восковая, землистая, синюшная или в кровоподтёках, одежда грязная
 function paintPalette(s, a) {
-  const z = a.role === "zombie", burnt = a.burnt, dead = a.state === "dead";
-  const skin = burnt ? "#1b1512" : z ? mixHex(a.skin, a.ztype === "spitter" ? "#9ab83a" : a.ztype === "titan" ? "#5a2620" : "#7d8c69", .85) : a.burn > .3 ? mixHex(a.skin, "#7a2a18", a.burn * .8) : dead ? mixHex(a.skin, "#bdb7ad", .4) : a.skin;
-  const shirt = burnt ? "#141110" : z ? mixHex(a.cloth, "#3a1a12", .55) : a.cloth, pants = burnt ? "#141110" : z ? mixHex(a.pants, "#2a1a14", .4) : a.pants;
-  const key = skin + shirt + pants + a.hair;
+  const z = a.role === "zombie", burnt = a.burnt, dead = a.state === "dead", n = s.char, C = REAL.chars[n];
+  const zskin = a.ztype === "spitter" ? "#9ab83a" : a.ztype === "titan" ? "#5a2620" : ["#7d8c69", "#9a9a8c", "#7f8a94", "#8a7a6a"][a.id % 4];
+  const skin = burnt ? "#1b1512" : z ? mixHex(a.skin, zskin, .8) : a.burn > .3 ? mixHex(a.skin, "#7a2a18", a.burn * .8) : dead ? mixHex(a.skin, "#bdb7ad", .4) : a.skin;
+  const key = n + skin + a.cloth + a.pants + a.hair + (z ? "z" : "") + (dead ? "d" : "") + (burnt ? "b" : "");
   if (key === s.palKey) return; s.palKey = key;
-  const g = s.cv.getContext("2d");
-  g.fillStyle = skin; g.fillRect(0, 0, 32, 6);
-  g.fillStyle = "#1e1e1e"; g.fillRect(0, 6, 32, 5);
-  g.fillStyle = a.hair; g.fillRect(0, 11, 32, 6);
-  g.fillStyle = shirt; g.fillRect(0, 17, 32, 6);
-  g.fillStyle = pants; g.fillRect(0, 23, 32, 9);
-  if (z || dead) { g.fillStyle = "rgba(90,6,4,.75)"; for (let i = 0; i < 18; i++) g.fillRect(Math.random() * 32, 17 + Math.random() * 14, 2 + Math.random() * 3, 1 + Math.random() * 2); }
-  s.tex.needsUpdate = true;
+  const own = UNIFORM.test(n) || /^Zombie/.test(n), dirt = (c, k) => z ? mixHex(c, "#3a2418", k) : c;
+  for (const [m, base] of C.mats) {
+    let col = base;
+    if (m === "Skin") col = skin;
+    else if (m === "Hair") col = z ? mixHex(a.hair, "#4a4a44", .3) : a.hair;
+    else if (!own && /Shirt|Clothes|Top|Jacket|Coat/i.test(m) && !/Dark/i.test(m)) col = dirt(a.cloth, .45);
+    else if (!own && /Pants|Trousers|Skirt/i.test(m)) col = dirt(a.pants, .35);
+    else if (m !== "Face") col = dirt(base, .3);
+    if (burnt && m !== "Face") col = "#141110";
+    slotMat(s, m).color.set(col);
+  }
 }
 function mixHex(a, b, t) { const c = new THREE.Color(a).lerp(new THREE.Color(b), t); return "#" + c.getHexString(); }
 function playAnim(s, name, fade = .25) {
@@ -9810,6 +10167,15 @@ function aimBone(bone, child, dir) {
   const pq = bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
   bone.quaternion.copy(pq.multiply(_q2));
 }
+// наклонить кость вокруг оси в мировых координатах (поверх позы из анимации)
+const _q3 = new THREE.Quaternion();
+function bendBone(bone, axis, ang) {
+  if (!bone || !ang) return;
+  _q1.setFromAxisAngle(axis.normalize(), ang);
+  bone.getWorldQuaternion(_q2); _q2.premultiply(_q1);
+  bone.parent.getWorldQuaternion(_q3).invert();
+  bone.quaternion.copy(_q3.multiply(_q2));
+}
 const _fw = new THREE.Vector3();
 function updateRealPeople(dt) {
   if (!REAL.ready) return;
@@ -9829,20 +10195,24 @@ function updateRealPeople(dt) {
     for (const a of want) {
       if (a.lod) continue;
       const s = REAL.slots.find(s => !s.agent); if (!s) break;
-      s.agent = a; a.lod = true; s.cur = null; s.mixer.stopAllAction(); s.palKey = ""; s.holder.visible = true;
+      s.agent = a; a.lod = true; s.cur = null; s.mixer.stopAllAction(); setChar(s, charOf(a)); s.palKey = ""; s.holder.visible = true;
     }
   }
   for (const s of REAL.slots) {
     const a = s.agent; if (!a) continue;
     if (a.state === "saved" || (a.hidden && !a.onRoof)) { a.lod = false; s.agent = null; s.holder.visible = false; continue; }
-    paintPalette(s, a);
+    setChar(s, charOf(a)); paintPalette(s, a);
     const z = a.role === "zombie", dead = a.state === "dead", sp = a.speed || 0;
     const sc = a.size * (a.ztype === "brute" ? 1.2 : a.ztype === "titan" ? 1.65 : 1), bld = a.build || 1;
     s.holder.position.set(X(a.x), (a.z || 0) + (a.onRoof ? a.roofZ : 0) + (hasHills ? gY(a.x, a.y) : 0), Z(a.y));
     s.holder.rotation.set(dead ? (a.roll || 0) * .3 : 0, Math.PI / 2 - a.dir, 0);
     s.holder.scale.set(sc * (a.ztype === "brute" ? 1.15 : a.ztype === "titan" ? 1.25 : bld), sc, sc * (a.ztype === "titan" ? 1.1 : bld));
     // выбор анимации
-    if (dead || a.riseT > 0 || a.ztype === "crawler") {
+    if (a.riseT > 0 && s.actions.StandUp && !dead) {
+      // встаёт с земли: анимация подъёма, кадр — по оставшемуся времени
+      playAnim(s, "StandUp", .1);
+      const act = s.actions.StandUp; act.paused = true; act.time = act.getClip().duration * (1 - clamp(a.riseT / 1.4));
+    } else if (dead || a.riseT > 0 || a.ztype === "crawler") {
       playAnim(s, "Death", .15);
       const act = s.actions.Death, dur = act.getClip().duration;
       act.paused = true;
@@ -9854,21 +10224,34 @@ function updateRealPeople(dt) {
     else if (sp > 1) { playAnim(s, "Walk"); s.actions.Walk.timeScale = sp / (z ? 4.5 : 5.6); }
     else playAnim(s, "Idle");
     if (s.actions.Death) s.actions.Death.paused = !(dead || a.riseT > 0 || a.ztype === "crawler") ? false : true;
+    for (const [b, p, q, sc] of s.rest) { b.position.copy(p); b.quaternion.copy(q); b.scale.copy(sc); }
     s.mixer.update(dt);
-    // зомби тянут руки вперёд, стрелки держат оружие
-    const aiming = a.armed && !z && !dead && (a.aimT > 0 || a.role === "army");
-    if ((z && !dead && !(a.feedT > 0) && !(a.bash > 0) && a.ztype !== "crawler" && !(a.riseT > 0)) || aiming) {
+    applyProps(s.bones);
+    // осанка: зомби сутулятся и клонят голову набок, каждый по-своему; старики чуть горбятся; часть зомби хромает
+    const upright = !dead && !(a.riseT > 0) && a.ztype !== "crawler";
+    if (upright && (z || a.age === "old")) {
+      s.root.updateMatrixWorld(true);
+      const fx = Math.cos(a.dir), fz = Math.sin(a.dir), v = (a.id * 2654435761 % 1000) / 1000;
+      bendBone(s.bones.Spine1, _v1.set(fz, 0, -fx), z ? .2 + v * .3 : .14);
+      if (z) { s.root.updateMatrixWorld(true); bendBone(s.bones.Head, _v1.set(fx, 0, fz), (v - .5) * .7); }
+    }
+    if (z && upright && a.id % 3 === 0 && sp > 1) s.holder.rotation.z = Math.sin(simT * sp * .9 + a.id) * .07;
+    // зомби тянут руки вперёд (кто обе, кто одну, а кто плетётся, свесив руки), стрелки держат оружие
+    const aiming = a.armed && !z && !dead && (a.aimT > 0 || a.role === "army"), arms = z ? a.id % 4 : 0;
+    if ((z && arms !== 3 && !dead && !(a.feedT > 0) && !(a.bash > 0) && a.ztype !== "crawler" && !(a.riseT > 0)) || aiming) {
       s.root.updateMatrixWorld(true);
       _fw.set(Math.cos(a.dir), z ? -.12 + Math.sin(simT * 2 + a.id) * .06 : -.05, Math.sin(a.dir)).normalize();
-      aimBone(s.bones.LeftArm, s.bones.LeftForeArm, _fw); aimBone(s.bones.RightArm, s.bones.RightForeArm, _fw);
+      if (arms !== 2) aimBone(s.bones.LeftArm, s.bones.LeftForeArm, _fw);
+      aimBone(s.bones.RightArm, s.bones.RightForeArm, _fw);
       s.root.updateMatrixWorld(true);
-      aimBone(s.bones.LeftForeArm, s.bones.LeftHand, _fw); aimBone(s.bones.RightForeArm, s.bones.RightHand, _fw);
+      if (arms !== 2) aimBone(s.bones.LeftForeArm, s.bones.LeftHand, _fw);
+      aimBone(s.bones.RightForeArm, s.bones.RightHand, _fw);
     }
     // головной убор сидит на кости головы
-    s.hat.visible = !!a.hat && s.bones.Head !== undefined;
+    s.hat.visible = !!a.hat && !OWN_HAT.has(s.char) && s.bones.Head !== undefined;
     if (s.hat.visible) {
       s.root.updateMatrixWorld(true);
-      const hp = s.bones.Head.getWorldPosition(_v1); s.holder.worldToLocal(hp); s.hat.position.copy(hp); s.hat.position.y += .95;
+      const hp = s.bones.Head.getWorldPosition(_v1).lerp(s.bones.Head_end.getWorldPosition(_v2), .78); s.holder.worldToLocal(hp); s.hat.position.copy(hp);
       s.hat.quaternion.copy(s.holder.quaternion).invert().multiply(s.bones.Head.getWorldQuaternion(_q2)); s.hat.rotateY(Math.PI / 2);
       s.hat.scale.setScalar(1 / sc * a.size * 1.05);
       const u = s.hat.userData, capLike = a.hat === "cap" || a.hat === "police" || a.hat === "hard" || a.hat === "bandana";
@@ -11812,7 +12195,7 @@ function frameBody(now) {
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);
   uiT -= dt; if (uiT <= 0) { uiT = .25; updateUI(); }
 }
-setupPost(); upgradeFacades(); initRealPeople(); renderTools(); setMuted(muted); setMusic(musicOn); resize(); newCity(); applyPrefs(); openWizard();
+setupPost(); upgradeFacades(); loadRealTextures(); initRealPeople(); renderTools(); setMuted(muted); setMusic(musicOn); resize(); newCity(); applyPrefs(); openWizard();
 $("loading").hidden = true;
 requestAnimationFrame(frame);
 

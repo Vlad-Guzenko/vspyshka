@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Упаковка людей</title>
+<style>body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; max-width: 760px; } pre { background: #f2f2f2; padding: 8px; white-space: pre-wrap; }</style>
+</head>
+<body>
+<h1>Упаковка людей в people.js</h1>
+<p>Модели — «Ultimate Animated Character Pack» от Quaternius (CC0), папка FBX из архива пака. Выберите нужные .fbx (как в списке ниже)
+и нажмите «Собрать»: получится people.js — общий скелет с анимациями и сжатая геометрия каждого персонажа. Его кладут рядом с index.html.</p>
+<p><input type="file" id="files" multiple accept=".fbx"> <button id="go">Собрать</button></p>
+<pre id="log"></pre>
+<p><a id="dl" style="display:none" download="people.js">Скачать people.js</a></p>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/libs/fflate.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/FBXLoader.js"></script>
+<script>
+// персонажи для города; скелет и анимации берутся у первого
+const CHARS = ["Casual_Male", "Casual_Female", "Casual2_Male", "Casual2_Female", "Casual3_Male", "Casual3_Female", "Casual_Bald",
+  "OldClassy_Male", "OldClassy_Female", "Suit_Male", "Suit_Female", "Worker_Male", "Worker_Female",
+  "Doctor_Male_Young", "Doctor_Female_Young", "Doctor_Male_Old", "Doctor_Female_Old", "Soldier_Male", "Soldier_Female",
+  "BlueSoldier_Male", "BlueSoldier_Female", "Zombie_Male", "Zombie_Female"];
+const CLIPS = ["Walk", "Run", "Idle", "Death", "Punch", "Shoot_OneHanded", "StandUp", "RecieveHit"];
+const log = s => { document.getElementById("log").textContent += s + "\n"; };
+const b64 = arr => { const u = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); let s = ""; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768)); return btoa(s); };
+const r5 = v => Math.round(v * 1e5) / 1e5;
+function parseFBX(buf) { const w = console.warn; console.warn = () => {}; try { return new THREE.FBXLoader().parse(buf, ""); } finally { console.warn = w; } }
+function skinnedOf(o) { let m = null; o.traverse(x => { if (x.isSkinnedMesh) m = x; }); return m; }
+// геометрия персонажа: вершины, совпадающие по положению, склеены (нормали пересчитываются на месте), координаты — Int16 в пределах рамки
+function packChar(o) {
+  const m = skinnedOf(o), g = m.geometry, P = g.attributes.position, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight;
+  const map = new Map(), pos = [], si = [], sw = [], idx = new Uint16Array(P.count);
+  for (let i = 0; i < P.count; i++) {
+    const k = Math.round(P.getX(i) * 1e4) + "," + Math.round(P.getY(i) * 1e4) + "," + Math.round(P.getZ(i) * 1e4);
+    let j = map.get(k);
+    if (j === undefined) {
+      j = pos.length / 3; map.set(k, j); pos.push(P.getX(i), P.getY(i), P.getZ(i));
+      si.push(SI.getX(i), SI.getY(i), SI.getZ(i), SI.getW(i)); sw.push(...[SW.getX(i), SW.getY(i), SW.getZ(i), SW.getW(i)].map(w => Math.round(w * 255)));
+    }
+    idx[i] = j;
+  }
+  const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+  for (let i = 0; i < pos.length; i++) { mn[i % 3] = Math.min(mn[i % 3], pos[i]); mx[i % 3] = Math.max(mx[i % 3], pos[i]); }
+  const q = new Int16Array(pos.length); for (let i = 0; i < pos.length; i++) { const a = i % 3; q[i] = Math.round(((pos[i] - mn[a]) / Math.max(1e-6, mx[a] - mn[a])) * 65535 - 32768); }
+  const mats = (Array.isArray(m.material) ? m.material : [m.material]).map(x => [x.name, "#" + x.color.getHexString()]);
+  return { pos: b64(q), mn: mn.map(r5), mx: mx.map(r5), si: b64(new Uint8Array(si)), sw: b64(new Uint8Array(sw)), idx: b64(idx), groups: g.groups.map(x => [x.start, x.count, x.materialIndex]), mats };
+}
+// скелет: кости с родителями и позой покоя, привязка меша и обратные матрицы костей
+function packRig(o) {
+  const m = skinnedOf(o), list = []; o.traverse(x => { if (x.isBone) list.push(x); });
+  return {
+    // арматура — узел между корнем модели и первой костью (поворот осей и масштаб из FBX)
+    root: o.matrix.toArray().map(r5), arm: (list[0].parent && list[0].parent !== o ? list[0].parent.matrix : new THREE.Matrix4()).toArray().map(r5),
+    armName: list[0].parent && list[0].parent !== o ? list[0].parent.name : "",
+    mesh: m.matrix.toArray().map(r5), bind: m.bindMatrix.toArray().map(r5),
+    bones: list.map(b => [b.name, list.indexOf(b.parent), ...b.position.toArray(), ...b.quaternion.toArray(), ...b.scale.toArray()].map(v => typeof v === "number" ? r5(v) : v)),
+    order: m.skeleton.bones.map(b => list.indexOf(b)), inv: m.skeleton.boneInverses.map(x => x.toArray().map(r5)),
+  };
+}
+async function build(getBuf) {
+  const out = { v: 1, chars: {} };
+  for (const n of CHARS) {
+    const buf = await getBuf(n); if (!buf) { log("нет файла: " + n); continue; }
+    const o = parseFBX(buf); o.updateMatrixWorld(true);
+    if (!out.rig) {
+      out.rig = packRig(o);
+      out.clips = o.animations.filter(c => CLIPS.includes(c.name.split("|").pop())).map(c => { const j = THREE.AnimationClip.toJSON(c); j.name = c.name.split("|").pop(); return j; });
+    }
+    out.chars[n] = packChar(o); log(n + ": точек " + (atob(out.chars[n].pos).length / 6));
+  }
+  const json = JSON.stringify(out, (k, v) => typeof v === "number" ? r5(v) : v);
+  const gz = new Uint8Array(await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+  const js = 'window.PEOPLE_GZ="' + b64(gz) + '";\n';
+  log("JSON " + (json.length >> 10) + " КБ, сжато " + (gz.length >> 10) + " КБ, people.js " + (js.length >> 10) + " КБ");
+  const a = document.getElementById("dl"); a.href = URL.createObjectURL(new Blob([js], { type: "text/javascript" })); a.style.display = "";
+  return js;
+}
+document.getElementById("go").onclick = () => {
+  const files = [...document.getElementById("files").files];
+  build(async n => { const f = files.find(f => f.name.replace(/\.fbx$/i, "") === n); return f ? f.arrayBuffer() : null; });
+};
+// для сборки без рук: ?src=папка/&post=адрес — файлы берутся по адресу, готовый people.js отправляется POST-запросом
+const qs = new URLSearchParams(location.search);
+if (qs.get("src")) build(async n => { const r = await fetch(qs.get("src") + n + ".fbx"); return r.ok ? r.arrayBuffer() : null; })
+  .then(js => qs.get("post") && fetch(qs.get("post"), { method: "POST", body: "data:text/javascript;base64," + btoa(js) })).then(() => log("готово"));
+</script>
+</body>
+</html>

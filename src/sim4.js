@@ -85,8 +85,16 @@ function spawnService(type, gx, gy, from) {
   if (S.siren) sfx.siren(c);
   return c;
 }
+// встать у бордюра: центр машины — за краем проезжей части, наполовину на тротуаре (на трассе — на обочине)
+function curbShift(l) { return -Math.max(0, l.e.hw + (l.e.rural ? 3.5 : 2.2) - l.off); }
+function pullOver(c) {
+  if (!c.lane || c.turn || c.tank) return;
+  const l = c.lane; c.latTgt = c.latOff = curbShift(l); c.pulled = true;
+  const q = lanePos(l, c.s); c.x = q.x + q.ty * c.latOff + (c.offx || 0); c.y = q.y - q.tx * c.latOff + (c.offy || 0);
+}
 function deployCrew(c) {
   if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
+  pullOver(c);
   const S = SERVICE[c.service], sid = S.crew === "army" && !c.posts ? ++squadSeq : 0;
   for (let i = 0; i < (c.crewN || S.n); i++) {
     const [x, y] = freeNear(c.x, c.y, 14);

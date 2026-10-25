@@ -16,7 +16,7 @@ function newAgent(role, x, y) {
     wanderT: 0, wx: 0, wy: 0, idleT: 0, deadT: 0, wakeAt: 1e9, reanimate: false, zhp: 4, phase: rnd(0, TAU), speed: 0,
     feedT: 0, grabT: 0, shotT: -9, aim: 0, aimT: 0, riseT: 0, burnt: false, bleed: 0, z: 0, vz: 0, roll: 0, spin: 0, poolId: -1, poolR: 0, poolMax: 0, goal: null,
     // все поля заданы сразу: объекты одной формы, иначе движок теряет оптимизацию горячих циклов
-    sex: Math.random() < .5 ? "f" : "m", age: null, skirt: false, bag: null, short: false, build: 1, longHair: false, beard: false, hat: null, glasses: false, vest: null,
+    sex: Math.random() < .5 ? "f" : "m", age: null, skirt: false, bag: null, short: false, build: 1, longHair: false, beard: false, hat: null, glasses: false, vest: null, pmodel: null,
     name: "", first: "", last: "", years: 0, fam: 0, home: -1, work: undefined, dest: null, homeGoal: false, homeTrip: false, alert: false, called: false,
     hero: null, kills: 0, cures: 0, rifle: false, diedT: 0, deathBy: null, deathWhere: "", spitCd: 0, spitAnim: 0, stam: rnd(.6, 1), hidden: false, onFire: 0, burn: 0,
     ztype: null, stuck: 0, lod: false, dry: false, immune: false, shriek: 0, shriekCd: 0, bash: 0, player: false, hideGoal: null, vacGoal: null, unit: null, job: null, done: false,

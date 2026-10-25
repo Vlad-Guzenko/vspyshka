@@ -147,7 +147,7 @@ function scanAhead(c, x, y, tx, ty, l) {
   let clear = 1e9, ahead = null, people = false, zNear = 0, zAhead = false;
   nearCars(x + tx * 25, y + ty * 25, 34, o => {
     if (o === c || o.gone || o.towedBy || (!o.moving && !o.stopped && !o.tank)) return;
-    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 5) { clear = g; ahead = o; } return; }
+    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
     const al = (o.x - x) * tx + (o.y - y) * ty, lat = Math.abs((o.x - x) * ty - (o.y - y) * tx);
     if (al > 0 && lat < 5.5 && al < clear) { clear = al; ahead = o; }
     else if (al > 2 && al < 22 && lat < 9 && o.moving && o.v > 2 && al + 6 < clear) clear = al + 6;
@@ -175,11 +175,13 @@ function stepRoadCar(c, dt) {
   c.dt = dt;
   if (c.turn) return stepTurnCar(c, dt);
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
+  if (c.pulled && !c.deployed) { c.pulled = false; if (!c.over) c.latTgt = 0; }
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && !c.leaving && !c.deployed) {
-    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
+    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" && c.phase === "go" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
+    if (gd < 70 && R && l.e === R.e && !c.over) c.latTgt = curbShift(l);
     // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
     if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }
   }
@@ -283,7 +285,8 @@ function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.le
 const CIV_CARS = [
   { k: "sedan", w: 30, len: 1 }, { k: "hatch", w: 18, len: .86 }, { k: "lada", w: 14, len: .92, cols: ["#d8cfa8", "#e8e6dc", "#a8322a", "#3f6b4a", "#3a5f8a", "#c9b47a", "#7a2a2a"] },
   { k: "suv", w: 12, len: 1.03 }, { k: "van", w: 7, len: 1 }, { k: "pickup", w: 6, len: 1.08 }, { k: "taxi", w: 6, len: 1, cols: ["#e8b81a"] },
-  { k: "sport", w: 3, len: 1, cols: ["#c81e1e", "#e8b81a", "#e0601a", "#1e5ac8", "#1d1f22"] }, { k: "boxtruck", w: 4, len: 1.33, cols: ["#e9e9e4", "#2a4a7a", "#a8322a", "#2f5a3a"], noPark: true },
+  { k: "sport", w: 3, len: 1, cols: ["#c81e1e", "#e8b81a", "#e0601a", "#1e5ac8", "#1d1f22"] }, { k: "muscle", w: 2, len: 1.08 }, { k: "muscle2", w: 2, len: 1.08 },
+  { k: "roadster", w: 1, len: 1, cols: ["#c81e1e", "#e8e2d0", "#1d1f22", "#2a4a7a"] }, { k: "limo", w: .6, len: 1.6, cols: ["#151618", "#e8e6e0"], noPark: true }, { k: "boxtruck", w: 4, len: 1.33, cols: ["#e9e9e4", "#2a4a7a", "#a8322a", "#2f5a3a"], noPark: true },
 ];
 function pickCarModel(parked) {
   const pool = parked ? CIV_CARS.filter(m => !m.noPark) : CIV_CARS; let r = Math.random() * pool.reduce((a, m) => a + m.w, 0);

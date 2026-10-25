@@ -181,16 +181,139 @@ const CAR_MODELS = {
     trim: () => [...bumpers(21, 2, 8)],
     light: () => [_cbox(21.04, .8, 7.96, 0, 4.6, 0)] },
 };
+// ещё легковые для разнообразия; их кузова из коробок — запасные, на случай если настоящие модели не загрузились
+Object.assign(CAR_MODELS, { muscle: { ...CAR_MODELS.sport }, muscle2: { ...CAR_MODELS.sport }, roadster: { ...CAR_MODELS.sport }, limo: { ...CAR_MODELS.sedan } });
 // грузовые машины и автобусы в натуральную ширину (2,5 м) и высоту: [по высоте, по ширине, радиус колёс]
 const MODEL_FIT = { truck: [1.3, 1.28, 2.1], garbage: [1.3, 1.28, 2.1], boxtruck: [1.22, 1.24, 1.9], fire: [1.32, 1.28, 2.1], army: [1.15, 1.28, 2.2], tanker: [1.25, 1.28, 2], bus: [1.18, 1.25, 1.9], suv: [.86, 1, 1.8], van: [1, 1.06, 1.5] };
 for (const k in MODEL_FIT) { const M = CAR_MODELS[k], [sy, sz, r] = MODEL_FIT[k]; M.fit = [sy, sz]; M.track *= sz; M.ly *= sy; M.roof *= sy; M.r = r; }
 
-const CAR_PARTS = ["paint", "glass", "trim", "light"];
+// base — части в своих цветах (у моделей с палитрой цвет зашит в вершины), не перекрашиваются
+const CAR_PARTS = ["paint", "glass", "trim", "light", "base"];
 const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .06, metalness: .8, envMapIntensity: 1.5 }), // стекло отражает небо и улицу, а не глухо-чёрное
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
-const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
+const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat, base: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .6, metalness: .25 }) };
 for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
 CAR_ROUND = false;
+
+/* ---------- настоящие модели машин: «Free Low Poly Vehicles Pack» от Rgsdev (CC0), лежат в cars.js ----------
+   Кузов из FBX раскладывается по материалам на те же четыре части: самый большой по площади цветной материал — краска,
+   стёкла и фары — стекло, чёрное, шины, задние фонари и мигалки — отделка, остальное (белые детали, полосы, табличка
+   такси) — светлая часть. Модели у автора широкие и высокие, как игрушки, — сжимаем до натуральных размеров: длина
+   прежней модели, ширина и высота по таблице. Колёса, фары и маячки ставим туда, где они у модели.
+   Нет cars.js или FBXLoader — остаются кузова из коробок */
+// w, h — ширина и высота в единицах мира (1 = 25 см); href — высота кузова у модели без таблички и маячков, см;
+// main — основной цвет кузова, если он не самый большой по площади; paint — какие ещё материалы красить в цвет машины (у полиции чёрные капот и двери — у нас машины белые с синей полосой)
+const FBX_CARS = {
+  sedan: { f: "Sedan", w: 7.3, h: 5.9 }, lada: { f: "Sedan", w: 6.9, h: 5.8 }, hatch: { f: "Hatchback", w: 7.1, h: 6.1 }, suv: { f: "SUV", w: 7.7, h: 7.2 },
+  pickup: { f: "Pickup", w: 7.6, h: 7.2 }, sport: { f: "Sports", w: 7.5, h: 5 }, van: { f: "Van", w: 7.9, h: 8.6 },
+  taxi: { f: "Taxi", w: 7.3, h: 5.9, href: 200 }, muscle: { f: "Muscle", w: 7.5, h: 5.3 }, muscle2: { f: "Muscle_2", w: 7.5, h: 5.3 },
+  roadster: { f: "Roadster", w: 7.3, h: 5 }, limo: { f: "Limousine", w: 7.6, h: 5.9, main: "body black" },
+  police: { f: "Police_Sedan", w: 7.3, h: 5.9, href: 200, paint: ["body black"], stripe: true },
+  policeSuv: { f: "Police_SUV", w: 7.7, h: 7.2, href: 205, paint: ["body black"], stripe: true },
+  ambulance: { f: "Ambulance", w: 7.9, h: 10.2 }, bus: { f: "Bus", w: 10, h: 12.4 },
+};
+// грузовики со стройки Majadroid (CC0): шасси с кабиной — основа самосвала, миксера, эвакуатора, мусоровоза, фургона,
+// бензовоза, армейского и пожарного; что на шасси (будка, цистерна, тент, кузов АЦ) — коробки по месту.
+// Цвета у этих моделей — из палитры по UV: основной цвет кабины перекрашивается в цвет машины, стёкла — стекло, остальное как есть
+const box3 = (sx, sy, sz, x, y, z) => new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z);
+const TRUCK = { f: "S_Trucks", mesh: "Base_Truck", w: 10, h: 12.4, pal: true };
+const FBX_PAL = {
+  truck: TRUCK,
+  garbage: { ...TRUCK, add: { light: () => [box3(15, 8.6, 9.8, -4.4, 8.9, 0)] } },
+  boxtruck: { ...TRUCK, add: { light: () => [box3(15, 9, 9.8, -4.5, 9.1, 0)] } },
+  tanker: { ...TRUCK, add: { paint: () => [new THREE.CylinderGeometry(4.2, 4.2, 17, 18).rotateZ(Math.PI / 2).translate(-5.5, 8.8, 0)],
+    light: () => [-11, -5.5, 0].map(x => new THREE.CylinderGeometry(4.3, 4.3, .6, 18).rotateZ(Math.PI / 2).translate(x, 8.8, 0)) } },
+  army: { ...TRUCK, add: { paint: () => [box3(15, 2.4, 9.8, -4.5, 5.6, 0)], light: () => [box3(15, 5.6, 9.8, -4.5, 9.6, 0)] } },
+  fire: { ...TRUCK, add: { paint: () => [box3(19, 6.2, 10, -4, 7.6, 0)], light: () => [box3(19.04, .8, 10.06, -4, 6.4, 0), box3(19.04, .5, 10.06, -4, 10.5, 0)] } },
+};
+function fbxCar(key, spec, pal) {
+  const src = window.CAR_FBX && window.CAR_FBX[spec.f], M = CAR_MODELS[key]; if (!src || !M || !THREE.FBXLoader || (spec.pal && !pal)) return;
+  const bin = atob(src), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  // у автора многоугольники не разбиты на треугольники — загрузчик разбивает их сам и ругается на каждый; молчим
+  const warn = console.warn; console.warn = () => {}; let obj; try { obj = new THREE.FBXLoader().parse(u8.buffer, ""); } finally { console.warn = warn; }
+  obj.updateMatrixWorld(true);
+  const body = [], wheels = []; obj.traverse(o => { if (o.isMesh && (!spec.mesh || o.name === spec.mesh)) (/wheel/i.test(o.name) ? wheels : body).push(o); });
+  const bb = new THREE.Box3(); body.forEach(o => bb.expandByObject(o));
+  // у модели x — вбок, y — вверх, z — вперёд (см); у машины игры x — вперёд, y — вверх, z — вбок
+  const kx = M.L / (bb.max.z - bb.min.z), kz = spec.w / (bb.max.x - bb.min.x), ky = spec.h / (spec.href || bb.max.y), cz = (bb.max.z + bb.min.z) / 2;
+  const T = new THREE.Matrix4().set(0, 0, kx, -cz * kx, 0, ky, 0, 0, -kz, 0, 0, 0, 0, 0, 0, 1);
+  // треугольники по материалам, сразу в координатах игры
+  const byMat = {}, v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  for (const o of body) {
+    const m = new THREE.Matrix4().multiplyMatrices(T, o.matrixWorld), nm = new THREE.Matrix3().getNormalMatrix(m), g = o.geometry, P = g.attributes.position, N = g.attributes.normal, I = g.index, UV = g.attributes.uv;
+    const mats = Array.isArray(o.material) ? o.material : [o.material], groups = g.groups.length ? g.groups : [{ start: 0, count: I ? I.count : P.count, materialIndex: 0 }];
+    for (const gr of groups) {
+      const mname = (mats[gr.materialIndex] || mats[0]).name.toLowerCase();
+      for (let t = gr.start; t + 2 < gr.start + gr.count; t += 3) {
+        // у модели с палитрой «материал» треугольника — цвет палитры в середине его UV
+        let name = mname;
+        if (spec.pal && UV) {
+          let u = 0, w = 0; for (let k = 0; k < 3; k++) { const vi = I ? I.getX(t + k) : t + k; u += UV.getX(vi) / 3; w += UV.getY(vi) / 3; }
+          const px = Math.min(pal.w - 1, Math.max(0, Math.floor((u - Math.floor(u)) * pal.w))), py = Math.min(pal.h - 1, Math.max(0, Math.floor((1 - (w - Math.floor(w))) * pal.h))), i4 = (py * pal.w + px) * 4;
+          name = "#" + [0, 1, 2].map(k => pal.d[i4 + k].toString(16).padStart(2, "0")).join("");
+        }
+        const B = byMat[name] || (byMat[name] = { p: [], n: [], area: 0 });
+        for (let k = 0; k < 3; k++) { const vi = I ? I.getX(t + k) : t + k; v[k].fromBufferAttribute(P, vi).applyMatrix4(m); n.fromBufferAttribute(N, vi).applyMatrix3(nm).normalize(); B.p.push(v[k].x, v[k].y, v[k].z); B.n.push(n.x, n.y, n.z); }
+        B.area += e1.subVectors(v[1], v[0]).cross(e2.subVectors(v[2], v[0])).length() / 2;
+      }
+    }
+  }
+  // цвет палитры: насыщенность и светлота; стекло — светлое голубое
+  const hsl = k => { const n = parseInt(k.slice(1), 16), r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    const h = !d ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return { h: h / 6, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }; };
+  const glassy = k => { const o = hsl(k); return o.h > .5 && o.h < .7 && o.s > .3 && o.l > .3 && o.l < .8; };
+  const main = spec.main || (spec.pal ? Object.keys(byMat).filter(k => { const o = hsl(k); return o.s > .35 && o.l > .2 && o.l < .8 && !glassy(k); })
+    : Object.keys(byMat).filter(k => /^body /.test(k) && k !== "body black")).sort((a, b) => byMat[b].area - byMat[a].area)[0];
+  const partOf = k => spec.pal ? (k === main ? "paint" : glassy(k) ? "glass" : "base")
+    : /window|headlight/.test(k) ? "glass" : k === main || (spec.paint || []).includes(k) ? "paint" : /black|tire|rear light|flasher/.test(k) ? "trim" : "light";
+  const acc = { paint: { p: [], n: [] }, glass: { p: [], n: [] }, trim: { p: [], n: [] }, light: { p: [], n: [] }, base: { p: [], n: [], c: [] } };
+  for (const k in byMat) {
+    const part = partOf(k), a = acc[part]; a.p.push(...byMat[k].p); a.n.push(...byMat[k].n);
+    if (part === "base") { const c = new THREE.Color(k); for (let i = 0; i < byMat[k].p.length; i += 3) a.c.push(c.r, c.g, c.b); }
+  }
+  // надстройки по месту: будка, цистерна, тент, кузов
+  if (spec.add) for (const p in spec.add) for (const g0 of spec.add[p]()) { const g = g0.index ? g0.toNonIndexed() : g0; acc[p].p.push(...g.attributes.position.array); acc[p].n.push(...g.attributes.normal.array); }
+  const box = k => { const B = byMat[k]; if (!B) return null; const b = new THREE.Box3(); for (let i = 0; i < B.p.length; i += 3) b.expandByPoint(v[0].fromArray(B.p, i)); return b; };
+  // полоса ДПС по бортам: синяя, на уровне ручек дверей
+  if (spec.stripe) { const bx = box(main), w = (bx.max.z - bx.min.z) / 2 + .05, g = new THREE.BoxGeometry(M.L * .78, .8, w * 2).translate(-.3, bx.min.y + (bx.max.y - bx.min.y) * .28, 0).toNonIndexed(); acc.light.p.push(...g.attributes.position.array); acc.light.n.push(...g.attributes.normal.array); }
+  M.geo = {};
+  for (const p of CAR_PARTS) {
+    const a = acc[p]; if (!a.p.length) continue;
+    const gg = new THREE.BufferGeometry(); gg.setAttribute("position", new THREE.Float32BufferAttribute(a.p, 3)); gg.setAttribute("normal", new THREE.Float32BufferAttribute(a.n, 3));
+    if (a.c) gg.setAttribute("color", new THREE.Float32BufferAttribute(a.c, 3));
+    gg.computeBoundingSphere(); M.geo[p] = gg;
+  }
+  // колёса: оси, радиус и колея — как у модели
+  const ws = wheels.map(o => new THREE.Box3().setFromObject(o));
+  if (spec.mesh) M.wheels = []; // колёса — часть модели
+  else if (ws.length) {
+    // левое и правое колесо у модели стоят чуть несимметрично — оси ближе метра считаем одной
+    const xs = ws.map(b => ((b.min.z + b.max.z) / 2 - cz) * kx).sort((a, b) => b - a); M.wheels = [];
+    for (const x of xs) { const last = M.wheels[M.wheels.length - 1]; if (last === undefined || last - x > 4) M.wheels.push(x); else M.wheels[M.wheels.length - 1] = (last + x) / 2; }
+    M.r = (ws[0].max.y - ws[0].min.y) / 2 * ky; M.track = Math.max(...ws.map(b => Math.abs(b.min.x + b.max.x) / 2)) * kz + .2;
+  }
+  // фары: высота и разнос — по фарам модели; маячки — над мигалками модели
+  // светящиеся блоки (фары и фонари на всех машинах одни) прячем в фары модели: снаружи видна только их передняя грань
+  const hl = box("headlights"), rl = box("rear lights"), lzOf = b => Math.max(Math.abs(b.min.z), Math.abs(b.max.z)) - .9;
+  if (hl) { M.ly = (hl.min.y + hl.max.y) / 2; M.lz = lzOf(hl); M.lf = hl.max.x - .12; }
+  if (rl) { M.lyr = (rl.min.y + rl.max.y) / 2; M.lzr = lzOf(rl); M.lr = rl.min.x + .12; }
+  const fl = Object.keys(byMat).filter(k => /flasher/.test(k)).map(box);
+  if (fl.length) { const b = fl.reduce((a, x) => a.union(x), fl[0].clone()); M.roof = b.max.y - .6; M.barX = (b.min.x + b.max.x) / 2; }
+  else M.roof = box(main) ? box(main).max.y : M.roof;
+  delete M.fit; M.fbx = true;
+}
+for (const k in FBX_CARS) { try { fbxCar(k, FBX_CARS[k]); } catch (e) { console.warn("модель машины не загрузилась", k, e); } }
+// палитра — картинка, она раскодируется не сразу: грузовики встают на место чуть позже, вместе с пересборкой машин
+if (window.CAR_PAL) {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+    const pal = { w: img.width, h: img.height, d: g.getImageData(0, 0, img.width, img.height).data };
+    for (const k in FBX_PAL) { try { fbxCar(k, FBX_PAL[k], pal); } catch (e) { console.warn("модель машины не загрузилась", k, e); } }
+    if (cm) makeCarMeshes(carCap);
+  };
+  img.src = window.CAR_PAL;
+}
 const wheelGeo = (() => {
   const tyre = new THREE.CylinderGeometry(1.4, 1.4, 1.6, 16).rotateX(Math.PI / 2).toNonIndexed(), rim = new THREE.CylinderGeometry(.82, .82, 1.68, 12).rotateX(Math.PI / 2).toNonIndexed(), hub = new THREE.CylinderGeometry(.3, .3, 1.76, 8).rotateX(Math.PI / 2).toNonIndexed();
   const parts = [[tyre, [.08, .08, .085]], [rim, [.55, .56, .58]], [hub, [.3, .3, .32]]], p = [], n = [], c = [];
@@ -238,22 +361,23 @@ function updateCars() {
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : part.p === "base" ? (dead ? "#2a2724" : "#ffffff") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим
     const ws = M.r / 1.4;
     for (const wx of M.wheels) for (const s of [-1, 1]) { if (wi >= F.wheels.instanceMatrix.count) break; _cw.makeScale(ws / sx, ws, M.r > 1.7 ? 1.15 : 1).setPosition(wx, M.r, s * M.track); F.wheels.setMatrixAt(wi++, _cw.premultiply(_cm)); }
     // фары: днём у едущих — дневные ходовые огни, вечером и ночью — ближний свет с пятном на дороге и красные габариты; при торможении — стоп-сигналы
-    const lit = !c.wreck && (c.moving || c.police), hw = M.L / 2 + .1;
+    const lit = !c.wreck && (c.moving || c.police), hw = M.L / 2 + .1, lz = M.lz || Math.min(M.track - .3, 2.6 * M.track / 3.45);
     for (let k = 0; k < 4; k++) {
-      _cw.makeTranslation(k < 2 ? hw : -hw, M.ly, (k % 2 ? 1 : -1) * Math.min(M.track - .3, 2.6 * M.track / 3.45)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
+      const front = k < 2;
+      _cw.makeTranslation(front ? (M.lf !== undefined ? M.lf : hw) : (M.lr !== undefined ? M.lr : -hw), front ? M.ly : (M.lyr || M.ly), (k % 2 ? 1 : -1) * (front ? lz : M.lzr || lz)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
       F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.v < 3 ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
     }
     if (c.moving && dusk) { _cw.makeScale(26, 1, 18).setPosition(M.L / 2 + 7, .25, 0); F.beams.setMatrixAt(bi++, _cw.premultiply(_cm)); }
     const sir = c.police ? "police" : c.siren;
     if (sir && !c.wreck && bar < 198 && (c.moving || c.deployed || c.police)) for (let k = 0; k < 2; k++) {
-      _cw.makeTranslation(M.L > 22 ? M.L / 2 - 4 : -1, M.roof + .4, k ? 1.3 : -1.3); F.bars.setMatrixAt(bar, _cw.premultiply(_cm));
+      _cw.makeTranslation(M.barX !== undefined ? M.barX : M.L > 22 ? M.L / 2 - 4 : -1, M.roof + .4, k ? 1.3 : -1.3); F.bars.setMatrixAt(bar, _cw.premultiply(_cm));
       const on = (k === 0) === ph, col = sir === "police" ? (k ? "#2050ff" : "#ff2020") : sir === "amber" ? "#ffa020" : "#ff2020";
       F.bars.setColorAt(bar, _cc.set(on ? col : "#111")); bar++;
     }

@@ -54,7 +54,7 @@ function steerTo(m, tx, ty, sp, dt) {
 }
 // куда подъезжать технике и бригадам: к фасаду дома со стороны улицы
 function siteGoal(b) { return b.front ? [b.front.x, b.front.y] : b.door ? [b.door[0], b.door[1]] : [(b.x0 + b.x1) / 2, b.y1 + 10]; }
-const DUMP_CAP = 6; // ковшей в один самосвал
+const DUMP_CAP = 10; // ковшей в один самосвал: двадцатитонный, а не малый
 function rubbleBounds(m, b) {
   let x0 = b ? b.x0 - 40 : m.x - 120, x1 = b ? b.x1 + 40 : m.x + 120, y0 = b ? b.y0 - 40 : m.y - 120, y1 = b ? b.y1 + 40 : m.y + 120;
   if (b && b.fallZone) { const z = b.fallZone, ex = z.px + z.ca * z.L, ey = z.py + z.sa * z.L; x0 = Math.min(x0, ex - z.half); x1 = Math.max(x1, ex + z.half); y0 = Math.min(y0, ey - z.half); y1 = Math.max(y1, ey + z.half); }
@@ -72,13 +72,14 @@ function ruinRubble(b) { const [x0, y0, x1, y1] = rubbleBounds(null, b); let n =
 // самосвал под погрузку: стоит у этой руины, не уезжает, не полон
 function truckFor(m, b) {
   const ok = c => c && !c.gone && !c.leaving && !c.wreck && c.deployed && (c.load || 0) < DUMP_CAP;
-  if (ok(m.truck)) return m.truck;
-  m.truck = null; let bd = 1e9;
-  for (const c of cars) if (c.service === "dump" && c.job && c.job.dump === b && ok(c)) { const d = Math.hypot(c.x - m.x, c.y - m.y); if (d < bd) { bd = d; m.truck = c; } }
+  // грузим сначала самый заполненный самосвал поблизости: он уходит полным, а не каждый с половиной кузова
+  let best = null, bs = -1e9;
+  for (const c of cars) if (c.service === "dump" && c.job && c.job.dump === b && ok(c)) { const d = Math.hypot(c.x - m.x, c.y - m.y), sc = (c.load || 0) * 60 - d - (d > 220 ? 1e6 : 0); if (sc > bs) { bs = sc; best = c; } }
+  m.truck = best || (ok(m.truck) ? m.truck : null);
   return m.truck;
 }
 // сколько техники нужно: по объёму завала
-function fleetFor(b) { const r = ruinRubble(b); return { loaders: r > 120 ? 3 : 2, trucks: clamp(1 + Math.ceil(r / 70), 1, 3) }; }
+function fleetFor(b) { const r = ruinRubble(b); return { loaders: r > 90 ? 3 : 2, trucks: clamp(1 + Math.ceil(r / 110), 2, 4) }; } // самосвал увозит до 90 клеток завала
 function clearRubbleAt(b, px, py) {
   const gx = Math.floor(px / CS), gy = Math.floor(py / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return false;
   const gi = gy * GW + gx; if (grid[gi] !== 8) return false;
@@ -192,7 +193,7 @@ function stepMachines(dt) {
     }
     const b = J.ruin;
     if (b && !b.siteCells && Math.hypot(m.x - (b.x0 + b.x1) / 2, m.y - (b.y0 + b.y1) / 2) < 110) fenceSite(b);
-    const scoop = (t) => { const d = Math.hypot(t[0] - m.x, t[1] - m.y); if (d > 26) { steerTo(m, t[0], t[1], 11, dt); return false; } m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > 1.1) { m.workT = 0; const cells = []; for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const px = t[0] + ox * CS, py = t[1] + oy * CS; if (Math.hypot(px - m.x, py - m.y) <= 30 && cellAt(px, py) === 8) cells.push([px, py, Math.hypot(px - t[0], py - t[1])]); } cells.sort((p, q) => p[2] - q[2]); let n = 0; for (const [px, py] of cells.slice(0, 6)) if (clearRubbleAt(b, px, py)) n++; if (n) { fieldT = 0; gridDirty = true; return true; } } return false; };
+    const scoop = (t) => { const d = Math.hypot(t[0] - m.x, t[1] - m.y); if (d > 26) { steerTo(m, t[0], t[1], 11, dt); return false; } m.v *= .5; m.workT += dt; m.bucket = .6; if (m.workT > .85) { m.workT = 0; const cells = []; for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const px = t[0] + ox * CS, py = t[1] + oy * CS; if (Math.hypot(px - m.x, py - m.y) <= 30 && cellAt(px, py) === 8) cells.push([px, py, Math.hypot(px - t[0], py - t[1])]); } cells.sort((p, q) => p[2] - q[2]); let n = 0; for (const [px, py] of cells.slice(0, 9)) if (clearRubbleAt(b, px, py)) n++; if (n) { fieldT = 0; gridDirty = true; return true; } } return false; };
     // полный ковш — к самосвалу; самосвала нет — пока расчищаем проезжую часть, чтобы он смог подъехать
     if (m.carry) {
       const tr = truckFor(m, b);
@@ -204,7 +205,7 @@ function stepMachines(dt) {
       if (d > 5 && Math.hypot(tr.x - m.x, tr.y - m.y) > 30) { steerTo(m, px, py, 9, dt); continue; }
       m.v *= .5; m.bucket = .6; m.workT += dt; m.loading = true;
       { const want = Math.atan2(tr.y - m.y, tr.x - m.x); let dd = want - m.ang; dd -= Math.round(dd / TAU) * TAU; m.ang += clamp(dd, -dt * 2, dt * 2); }
-      if (m.workT > 1.2) { m.workT = 0; m.carry = 0; m.loading = false; tr.load = (tr.load || 0) + 1; if (tr.load >= DUMP_CAP) { releaseUnit(tr); m.truck = null; logT("dumpgo", "Самосвал увёз обломки на свалку", "", 25); } }
+      if (m.workT > .95) { m.workT = 0; m.carry = 0; m.loading = false; tr.load = (tr.load || 0) + 1; if (tr.load >= DUMP_CAP) { releaseUnit(tr); m.truck = null; logT("dumpgo", "Самосвал увёз обломки на свалку", "", 25); } }
       continue;
     }
     if (b && !m.carry && b.state === "ruin" && !nearestRubble(m, b, true) && typeof roadSiteFor === "function") { const ob = roadSiteFor(m, b); if (ob) { m.job = { ruin: ob }; m.truck = null; if (!machines.some(o => o !== m && !o.gone && !o.leave && o.job && o.job.ruin === b)) b.clearAssigned = false; ob.clearAssigned = true; if (!cars.some(c => c.service === "dump" && !c.gone && !c.leaving && c.job && c.job.dump === ob)) { const [gx, gy] = siteGoal(ob); spawnService("dump", gx, gy, null).job = { dump: ob }; ob.truckN = fleetFor(ob).trucks; ob.dumpSentT = simT; } continue; } }

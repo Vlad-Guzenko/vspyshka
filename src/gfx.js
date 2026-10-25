@@ -111,18 +111,88 @@ const WEATHER_NOISE = `
 float wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float wn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(wh(i), wh(i + vec2(1., 0.)), f.x), mix(wh(i + vec2(0., 1.)), wh(i + vec2(1., 1.)), f.x), f.y); }
 float wf(vec2 p){ return wn(p) * .5 + wn(p * 2.03) * .25 + wn(p * 4.01) * .125; }`;
-function weatherMat(m, k = 1, roof = false) {
+
+/* ---------- настоящие фактуры (Poly Haven, CC0): кирпич, штукатурка, бетон, асфальт, плитка, газон, гравий, черепица ----------
+   Лежат в textures.js — jpg в base64, как модели людей в people.js, поэтому грузятся и с диска, без сервера.
+   Пока не загрузились (или файла нет) — в шейдерах серая заглушка и выключенный detOn, картинка как раньше */
+const RT = {}, RT_GREY = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1), RT_FLAT = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+RT_GREY.needsUpdate = RT_FLAT.needsUpdate = true;
+function rtSlot(n) { return RT[n] || (RT[n] = { diff: { value: RT_GREY }, nor: { value: RT_FLAT }, mean: { value: new THREE.Vector3(.5, .5, .5) }, ok: false }); }
+// средний тон фактуры в линейных цветах: поверхность умножается на «фактура / среднее», и её общий цвет не меняется
+function rtMean(img) {
+  const c = document.createElement("canvas"); c.width = c.height = 32; const g = c.getContext("2d"); g.drawImage(img, 0, 0, 32, 32);
+  const d = g.getImageData(0, 0, 32, 32).data, s = [0, 0, 0];
+  for (let i = 0; i < d.length; i += 4) for (let k = 0; k < 3; k++) s[k] += Math.pow(d[i + k] / 255, 2.2);
+  return new THREE.Vector3(s[0], s[1], s[2]).multiplyScalar(1 / 1024);
+}
+function loadRealTextures() {
+  const src = window.REAL_TEX; if (!src || prefs.quality === "low") return;
+  const jobs = [];
+  for (const n in src) for (const k of ["diff", "nor"]) if (src[n][k]) jobs.push(new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const t = new THREE.Texture(img), s = rtSlot(n); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = Math.min(8, R3.capabilities.getMaxAnisotropy());
+      if (k === "diff") { t.encoding = THREE.sRGBEncoding; s.mean.value.copy(rtMean(img)); s.ok = true; }
+      t.needsUpdate = true; s[k].value = t; res();
+    };
+    img.onerror = () => res(); img.src = src[n][k];
+  }));
+  Promise.all(jobs).then(applyRealTextures);
+}
+// фактура на материале фасада или крыши: какая текстура, размер плитки в единицах мира, насыщенность, сила, рельеф
+const DET = new Map();
+function detUniforms(m, o) {
+  const s = rtSlot(o.tex), w = new THREE.Color(o.wall || "#808080"); // цвет из hex уже в линейном пространстве (legacyMode = false)
+  const u = { detOn: { value: 0 }, detDiff: s.diff, detNor: s.nor, detMean: s.mean, detWall: { value: new THREE.Vector3(w.r, w.g, w.b) },
+    detP: { value: new THREE.Vector4(1 / o.scale, o.sat, o.amt, o.bump) }, detFlat: { value: o.flat ? 1 : 0 } };
+  DET.set(m, { o, u }); return u;
+}
+// рельеф из карты нормалей без касательных: базис по производным координат фактуры (как perturbNormal2Arb в three.js)
+const DET_FN = `
+vec3 detPerturb(vec3 eye, vec3 n, vec2 uv, vec3 mN) {
+  vec3 q0 = dFdx(eye), q1 = dFdy(eye); vec2 s0 = dFdx(uv), s1 = dFdy(uv);
+  vec3 q1p = cross(q1, n), q0p = cross(n, q0), T = q1p * s0.x + q0p * s1.x, B = q1p * s0.y + q0p * s1.y;
+  float dd = max(dot(T, T), dot(B, B)), sc = dd == 0. ? 0. : inversesqrt(dd);
+  return normalize(T * (mN.x * sc) + B * (mN.y * sc) + n * mN.z);
+}`;
+const DET_GLSL = `
+uniform float detOn, detFlat; uniform sampler2D detDiff, detNor; uniform vec3 detMean, detWall; uniform vec4 detP;` + DET_FN;
+// стены: координаты фактуры — единицы вдоль стены (u фасада × 128) и высота; окна, рамы и подоконники не трогаем — фактура
+// ложится только там, где цвет близок к цвету стены. Крыши: координаты — по плану, фактура на всей поверхности
+function detCode(roof) {
+  return `
+      vec2 dUV = vec2(0.); float dK = 0.;
+      if (detOn > .5) {
+        vec3 base = diffuseColor.rgb;
+        ${roof ? `dUV = vWPos.xz * detP.x; dK = 1.;` : `dUV = vec2(vUv.x * ${BAY * TBX}., vWPos.y) * detP.x;
+        dK = 1. - smoothstep(.12, .3, length(base - detWall) / max(.04, length(detWall)));`}
+        if (dK > .001) {
+          vec3 rel = texture2D(detDiff, dUV).rgb / max(detMean, vec3(.01));
+          vec3 mulC = mix(vec3(dot(rel, vec3(.3, .59, .11))), rel, detP.y);
+          diffuseColor.rgb = mix(base, mix(base, detWall, detFlat) * mix(vec3(1.), mulC, detP.z), dK);
+        }
+      }`;
+}
+const DET_NORMAL = `#include <normal_fragment_maps>
+      if (dK > .001) {
+        vec3 mN = texture2D(detNor, dUV).xyz * 2. - 1.; mN.xy *= detP.w * dK * (1. - smoothstep(120., 420., length(vViewPosition)));
+        normal = detPerturb(-vViewPosition, normal, dUV, mN);
+      }`;
+function weatherMat(m, k = 1, roof = false, det = null) {
   if (!m || m.userData.weather) return; m.userData.weather = true;
-  const prev = m.onBeforeCompile;
+  const prev = m.onBeforeCompile, du = det ? detUniforms(m, det) : null;
+  if (du) m.extensions = Object.assign(m.extensions || {}, { derivatives: true });
   m.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
+    if (du) Object.assign(sh.uniforms, du);
     sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;").replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
       #ifdef USE_INSTANCING
         vWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
       #else
         vWPos = (modelMatrix * vec4(transformed, 1.)).xyz;
       #endif`);
-    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;" + WEATHER_NOISE).replace("#include <map_fragment>", `#include <map_fragment>
+    if (du) sh.fragmentShader = sh.fragmentShader.replace("#include <normal_fragment_maps>", DET_NORMAL);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;" + WEATHER_NOISE + (du ? DET_GLSL : "")).replace("#include <map_fragment>", `#include <map_fragment>${du ? detCode(roof) : ""}
       {
         float hgt = vWPos.y;
         ${roof ? `
@@ -139,15 +209,46 @@ function weatherMat(m, k = 1, roof = false) {
         diffuseColor.rgb *= d * mix(vec3(.96, .97, 1.), vec3(1.04, 1., .95), tone);`}
       }`);
   };
-  m.customProgramCacheKey = () => "weather" + k + roof;
+  m.customProgramCacheKey = () => "weather" + k + roof + (du ? "det" : "");
   m.needsUpdate = true;
 }
+// фактура фасада по стилю: кирпич — настоящая кладка вместо цвета стены; частные дома и старый город — штукатурка;
+// панельные и общественные здания — бетон; стекло и металл без фактуры
+function facadeDet(st) {
+  if (st.metal || st.curtain) return null;
+  if (isBrick(st)) return { tex: "brick", scale: 4.8, sat: 1, amt: 1, bump: 1.3, flat: true, wall: st.wall };
+  if (st.house || st.arch) return { tex: "plaster", scale: 12, sat: .2, amt: .55, bump: .6, wall: st.wall };
+  return { tex: "panel", scale: 14, sat: .15, amt: .65, bump: .5, wall: st.wall };
+}
 function weatherCity() {
-  facadeMats.forEach(m => weatherMat(m, 1.5));
-  weatherMat(roofMat, 1, true);
+  facadeMats.forEach((m, i) => weatherMat(m, 1.5, false, facadeDet(STYLES[i])));
+  weatherMat(roofMat, 1, true, { tex: "roofgravel", scale: 9, sat: 0, amt: .75, bump: .8 });
   if (typeof metalRoofMat !== "undefined") weatherMat(metalRoofMat, .7, true);
 }
 weatherCity();
+// все текстуры на месте: включить фактуры в шейдерах, перерисовать кирпичные фасады без нарисованной кладки,
+// черепицу и поля за городом — сменить карты
+function applyRealTextures() {
+  for (const [m, d] of DET) if (rtSlot(d.o.tex).ok) d.u.detOn.value = 1;
+  if (RT.brick && RT.brick.ok) {
+    realBrick = true;
+    STYLES.forEach((st, i) => { if (!isBrick(st)) return; const m = facadeMats[i], t = facadeTex(st, false); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (m.map) m.map.dispose(); m.map = t; });
+  }
+  groundDet.gOn.value = ["asphalt", "pavement", "grass"].every(n => RT[n] && RT[n].ok) ? 1 : 0;
+  const tl = RT.rooftiles;
+  if (tl && tl.ok) {
+    // ряды черепицы идут вдоль ската: у двускатной крыши u — поперёк конька, поэтому фактура повёрнута
+    const t = tl.diff.value.clone(), n = tl.nor.value.clone();
+    for (const x of [t, n]) { x.repeat.set(.09, .09); x.center.set(.5, .5); x.rotation = Math.PI / 2; x.needsUpdate = true; }
+    tileMats.forEach(m => { m.map = t; m.normalMap = n; m.normalScale.set(.8, .8); m.needsUpdate = true; });
+  }
+  const gr = RT.grass;
+  if (gr && gr.ok) {
+    // поля за городом: та же трава, подкрашенная под прежний тон, мелкие повторы съедает дальность
+    const t = gr.diff.value.clone(), m = gr.mean.value; t.repeat.set(16000 / 14, 16000 / 14); t.needsUpdate = true;
+    outskirts.material.map = t; outskirts.material.color.setRGB(.069 / m.x, .102 / m.y, .038 / m.z); outskirts.material.needsUpdate = true;
+  }
+}
 
 /* ---------- листва: карта нормалей из мелких «листьев», чтобы крона не была гладким шаром ---------- */
 function leafNormalTex() {
@@ -220,27 +321,52 @@ function leafMaterial() {
 /* ---------- асфальт вблизи: мелкая фактура поверх общей карты ---------- */
 const detailTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#6a6a6a", "#959595", "#777", "#8c8c8c", "#5e5e5e"], 1.5); }, false);
 detailTex.wrapS = detailTex.wrapT = THREE.RepeatWrapping;
+// настоящие фактуры земли: асфальт, плитка тротуаров и площадей, газон. Какая поверхность под пикселем — по цвету
+// нарисованной карты земли (тёмный серый — асфальт, светлый серый — плитка, зелёный — трава); завалы и прочее не трогаем
+const groundDet = { gOn: { value: 0 } };
+for (const [k, n] of [["gA", "asphalt"], ["gP", "pavement"], ["gG", "grass"]]) { const s = rtSlot(n); groundDet[k + "D"] = s.diff; groundDet[k + "N"] = s.nor; groundDet[k + "M"] = s.mean; }
+ground.material.extensions = { derivatives: true };
 ground.material.onBeforeCompile = sh => {
-  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = { value: new THREE.Vector2(W, H) };
+  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = { value: new THREE.Vector2(W, H) }; Object.assign(sh.uniforms, groundDet);
   sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
-    diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28);
+    vec3 bc0 = diffuseColor.rgb; vec2 gWP = vUv * worldSize; vec3 gK = vec3(0.);
+    diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28 * (1. - .6 * gOn));
     {
       // сетка тонких трещин: гребни шума с искажением; видна только на тёмном сером асфальте и вблизи
-      vec3 bc = diffuseColor.rgb; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
+      vec3 bc = bc0; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
       float asph = (1. - smoothstep(.06, .11, mx)) * (1. - smoothstep(.012, .03, mx - mn));
       float near = 1. - smoothstep(120., 420., length(vViewPosition));
       // газон вблизи: мелкая пятнистость, чтобы не распадался на квадраты текстуры
       float grassM = smoothstep(.0, .03, bc.g - max(bc.r, bc.b) * 1.05);
-      if (grassM * near > .01) { vec2 gp = vUv * worldSize; diffuseColor.rgb *= mix(1., .78 + .4 * wn(gp * 1.3) * wn(gp * .37 + 3.1) + .12 * wn(gp * 4.1), grassM * near); }
+      // плитка: светлый серый тротуаров, бордюров, площадей; завал темнее и сюда не попадает
+      float pave = smoothstep(.245, .265, mx) * (1. - smoothstep(.55, .65, mx)) * (1. - smoothstep(.38, .5, (mx - mn) / max(mx, .01)));
+      if (gOn > .5) {
+        float far = 1. - smoothstep(1100., 2200., length(vViewPosition)), L = 0.;
+        if (asph > .01) {
+          // асфальт: две выборки разного масштаба и поворота, чтобы плитка текстуры не повторялась рисунком
+          vec3 a = (texture2D(gAD, gWP / 16.).rgb + texture2D(gAD, mat2(.8, -.6, .6, .8) * gWP / 37. + .31).rgb) * .5 / gAM;
+          diffuseColor.rgb *= mix(1., dot(a, vec3(.3, .59, .11)), .95 * asph * far);
+        }
+        if (pave > .01) { vec3 p = texture2D(gPD, gWP / 12.).rgb / gPM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(p, vec3(.3, .59, .11))), p, .3), .75 * pave * far); }
+        if (grassM > .01) { vec3 g = texture2D(gGD, gWP / 10.).rgb / gGM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(g, vec3(.3, .59, .11))), g, .45), .85 * grassM * far); }
+        gK = vec3(asph, pave, grassM);
+      } else if (grassM * near > .01) diffuseColor.rgb *= mix(1., .78 + .4 * wn(gWP * 1.3) * wn(gWP * .37 + 3.1) + .12 * wn(gWP * 4.1), grassM * near);
       if (asph * near > .01) {
-        vec2 wp = vUv * worldSize;
+        vec2 wp = gWP;
         vec2 q = wp * .16 + vec2(wn(wp * .05), wn(wp * .05 + 7.3)) * 3.;
         float r1 = abs(wn(q) - .5), r2 = abs(wn(q * 2.3 + 4.1) - .5);
         // трещины короткие и редкие: гребень шума виден только там, где высокочастотная маска открыта
         float crack = (1. - smoothstep(.0, .022, r1)) * step(.72, wn(wp * .11 + 2.)) + (1. - smoothstep(.0, .018, r2)) * .6 * step(.78, wn(wp * .13 + 9.));
-        diffuseColor.rgb *= 1. - .38 * clamp(crack, 0., 1.) * asph * near;
+        diffuseColor.rgb *= 1. - .38 * (1. - .5 * gOn) * clamp(crack, 0., 1.) * asph * near;
       }
-    }`).replace("void main() {", "uniform sampler2D detailMap; uniform vec2 worldSize;\n" + WEATHER_NOISE + "\nvoid main() {");
+    }`).replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+    if (gK.x + gK.y + gK.z > .01) {
+      float nb = 1. - smoothstep(100., 380., length(vViewPosition));
+      vec3 mN = (texture2D(gAN, gWP / 16.).xyz * 2. - 1.) * gK.x + (texture2D(gPN, gWP / 12.).xyz * 2. - 1.) * gK.y + (texture2D(gGN, gWP / 10.).xyz * 2. - 1.) * gK.z;
+      if (nb > .001) normal = detPerturb(-vViewPosition, normal, gWP, normalize(vec3(mN.xy * nb * 1.1, 1.)));
+    }`).replace("void main() {", `uniform sampler2D detailMap, gAD, gAN, gPD, gPN, gGD, gGN; uniform vec2 worldSize; uniform vec3 gAM, gPM, gGM; uniform float gOn;
+${WEATHER_NOISE}${DET_FN}
+void main() {`);
 };
 ground.material.needsUpdate = true;
 

@@ -2,7 +2,19 @@
 // каждая планировка строит граф: проспекты, улицы, кольца; пересечения становятся перекрёстками сами
 const RHW = { hw: 18, av: 24, st: 16, ln: 11, ring: 12 };
 let presets = [], zoneAt = () => null, plazas = [];
-function road(pts, kind, opt) { return addRoad(pts, (opt && opt.hw) || RHW[kind], kind, opt); }
+// часть обычных улиц — широкие, на две полосы в каждую сторону. Решение зависит от прямой, на которой лежит улица,
+// поэтому улица, проложенная кусками между перекрёстками, не меняет ширину от квартала к кварталу
+let WIDE_SEED = Math.random() * 1000;
+function wideStreet(pts) {
+  const a = pts[0], b = pts[pts.length - 1], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), A = ((ang % Math.PI) + Math.PI) % Math.PI;
+  const ka = Math.round(A / (Math.PI / 24)), d = Math.round((a[0] * Math.sin(A) - a[1] * Math.cos(A)) / 36);
+  return Math.abs(Math.sin(ka * 12.9898 + d * 78.233 + WIDE_SEED) * 43758.5453) % 1 < .22;
+}
+function road(pts, kind, opt) {
+  let hw = (opt && opt.hw) || RHW[kind];
+  if (kind === "st" && !(opt && opt.hw) && pts.length >= 2 && wideStreet(pts)) hw = 23;
+  return addRoad(pts, hw, kind, opt);
+}
 // замкнутая дорога из нескольких дуг: концы дуг сходятся в общих узлах
 function loopRoad(pts, kind, opt) {
   const n = pts.length, parts = Math.max(4, Math.round(n / 10));
