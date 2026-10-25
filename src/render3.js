@@ -247,7 +247,7 @@ rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3).setUsage(
 const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xa8b8c8, transparent: true, opacity: .45, depthWrite: false }));
 rain.frustumCulled = false; scene.add(rain);
 const rainDrops = Array.from({ length: RAIN_N }, () => [rnd(-1, 1), rnd(0, 1), rnd(-1, 1)]);
-let nightK = 0;
+let nightK = 0, carLightK = 0; // carLightK: водители включают ближний свет с ~17:00 и гасят около 7:00
 const flashGlow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff1d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), 400);
 flashGlow.count = 0; flashGlow.frustumCulled = false; flashGlow.renderOrder = 2; scene.add(flashGlow);
 const _sd = new THREE.Vector3(), _lc1 = new THREE.Color(), _lc2 = new THREE.Color(), _lc3 = new THREE.Color();
@@ -257,7 +257,7 @@ function updateLighting(dt, simDt) {
   else { let d = world.target - world.hour; if (Math.abs(d) > .01) world.hour += Math.sign(d) * Math.min(Math.abs(d), dt * 6); }
   const h = world.hour, el = Math.sin((h - 6) / 12 * Math.PI), az = (h - 6) / 12 * Math.PI;
   const day = clamp(el * 3 + .15), dusk = clamp(1 - Math.abs(el) * 4) * clamp(el * 6 + 1);
-  nightK = 1 - clamp(el * 4 + .35);
+  nightK = 1 - clamp(el * 4 + .35); carLightK = clamp((.35 - el) / .3);
   settings.night = nightK > .5;
   // погода
   const wantRain = world.weather === "rain" || world.weather === "storm" ? 1 : 0, wantFog = world.weather === "fog" ? 1 : world.weather === "storm" ? .5 : wantRain * .3;
@@ -294,6 +294,7 @@ function updateLighting(dt, simDt) {
   // окна, фонари, мокрый асфальт
   const powerK = settings.dark ? 0 : 1;
   for (const m of facadeMats) m.emissiveIntensity = nightK * 1.1 * powerK;
+  for (const m of glowSignMats) m.emissiveIntensity = nightK * .9 * powerK;
   if (lampHeads) { lampHeads.material.emissiveIntensity = nightK * 3 * powerK; lampPools.material.opacity = nightK * .5 * powerK; }
   if (settings.dark) { hemi.intensity *= .6; sun.intensity *= .8; }
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);

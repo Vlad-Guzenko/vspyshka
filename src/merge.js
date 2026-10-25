@@ -22,7 +22,7 @@ function chunkKey(b) { return Math.floor((b.x0 + b.x1) / 2 / CHUNK) + ":" + Math
 function rebuildChunk(key) {
   for (const m of chunkMeshes.get(key) || []) { cityGroup.remove(m); m.geometry.dispose(); }
   const buckets = new Map();
-  for (const b of buildings) if (b.chunk === key && !b.detached && b.obj) { b.obj.updateMatrixWorld(true); b.obj.traverse(o => { if (o.isMesh) appendMesh(buckets, o); }); }
+  for (const b of buildings) if (b.chunk === key && !b.detached && !b.anim && b.obj) { b.obj.updateMatrixWorld(true); b.obj.traverse(o => { if (o.isMesh) appendMesh(buckets, o); }); }
   const out = [];
   for (const [mat, bk] of buckets) {
     const g = new THREE.BufferGeometry();

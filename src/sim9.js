@@ -1,5 +1,5 @@
 /* ---------- укрытия: люди прячутся в домах и на крышах, зомби ломают двери ---------- */
-const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire"]);
+const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire", "church", "station", "school"]);
 function computeDoors() {
   for (const b of buildings) {
     b.occ = []; b.door = null;
@@ -101,45 +101,154 @@ function stepTents(dt) {
   }
 }
 
-/* ---------- карантинная стена ---------- */
-const wallMask = new Uint8Array(GW * GH), quarMask = new Uint8Array(GW * GH);
-let wallJobs = [];
-function planQuarantine(x0, y0, x1, y1) {
+/* ---------- карантин: зона по кварталам, барьеры на въездах, пост пропуска, снятие после тишины ---------- */
+// зона — кварталы, задетые прямоугольником, и улицы между ними; граница идёт по краю кварталов (дома — часть стены),
+// улицы, уходящие из зоны, перекрываются барьером сразу, сетку по краям кварталов ставят строители; один въезд — пост пропуска
+const wallMask = new Uint8Array(GW * GH), quarMask = new Uint8Array(GW * GH), zoneOf = new Int16Array(GW * GH);
+let wallJobs = [], zoneSeq = 0, zoneT = 0; // wallJobs — действующие зоны карантина
+const quarAt = (x, y) => zoneOf[clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1)];
+const fenceable = c => c === 0 || c === 1 || c === 2 || c === 7 || c === 8;
+const zoneById = id => wallJobs.find(z => z.id === id) || null;
+// пока зона строится, zoneOf уже размечен — проверка «эта точка внутри зоны id»
+const quarAtId = (x, y, id) => quarAt(x, y) === id;
+function planQuarantine(x0, y0, x1, y1, auto) {
   if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0];
   x0 = clamp(x0, CS * 2, W - CS * 2); x1 = clamp(x1, CS * 2, W - CS * 2); y0 = clamp(y0, CS * 2, H - CS * 2); y1 = clamp(y1, CS * 2, H - CS * 2);
   if (x1 - x0 < 60 || y1 - y0 < 60) return false;
-  const cells = [];
-  const add = (x, y) => { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return; const c = grid[gy * GW + gx]; if (c === 0 || c === 1 || c === 2 || c === 7 || c === 8) cells.push(gy * GW + gx); };
-  // обход периметра по часовой: строители идут вдоль забора
-  for (let x = x0; x <= x1; x += CS) add(x, y0);
-  for (let y = y0 + CS; y <= y1; y += CS) add(x1, y);
-  const gx = (x0 + x1) / 2; // ворота: проход 14 м в середине нижней стороны
-  for (let x = x1 - CS; x >= x0; x -= CS) if (Math.abs(x - gx) > 7) add(x, y1);
-  for (let y = y1 - CS; y > y0; y -= CS) add(x0, y);
-  const j = { cells, i: 0, x0, y0, x1, y1, t0: simT, work: 0, gate: [gx, y1] };
-  wallJobs.push(j);
-  j.cp = addGateCheckpoint(gx, y1);
-  // по углам и вдоль сторон — посты военных лицом наружу, пока строители ставят сетку
-  const posts = [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [gx - 12, y1], [gx + 12, y1], [x0, (y0 + y1) / 2]].map(([cx, cy]) => freeNear(cx + (cx === x0 ? -12 : cx === x1 ? 12 : 0), cy + (cy === y0 ? -12 : cy === y1 ? 12 : 0), 10));
-  sendPosts("army", gx, y1 + 20, posts, { guardJob: j });
-  const truck = spawnService("builder", (x0 + x1) / 2, y1 + 14, null); truck.job = { wall: j }; j.lastSent = simT;
-  logE("Карантин: военные оцепили район, строители едут ставить забор; выход через КПП с проверкой", "good"); radio("Штаб: зона оцеплена, строители выдвинулись. Из карантина никого не выпускать");
+  // кварталы: центр внутри прямоугольника или больше трети клеток в нём
+  const S = new Set();
+  for (const b of blocks) {
+    if (b.rural || b.kind === "island") continue;
+    const cs = blockCells(b); if (!cs.length) continue;
+    let inn = 0; for (const c of cs) { const x = (c % GW) * CS + 4, y = ((c / GW) | 0) * CS + 4; if (x >= x0 && x <= x1 && y >= y0 && y <= y1) inn++; }
+    if (inn / cs.length > .35 || (inn && b.cx >= x0 && b.cx <= x1 && b.cy >= y0 && b.cy <= y1)) S.add(b.id);
+  }
+  // больница, полиция и пожарная часть остаются снаружи, если очаг не в их квартале: им нужно работать
+  const mid = blockAt((x0 + x1) / 2, (y0 + y1) / 2);
+  for (const k of ["hospital", "police", "fire"]) { const sp = special[k]; if (!sp || !sp.b) continue; const bb = blockAt((sp.b.x0 + sp.b.x1) / 2, (sp.b.y0 + sp.b.y1) / 2); if (bb && bb !== mid) S.delete(bb.id); }
+  if (!S.size) return false;
+  const id = ++zoneSeq, mask = new Uint8Array(GW * GH);
+  let gx0 = GW, gy0 = GH, gx1 = 0, gy1 = 0;
+  for (const b of blocks) if (S.has(b.id)) for (const c of blockCells(b)) { mask[c] = 1; const gx = c % GW, gy = (c / GW) | 0; gx0 = Math.min(gx0, gx); gy0 = Math.min(gy0, gy); gx1 = Math.max(gx1, gx); gy1 = Math.max(gy1, gy); }
+  // улица внутри зоны: по обе стороны (по горизонтали, вертикали или диагонали) в пределах 14 клеток — кварталы зоны
+  const hitS = (x, y, dx, dy) => { for (let k = 0; k < 14; k++) { x += dx; y += dy; if (x < 0 || y < 0 || x >= GW || y >= GH) return false; const r = regionOf[y * GW + x]; if (r >= 0) return S.has(r); } return false; };
+  for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+    const i = gy * GW + gx; if (regionOf[i] >= 0 || mask[i]) continue;
+    if ((hitS(gx, gy, 1, 0) && hitS(gx, gy, -1, 0)) || (hitS(gx, gy, 0, 1) && hitS(gx, gy, 0, -1)) || (hitS(gx, gy, 1, 1) && hitS(gx, gy, -1, -1)) || (hitS(gx, gy, 1, -1) && hitS(gx, gy, -1, 1))) mask[i] = 1;
+  }
+  // граница: клетки зоны, у которых хоть один из восьми соседей снаружи — линия без щелей по диагонали
+  const fence = [], mouthCells = [];
+  for (let gy = Math.max(1, gy0 - 1); gy <= Math.min(GH - 2, gy1 + 1); gy++) for (let gx = Math.max(1, gx0 - 1); gx <= Math.min(GW - 2, gx1 + 1); gx++) {
+    const i = gy * GW + gx; if (!mask[i]) continue;
+    zoneOf[i] = id;
+    let edge = false; for (let dy = -1; dy <= 1 && !edge; dy++) for (let dx = -1; dx <= 1; dx++) if (!mask[i + dy * GW + dx]) { edge = true; break; }
+    if (!edge) continue;
+    if (regionOf[i] < 0) mouthCells.push(i); else if (grid[i] !== 3 && grid[i] !== 9 && grid[i] !== 10) fence.push(i);
+  }
+  // въезды: связные куски границы на улицах; у каждого — своё ребро дороги
+  const left = new Set(mouthCells), mouths = [];
+  while (left.size) {
+    const s = left.values().next().value, comp = [s]; left.delete(s);
+    for (let k = 0; k < comp.length; k++) { const i = comp[k]; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const j = i + dy * GW + dx; if (left.has(j)) { left.delete(j); comp.push(j); } } }
+    let sx = 0, sy = 0, road = 0; for (const i of comp) { sx += (i % GW) * CS + 4; sy += ((i / GW) | 0) * CS + 4; if (roadMask[i] === 1) road++; }
+    const x = sx / comp.length, y = sy / comp.length, q = gEdgeNear(x, y, 40);
+    mouths.push({ cells: comp, x, y, road, e: q ? q.e : null, t: q ? q.t : 0 });
+  }
+  // пост пропуска: самый широкий въезд (ближе к лагерю, если он есть); проём — по оси дороги, по полосе в каждую сторону
+  const camp = camps[0], score = m => m.road * 10 - (camp ? Math.hypot(m.x - camp.x, m.y - camp.y) / 100 : 0);
+  const gateM = mouths.filter(m => m.road && m.e).sort((a, b) => score(b) - score(a))[0];
+  const gateCells = new Set(); let gate, gateT;
+  if (gateM) {
+    const p = edgePos(gateM.e, gateM.t); gateT = [p.tx, p.ty];
+    for (const i of gateM.cells) { const x = (i % GW) * CS + 4, y = ((i / GW) | 0) * CS + 4, lat = Math.abs(-(x - p.x) * p.ty + (y - p.y) * p.tx); if (roadMask[i] === 1 && lat < 9) gateCells.add(i); }
+    gate = [p.x, p.y];
+  } else if (fence.length) {
+    // зона без улиц наружу: калитка в заборе со стороны самой широкой соседней улицы
+    let best = null, bs = -1e9; for (const i of fence) { const x = (i % GW) * CS + 4, y = ((i / GW) | 0) * CS + 4, q = gEdgeNear(x, y, 30); if (!q) continue; const s = q.e.hw - Math.hypot(x - (x0 + x1) / 2, y - (y0 + y1) / 2) / 50; if (s > bs) { bs = s; best = [i, x, y, q]; } }
+    if (best) { const [, x, y, q] = best; const p = edgePos(q.e, q.t); gate = [x, y]; const nx = x - p.x, ny = y - p.y, l = Math.hypot(nx, ny) || 1; gateT = [nx / l, ny / l]; for (const i of fence) if (Math.hypot((i % GW) * CS + 4 - x, ((i / GW) | 0) * CS + 4 - y) < 9) gateCells.add(i); }
+  }
+  if (!gate) { for (const i of mask.keys()) if (zoneOf[i] === id) zoneOf[i] = 0; return false; }
+  // наружу от ворот: по оси дороги в ту сторону, где уже не зона
+  const out = quarAtId(gate[0] + gateT[0] * 30, gate[1] + gateT[1] * 30, id) ? [-gateT[0], -gateT[1]] : gateT;
+  const z = { id, auto: !!auto, x0, y0, x1, y1, t0: simT, cells: [], prev: {}, mouths: mouths.map(m => ({ x: m.x, y: m.y, e: m.e ? m.e.id : -1 })), gate, gateT, out, gateE: gateM && gateM.e ? gateM.e.id : -1, gateEdgeT: gateM ? gateM.t : 0, quietT: 0, lastSent: simT, known: 0 };
+  // барьеры на въездах — сразу (бетонные блоки привозит полиция), сетку по краям кварталов — строители
+  for (const m of mouths) for (const i of m.cells) { if (gateCells.has(i)) continue; z.cells.push(i); if (fenceable(grid[i])) putZoneCell(z, i); }
+  for (const i of fence) if (!gateCells.has(i)) z.cells.push(i);
+  for (const m of mouths) if (m.e) { m.e.quar = id; if (m === gateM) m.e.quarGate = id; }
+  if (typeof routeCache !== "undefined") routeCache.clear();
+  z.cp = addGateCheckpoint(gate[0], gate[1], gateT[0], gateT[1]);
+  if (gateM && gateM.e) { z.cp.t = gateM.t; z.cp.e = gateM.e.id; gateM.e.checkCp = z.cp; }
+  wallJobs.push(z);
+  const truck = spawnService("builder", gate[0], gate[1], null); truck.job = { wall: z }; truck.crewN = 6;
+  barrDirty = true; fieldT = 0;
+  logE(`Карантин: ${mouths.length ? "перекрыто въездов: " + mouths.length + ", " : ""}строители ставят забор по краю кварталов; выход только через пост пропуска`, "good");
+  radio("Штаб: район закрыт, въезды перекрыты. Выход только через КПП с проверкой");
   return true;
 }
-function stepWalls(dt) {
-  for (const j of wallJobs) {
-    // сетку ставят строители у фронта работ; если их нет долго, военные достраивают сами, медленно
-    j.work = j.work || 0;
-    let builders = 0; const gi0 = j.cells[j.i], fx = (gi0 % GW) * CS + 4, fy = ((gi0 / GW) | 0) * CS + 4;
-    near(fx, fy, 16, a => { if (a.state === "alive" && a.role === "builder" && !a.done) builders++; });
-    const speed = builders ? .9 * Math.min(builders, 4) : simT - j.t0 > 150 ? .8 : 0;
-    j.acc = (j.acc || 0) + speed * dt;
-    const n = Math.min(j.cells.length - j.i, Math.floor(j.acc)); j.acc -= n;
-    for (let k = 0; k < n; k++) { const gi = j.cells[j.i++]; const c = grid[gi]; if (c === 3 || c === 5 || c === 9) continue; grid[gi] = 6; bhp[gi] = 300; wallMask[gi] = 1; quarMask[gi] = 1; }
-    if (n) { barrDirty = true; fieldT = Math.min(fieldT, .4); }
-    if (j.i >= j.cells.length && !j.doneLogged) { j.doneLogged = true; logE("Забор карантина замкнут", "good"); for (const a of agents) if (a.guardJob === j) { a.guardJob = null; a.order = null; } }
+// клетка забора: запоминаем, что было под ней, чтобы при снятии карантина вернуть
+function putZoneCell(z, i) {
+  // под машиной барьер не ставим: дозакроют, когда она уедет
+  const cx = (i % GW) * CS + 4, cy = ((i / GW) | 0) * CS + 4; let car = false; nearCars(cx, cy, 10, o => { if (!car && !o.gone && Math.hypot(o.x - cx, o.y - cy) < 8) car = true; }); if (car) return false;
+  if (!(i in z.prev)) z.prev[i] = grid[i];
+  grid[i] = 6; bhp[i] = 300; wallMask[i] = 1; quarMask[i] = 1;
+  const x = (i % GW) * CS, y = ((i / GW) | 0) * CS; evictRect(x - 1, y - 1, x + CS + 1, y + CS + 1);
+  barrDirty = true; fieldT = Math.min(fieldT, .4); return true;
+}
+// что осталось поставить или починить: свободные клетки границы без забора (дома и деревья — сами преграда)
+function zoneTodo(z) { let n = 0; for (const i of z.cells) if (grid[i] !== 6 && fenceable(grid[i])) n++; return n; }
+function liftZone(z, why) {
+  for (const i of z.cells) if (grid[i] === 6 && quarMask[i]) { grid[i] = i in z.prev ? z.prev[i] : 0; wallMask[i] = 0; quarMask[i] = 0; bhp[i] = 0; }
+  for (let i = 0; i < zoneOf.length; i++) if (zoneOf[i] === z.id) zoneOf[i] = 0;
+  for (const e of RE) { if (e.quar === z.id) e.quar = 0; if (e.quarGate === z.id) e.quarGate = 0; if (e.checkCp === z.cp) e.checkCp = null; }
+  if (z.cp) { cps = cps.filter(c => c !== z.cp); if (z.cp.cells2) unblock(z.cp.cells2); for (const a of agents) if (a.cp === z.cp && a.state === "alive") { a.cp = null; a.order = null; if (special.police) { a.standDown = true; a.standT = simT; a.order = { x: special.police.x, y: special.police.y }; } } }
+  z.lifted = true; if (typeof routeCache !== "undefined") routeCache.clear(); barrDirty = true; fieldT = 0;
+  logE(why || "Карантин снят: зомби в зоне не осталось, въезды открыты", "good"); radio("Штаб: карантин снят, движение восстановлено");
+}
+// жители зоны, оказавшиеся на улице, уходят через пост пропуска: очередь, проверка на укусы, потом — в лагерь или прочь от зоны;
+// одновременно идут не больше десяти, рядом с зомби никого не посылают; в укрытиях сидят до автобуса
+function zoneEvacuate(z) {
+  const cp = z.cp; if (!cp || cp.broken || !(cp.staff > 0)) return;
+  let going = 0; for (const a of agents) if (a.zoneEvac === z.id && a.state === "alive") going++;
+  for (const a of agents) {
+    if (going >= 10) break;
+    if (a.state !== "alive" || a.role !== "civ" || a.hidden || a.zoneEvac || a.busGoal || a.onBus || a.detained || a.cpChecked === cp || a.panic > .5 || a.hideGoal) continue;
+    if (quarAt(a.x, a.y) !== z.id || Math.random() > .3) continue;
+    let zc = 0; nearZ(a.x, a.y, 60, () => zc++); if (zc) continue;
+    a.zoneEvac = z.id; a.dest = null; going++;
   }
-  wallJobs = wallJobs.filter(j => j.i < j.cells.length);
+}
+// поведение эвакуируемого: к посту изнутри, там проверка (stepCheckpoints), после — прочь
+function zoneEvacMove(a, zn, zd) {
+  const z = zoneById(a.zoneEvac), cp = z && z.cp;
+  if (!z || z.lifted || !cp || cp.broken) { a.zoneEvac = 0; return null; }
+  if (zn && zd < 30) { a.zoneEvac = 0; return null; }
+  if (a.cpChecked === cp) {
+    // прошёл: в ближайший лагерь, если он есть, иначе дальше по дороге от ворот
+    const camp = camps.length ? camps.reduce((b, c) => Math.hypot(c.x - a.x, c.y - a.y) < Math.hypot(b.x - a.x, b.y - a.y) ? c : b) : null;
+    if (camp) { a.campGoal = camp; a.zoneEvac = 0; return null; }
+    const tx = z.gate[0] + z.out[0] * 110, ty = z.gate[1] + z.out[1] * 110;
+    if (Math.hypot(tx - a.x, ty - a.y) < 14) { a.zoneEvac = 0; return null; }
+    return goTo(a, tx, ty, 6);
+  }
+  // к посту: точка перед шлагбаумом изнутри зоны, по оси дороги
+  const qx = z.gate[0] - z.out[0] * 6, qy = z.gate[1] - z.out[1] * 6;
+  return goTo(a, qx, qy, 6);
+}
+function stepWalls(dt) {
+  zoneT -= dt; if (zoneT > 0) return; zoneT = 2;
+  for (const z of wallJobs) {
+    const todo = zoneTodo(z);
+    if (!todo && !z.doneLogged) { z.doneLogged = true; logE("Забор карантина замкнут", "good"); }
+    else if (todo > 2 && z.doneLogged) { z.doneLogged = false; logT("quarbreach", "Карантин: в заборе пролом, строители едут чинить", "bad", 30); }
+    zoneEvacuate(z);
+    if (!z.auto) continue;
+    // снятие: штабу 2,5 минуты не известно ни одного зомби внутри; при отбое — сразу
+    let known = 0; for (const a of agents) if (a.state === "alive" && a.role === "zombie" && simT - (a.spotT || -1e9) < 90 && quarAt(a.x, a.y) === z.id) known++;
+    z.known = known; z.quietT = known ? 0 : z.quietT + 2;
+    if (alert === 0) liftZone(z, "Отбой: карантин снят, въезды открыты");
+    else if (z.quietT > 150 && simT - z.t0 > 120) liftZone(z);
+  }
+  wallJobs = wallJobs.filter(z => !z.lifted);
 }
 
 /* ---------- мародёры и банды ---------- */

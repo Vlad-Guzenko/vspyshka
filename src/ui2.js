@@ -95,7 +95,7 @@ function syncCamButtons() {
   if (!cine && newsOn) toggleNews(false);
   $("camThird").setAttribute("aria-pressed", thirdPerson && !!followA);
 }
-$("camOver").addEventListener("click", () => { followA = null; cine = false; thirdPerson = false; camS.tx = 0; camS.tz = 60; camS.dist = 1700; camS.pitch = .9; syncCamButtons(); });
+$("camOver").addEventListener("click", () => { followA = null; cine = false; thirdPerson = false; camS.tx = 0; camS.tz = 60; camS.dist = 1700 * W / 2400; camS.pitch = .9; syncCamButtons(); });
 $("camStreet").addEventListener("click", () => { cine = false; camS.dist = 55; camS.pitch = .16; syncCamButtons(); });
 $("camCine").addEventListener("click", () => { cine = !cine; thirdPerson = false; if (cine) { followA = null; cineT = 0; } syncCamButtons(); });
 $("camThird").addEventListener("click", () => {

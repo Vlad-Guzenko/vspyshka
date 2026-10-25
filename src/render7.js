@@ -70,6 +70,7 @@ function makeToppleMound(b) {
   const stumpH = Math.min(b.h * .3, rnd(6, 16));
   const stump = new THREE.Group(); stump.position.set(X(cx), (b.baseY || 0) - (b.h - stumpH), Z(cy)); if (b.rot !== undefined) stump.rotation.y = -b.rot;
   const savedRuin = b.ruinH; b.ruinH = stumpH; stump.add(makeRuinShell(b)); b.ruinH = savedRuin; g.add(stump);
+  g.userData.stump = stump; g.userData.stumpY = stump.position.y; g.userData.stumpH = stumpH; b.pieces = null;
   // гребень: куски перекрытий и фасада, выше у основания и ниже к концу
   const n = Math.ceil(z.L / 9);
   for (let i = 0; i < n; i++) {
@@ -84,6 +85,7 @@ function makeToppleMound(b) {
 }
 function fxToppleImpact(b) {
   const z = b.fallZone; if (!z) return;
+  paintCells(...rubbleBounds(null, b));
   shake = Math.max(shake, 9 * clamp(1.4 - camDist() / 2000, .2, 1));
   for (let i = 0; i < 260 * fxK; i++) {
     const al = rnd(0, z.L), lat = rnd(-z.half, z.half), x = X(z.px + z.ca * al - z.sa * lat), zz = Z(z.py + z.sa * al + z.ca * lat);

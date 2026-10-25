@@ -39,31 +39,56 @@ function canvasTex(w, h, paint, srgb = true) {
 function speckle(g, x, y, w, h, n, cols, s = 2) { for (let i = 0; i < n; i++) { g.fillStyle = pick(cols); g.fillRect(x + Math.random() * w, y + Math.random() * h, s, s); } }
 
 /* ---------- земля: асфальт, тротуары, разметка ---------- */
-const GS = 1.5; // пикселей текстуры на единицу мира
+const GS = Math.min(1.5, 4500 / W); // пикселей текстуры на единицу мира: на большой карте чуть грубее, иначе текстура земли съест видеопамять
+const FIELD = ["#c9a85a", "#7a9a40", "#7a5a3a", "#a8b860"], RUBBLE_COL = ["#7b746a", "#857d72", "#706960"];
+// цвет клетки земли; завал — серо-бурая крошка поверх чего угодно, по ней видно, докуда дошли экскаваторы
+function groundColOf(i) {
+  const m = roadMask[i], c = grid[i];
+  if (c === 8) return RUBBLE_COL[(i * 7919) % 3];
+  if (m === 1) return "#3b3e40"; if (m === 2) return "#8f8f8a"; if (m === 3) return "#6d7a4c";
+  if (c === 9) return "#24404f"; if (c === 10) return "#7a7268";
+  const r = regionOf[i], b = r >= 0 ? blocks[r] : null, k = b ? b.kind : null;
+  if (b && b.rural && c === 7) return "#9d9a92"; // бетон за городом: плац части, площадки
+  if (b && b.rural && c === 0) return "#4c4e50"; // асфальт заправки у трассы
+  if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : FIELD[pt.crop]; }
+  if (c === 7) return k === "old" || k === "square" ? "#9a8f7e" : "#a8a092";
+  if (c === 1) return "#8f8f8a";
+  if (c === 0) return k === "industry" ? "#6d6c66" : "#3f4244";
+  if (c === 3) return k === "suburb" ? "#56763d" : k === "old" || k === "square" ? "#9a8f7e" : k === "towers" || k === "plaza" ? "#a8a092" : "#8f8f8a";
+  return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" ? "#4b6e35" : "#56763d";
+}
+// перекрасить клетки в прямоугольнике мира (завал лёг или его вывезли); на видеокарту уходит только задетый кусок, не чаще раза в секунду
+let groundDirty = null, groundT = -9;
+function paintCells(x0, y0, x1, y1) {
+  const g = groundCv.getContext("2d"); g.save(); g.scale(GS, GS);
+  const gx0 = Math.max(0, Math.floor(x0 / CS)), gy0 = Math.max(0, Math.floor(y0 / CS)), gx1 = Math.min(GW, Math.ceil(x1 / CS)), gy1 = Math.min(GH, Math.ceil(y1 / CS));
+  for (let gy = gy0; gy < gy1; gy++) for (let gx = gx0; gx < gx1; gx++) { g.fillStyle = groundColOf(gy * GW + gx); g.fillRect(gx * CS, gy * CS, CS + .4, CS + .4); }
+  g.restore();
+  groundDirty = groundDirty ? [Math.min(groundDirty[0], gx0), Math.min(groundDirty[1], gy0), Math.max(groundDirty[2], gx1), Math.max(groundDirty[3], gy1)] : [gx0, gy0, gx1, gy1];
+}
+function flushGround() {
+  if (!groundDirty || simT - groundT < .8) return;
+  groundT = simT; const [gx0, gy0, gx1, gy1] = groundDirty; groundDirty = null;
+  const sx = Math.floor(gx0 * CS * GS), sy = Math.floor(gy0 * CS * GS), sw = Math.min(groundCv.width - sx, Math.ceil((gx1 - gx0) * CS * GS) + 2), sh = Math.min(groundCv.height - sy, Math.ceil((gy1 - gy0) * CS * GS) + 2);
+  if (sw <= 0 || sh <= 0) return;
+  try {
+    const cv = document.createElement("canvas"); cv.width = sw; cv.height = sh;
+    cv.getContext("2d").drawImage(groundCv, sx, sy, sw, sh, 0, 0, sw, sh);
+    const t = new THREE.CanvasTexture(cv); R3.copyTextureToTexture(new THREE.Vector2(sx, groundCv.height - sy - sh), t, groundTex); t.dispose();
+  } catch (e) { groundTex.needsUpdate = true; }
+}
 function paintGround(g) {
   g.save(); g.scale(GS, GS);
   g.fillStyle = "#56763d"; g.fillRect(0, 0, W, H);
   // клетки: пробегами по строкам одного цвета
-  const FIELD = ["#c9a85a", "#7a9a40", "#7a5a3a", "#a8b860"];
-  const colOf = i => {
-    const m = roadMask[i], c = grid[i];
-    if (m === 1) return "#3b3e40"; if (m === 2) return "#8f8f8a"; if (m === 3) return "#6d7a4c";
-    if (c === 9) return "#24404f"; if (c === 10) return "#7a7268";
-    const r = regionOf[i], b = r >= 0 ? blocks[r] : null, k = b ? b.kind : null;
-    if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : FIELD[pt.crop]; }
-    if (c === 7) return k === "old" || k === "square" ? "#9a8f7e" : "#a8a092";
-    if (c === 1) return "#8f8f8a";
-    if (c === 0) return k === "industry" ? "#6d6c66" : "#3f4244";
-    if (c === 3) return k === "suburb" ? "#56763d" : k === "old" || k === "square" ? "#9a8f7e" : k === "towers" || k === "plaza" ? "#a8a092" : "#8f8f8a";
-    return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" ? "#4b6e35" : "#56763d";
-  };
+  const colOf = groundColOf;
   for (let gy = 0; gy < GH; gy++) { let x0 = 0, cur = colOf(gy * GW); for (let gx = 1; gx <= GW; gx++) { const col = gx < GW ? colOf(gy * GW + gx) : null; if (col !== cur) { g.fillStyle = cur; g.fillRect(x0 * CS, gy * CS, (gx - x0) * CS + .4, CS + .4); x0 = gx; cur = col; } } }
   speckle(g, 0, 0, W, H, 140000, ["rgba(255,255,255,.04)", "rgba(0,0,0,.07)", "rgba(120,110,100,.06)"], .7);
   // поля: полосы посевов вдоль своего участка
   const runsPath = (test, x0, y0, x1, y1) => { const P = new Path2D(); for (let gy = Math.max(0, Math.floor(y0 / CS)); gy < Math.min(GH, Math.ceil(y1 / CS)); gy++) { let st = -1; for (let gx = Math.max(0, Math.floor(x0 / CS)); gx <= Math.min(GW, Math.ceil(x1 / CS)); gx++) { const ok = gx < GW && test(gy * GW + gx); if (ok && st < 0) st = gx; if (!ok && st >= 0) { P.rect(st * CS, gy * CS, (gx - st) * CS + .4, CS + .4); st = -1; } } } return P; };
   for (const pt of patches) {
     if (pt.kind !== "field") continue;
-    const R = 260, P = runsPath(i => patchOf[i] === pt.id && !roadMask[i] && grid[i] !== 3, pt.x - R, pt.y - R, pt.x + R, pt.y + R);
+    const R = 260, P = runsPath(i => patchOf[i] === pt.id && !roadMask[i] && grid[i] !== 3 && grid[i] !== 7 && grid[i] !== 0, pt.x - R, pt.y - R, pt.x + R, pt.y + R);
     g.save(); g.clip(P); g.translate(pt.x, pt.y); g.rotate(pt.ang);
     g.fillStyle = ["#b09048", "#668a34", "#654a2e", "#92a24e"][pt.crop]; for (let v = -R; v < R; v += 6) g.fillRect(-R, v, 2 * R, 2.6);
     g.restore();
@@ -81,6 +106,7 @@ function paintGround(g) {
     if (b.paths) { g.strokeStyle = "#c2b493"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round"; for (const path of b.paths) { g.beginPath(); path.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); } }
   }
   for (const p of ponds) { g.fillStyle = "#b8ab8a"; g.beginPath(); g.ellipse(p.x, p.y, p.rx + 4, p.ry + 4, 0, 0, TAU); g.fill(); g.fillStyle = "#24404f"; g.beginPath(); g.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, TAU); g.fill(); }
+  drawLandmarkGround(g);
   paintContactShadows(g);
   edPaintGround(g);
   // дорожки от крыльца частного дома к тротуару
@@ -221,6 +247,8 @@ const STYLES = [
   { wall: "#a7c8b0", glass: "#33414c", frame: "#fbf6ea", win: .42, arch: true },
   { wall: "#a6bdd6", glass: "#33414c", frame: "#fbf6ea", win: .42, arch: true },
   { wall: "#8a3a2a", glass: "#3a4650", frame: "#e8e2d4", win: .2, house: true }, // амбар
+  { wall: "#f1ede3", glass: "#2c3a48", frame: "#e0d2b0", win: .32, arch: true, house: true }, // храм: белёные стены, арочные окна, без витрин
+  { wall: "#6c7050", glass: "#33404a", frame: "#c7c6b4", win: .42 }, // воинская часть: казармы и штаб
 ];
 function facadeTex(st, emissive) {
   return canvasTex(TBX * TPX, TFL * TPY, (g, w, h) => {
@@ -294,7 +322,7 @@ function buildCity() {
   for (const b of buildings) {
     const rotated = b.rot !== undefined, w = rotated ? b.w : b.x1 - b.x0, d = rotated ? b.d : b.y1 - b.y0, geo = new THREE.BoxGeometry(w, b.h, d);
     boxUV(geo, w, d, b.kind === "house" ? b.floors * 1.6 : b.floors, Math.floor(rnd(0, 8)) / TBX);
-    const fm = facadeMats[b.style], top = b.kind === "warehouse" ? metalRoofMat : b.kind === "container" ? fm : roofMat;
+    const fm = facadeMats[b.style], top = b.kind === "warehouse" || b.kind === "hangar" ? metalRoofMat : b.kind === "container" ? fm : roofMat;
     const obj = new THREE.Group(); obj.position.set(rotated ? X(b.cx) : X(b.x0 + w / 2), 0, rotated ? Z(b.cy) : Z(b.y0 + d / 2)); if (rotated) obj.rotation.y = -b.rot;
     const mesh = new THREE.Mesh(geo, [fm, fm, top, top, fm, fm]);
     mesh.position.y = b.h / 2;
@@ -305,6 +333,7 @@ function buildCity() {
     b.baseY = Math.min(...hs); const topY = Math.max(...hs); obj.position.y = b.baseY;
     if (topY - b.baseY > .25) { const fh = topY - b.baseY + 2.4; const fnd = new THREE.Mesh(new THREE.BoxGeometry(w + .6, fh, d + .6), parapetMat); fnd.position.y = fh / 2 - 2.2; fnd.receiveShadow = fnd.castShadow = true; obj.add(fnd); }
     const cx = obj.position.x, cz = obj.position.z, by = b.baseY;
+    if (landmarkMesh(b, obj, mesh, w, d)) { if (b.anim) cityGroup.add(obj); obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (b.kind === "cathedral") {
       // собор: неф, барабан с куполом, две башни со шпилями
       const stone = facadeMats[21], gold = new THREE.MeshStandardMaterial({ color: 0xc9a14a, roughness: .25, metalness: .9 }), dark = new THREE.MeshStandardMaterial({ color: 0x3f5a4e, roughness: .5, metalness: .4 });
@@ -328,12 +357,15 @@ function buildCity() {
       const roof = new THREE.Mesh(rg, pick(tileMats)); roof.position.y = b.h; roof.castShadow = roof.receiveShadow = true; obj.add(roof);
       if (b.kind === "oldhouse") roof.material = pick(tileMats.slice(0, 2));
       if (Math.random() < .5) { const ch = new THREE.Mesh(new THREE.BoxGeometry(2.2, rh + 3, 2.2), parapetMat); ch.position.set(rnd(-w / 4, w / 4), b.h + rh * .6, rnd(-d / 4, d / 4)); ch.castShadow = true; obj.add(ch); }
+      houseDetails(b, obj, w, d); facadeDetails(b, obj, w, d);
       b.h += rh * .6;
       continue;
     }
     if (b.kind === "container") continue;
     // парапет и оборудование на крыше
     const rr = rotated ? b.rot : 0, rc = Math.cos(rr), rs = Math.sin(rr), at = (lx, lz) => [cx + lx * rc - lz * rs, cz + lx * rs + lz * rc];
+    facadeDetails(b, obj, w, d);
+    if (pitchedRoof(b, obj, w, d)) continue;
     for (const [px, pz, sx, sz] of [[0, -d / 2 + .6, w, 1.2], [0, d / 2 - .6, w, 1.2], [-w / 2 + .6, 0, 1.2, d], [w / 2 - .6, 0, 1.2, d]]) { const [qx, qz] = at(px, pz); instBoxes.push([qx, by + b.h + 1.2, qz, sx, 2.4, sz, 0x77756f, b, -rr]); }
     const n = Math.floor(w * d / 700) + 1;
     for (let i = 0; i < n; i++) { const sx = rnd(3, 8), sz = rnd(3, 8), sy = rnd(2, 5), [qx, qz] = at(rnd(-w / 2 + 6, w / 2 - 6), rnd(-d / 2 + 6, d / 2 - 6)); instBoxes.push([qx, by + b.h + sy / 2, qz, sx, sy, sz, pick([0x8d8f90, 0x9c9a94, 0x6f7173, 0xb0aea6]), b]); }
@@ -366,7 +398,7 @@ function buildCity() {
   instBoxes.forEach(([x, y, z, sx, sy, sz, c, b, rot], i) => { rq.setFromAxisAngle(ry, rot || 0); m.compose(rp.set(x, y, z), rq, rsc.set(sx, sy, sz)); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); (b.roofBox = b.roofBox || []).push([x, y, z, sx, sy, sz, rot || 0]); });
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
-  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); buildHydrants(); makeCarMeshes(cars.length + 300);
+  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); buildProps(); buildHydrants(); makeCarMeshes(cars.length + 300);
   cityGroup.traverse(o => { if (o.isInstancedMesh) o.frustumCulled = false; });
 }
 let roofStuff = null;
@@ -516,70 +548,15 @@ function buildFences() {
   f.castShadow = true; cityGroup.add(f);
 }
 
-/* ---------- машины: стоят, едут, переворачиваются ---------- */
-const carBodyGeo = new THREE.BoxGeometry(18, 3.4, 7.2).translate(0, 2.6, 0);
-const carCabGeo = new THREE.BoxGeometry(9.5, 3, 6.4).translate(-1, 5.6, 0);
-const wheelGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.2, 10).rotateX(Math.PI / 2);
-const lightGeo = new THREE.BoxGeometry(.4, .8, 1.6);
-let cm = null, carCap = 0;
-function makeCarMeshes(cap) {
-  if (cm) for (const k in cm) { scene.remove(cm[k]); cm[k].dispose(); }
-  carCap = cap;
-  const mk = (geo, mat, n, shadow = true) => { const m = new THREE.InstancedMesh(geo, mat, n); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.setColorAt(0, new THREE.Color()); scene.add(m); return m; };
-  cm = {
-    body: mk(carBodyGeo, new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), cap),
-    cab: mk(carCabGeo, new THREE.MeshStandardMaterial({ roughness: .08, metalness: .7 }), cap),
-    wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .9 }), cap * 4),
-    lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 4, false),
-    beams: mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), cap, false),
-    bars: mk(new THREE.BoxGeometry(1.4, .8, 2.4), new THREE.MeshBasicMaterial({ toneMapped: false }), 200, false),
-  };
-  cm.beams.renderOrder = 2;
-}
-const _cm = new THREE.Matrix4(), _cw = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _ce = new THREE.Euler(), _cv = new THREE.Vector3(), _cs = new THREE.Vector3(), _cc = new THREE.Color();
-function updateCars() {
-  const list = cars.filter(c => !c.gone);
-  if (list.length > carCap) makeCarMeshes(list.length + 200);
-  const night = nightK > .3, ph = (simT * 3) % 1 < .5;
-  let i = 0, li = 0, bi = 0, bar = 0;
-  for (const c of list) {
-    _ce.set(c.roll || 0, -c.ang, 0, "YXZ"); _cq.setFromEuler(_ce);
-    const L = c.len || 1; _cs.set(L, c.crushed ? .35 : (c.service === "fire" || c.service === "army" ? 1.35 : c.service ? 1.18 : 1), c.service === "fire" || c.service === "army" ? 1.12 : 1);
-    if (c.rx === undefined || Math.hypot(c.rx - c.x, c.ry - c.y) > 40) { c.rx = c.x; c.ry = c.y; } const rk = c.turnT > 0 ? .12 : .25; c.rx += (c.x - c.rx) * rk; c.ry += (c.y - c.ry) * rk;
-    _cm.compose(_cv.set(X(c.rx), (c.z || 0) + (c.roll ? Math.abs(Math.sin(c.roll)) * 3.6 : 0) + gY(c.rx, c.ry), Z(c.ry)), _cq, _cs);
-    cm.body.setMatrixAt(i, _cm); cm.cab.setMatrixAt(i, _cm);
-    cm.body.setColorAt(i, _cc.set(c.wreck && c.boomT <= 0 ? "#1d1a18" : c.police ? "#e9e9ee" : c.col));
-    if (c.police || c.service === "police") c.police = true;
-    cm.cab.setColorAt(i, _cc.set(c.wreck && c.boomT <= 0 ? "#0c0b0a" : c.service === "army" ? "#3d4529" : c.service === "fire" ? "#8e1c14" : c.service === "ambulance" ? "#d8d8d2" : "#1a2028"));
-    for (let k = 0; k < 4; k++) { _cw.makeTranslation(k < 2 ? -5.5 : 5.5, 1.4, k % 2 ? 3.4 : -3.4); cm.wheels.setMatrixAt(i * 4 + k, _cw.premultiply(_cm)); }
-    // фары и стоп-сигналы
-    const lit = !c.wreck && (c.moving || c.police);
-    for (let k = 0; k < 4; k++) {
-      _cw.makeTranslation(k < 2 ? 9.1 : -9.1, 3, k % 2 ? 2.6 : -2.6); cm.lights.setMatrixAt(li, _cw.premultiply(_cm));
-      cm.lights.setColorAt(li, _cc.set(k < 2 ? (lit && night ? "#fff6dd" : "#9aa0a4") : (lit && (night || c.v < 3) ? "#ff2a1a" : "#5a1a16"))); li++;
-    }
-    if (c.moving && night) { _cw.makeScale(26, 1, 18).setPosition(16, .25, 0); cm.beams.setMatrixAt(bi++, _cw.premultiply(_cm)); }
-    const sir = c.police ? "police" : c.siren;
-    if (sir && !c.wreck && bar < 198 && (c.moving || c.deployed || c.police)) for (let k = 0; k < 2; k++) {
-      _cw.makeTranslation(-1, 7.3, k ? 1.3 : -1.3); cm.bars.setMatrixAt(bar, _cw.premultiply(_cm));
-      const on = (k === 0) === ph, col = sir === "police" ? (k ? "#2050ff" : "#ff2020") : sir === "amber" ? "#ffa020" : "#ff2020";
-      cm.bars.setColorAt(bar, _cc.set(on ? col : "#111")); bar++;
-    }
-    i++;
-  }
-  cm.body.count = cm.cab.count = i; cm.wheels.count = i * 4; cm.lights.count = li; cm.beams.count = bi; cm.bars.count = bar;
-  cm.beams.material.opacity = nightK * .5;
-  for (const k in cm) { cm[k].instanceMatrix.needsUpdate = true; if (cm[k].instanceColor) cm[k].instanceColor.needsUpdate = true; }
-}
-
 /* ---------- обрушение зданий ---------- */
 const _zero = new THREE.Matrix4().makeScale(0, 0, 0);
 function updateCity(dt) {
   flushChunks();
   if (gridDirty) { gridDirty = false; placeLamps(); refreshTrees(); }
+  flushGround();
   for (const b of buildings) {
     if (!b.obj || b.ruinDone || b.state === "ok" || b.state === "construct") continue;
-    if (!b.hid) { detachBuilding(b); if (!b.topple) { b.obj.children.forEach(o => o.visible = false); const sh = makeRuinShell(b); sh.userData.shell = true; b.obj.add(sh); } b.hid = true; for (const i of b.roofIdx || []) roofStuff.setMatrixAt(i, _zero); roofStuff.instanceMatrix.needsUpdate = true; if (b.sign) b.sign.visible = false; }
+    if (!b.hid) { detachBuilding(b); if (!b.topple) { b.obj.children.forEach(o => o.visible = false); const sh = makeRuinShell(b); sh.userData.shell = true; b.obj.add(sh); b.pieces = null; } b.hid = true; for (const i of b.roofIdx || []) roofStuff.setMatrixAt(i, _zero); roofStuff.instanceMatrix.needsUpdate = true; if (b.sign) b.sign.visible = false; }
     if (b.topple) { animateTopple(b); if (b.state === "ruin") b.ruinDone = true; continue; }
     // дом оседает, качаясь, и уходит в завал
     const k = b.state === "ruin" ? 1 : clamp(b.cT / 4.2), e = k * k * (3 - 2 * k), drop = (b.h - b.ruinH) * e;

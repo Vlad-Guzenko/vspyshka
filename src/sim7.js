@@ -4,7 +4,7 @@ const NUKE = { R0: 160, R1: 440, R2: 760, RMAX: 1000, wave: 420 };
 let nuke = null, radZones = [];
 function launchNuke(x, y) {
   if (nuke && !nuke.over) return false;
-  nuke = { x, y, t: 10, R: 0, det: false, age: 0, over: false };
+  nuke = { x, y, t: 10, R: 0, det: false, age: 0, over: false }; cityNoise(300);
   logE("Ядерный удар по городу: ракета будет через 10 секунд", "bad");
   radio("Штаб: всем в укрытия! Ядерный удар через 10 секунд");
   for (const a of agents) if (a.state === "alive" && a.role !== "zombie") a.panic = 1;

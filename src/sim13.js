@@ -118,7 +118,7 @@ function addCheckpoint(x, y) {
     if (c === 3 || c === 9 || c === 5 || c === 6) continue; grid[i] = 6; bhp[i] = 120; wallMask[i] = 1; cells.push(i);
   }
   // ось x модели КПП — поперёк улицы вправо от направления (ty, −tx)
-  const ang = Math.atan2(ty, tx), lx = ty, ly = -tx, cp = { x: cx, y: cy, ang, v: Math.abs(ty) > Math.abs(tx), hw: e.hw, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [cx + lx * (e.hw + 12) + tx * 10, cy + ly * (e.hw + 12) + ty * 10] };
+  const ang = Math.atan2(ty, tx), lx = ty, ly = -tx, cp = { x: cx, y: cy, ang, tx, ty, v: Math.abs(ty) > Math.abs(tx), hw: e.hw, cells, queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [cx + lx * (e.hw + 12) + tx * 10, cy + ly * (e.hw + 12) + ty * 10] };
   sendPosts("police", cx, cy, [0, 1].map(i => freeNear(cx + tx * (i ? 10 : -10), cy + ty * (i ? 10 : -10), 5)), { cp });
   // будка у проезда, изолятор: клетки заняты
   const bx = cx + lx * 9.5 + tx * 3, by = cy + ly * 9.5 + ty * 3;
@@ -127,19 +127,31 @@ function addCheckpoint(x, y) {
   logE("Развёрнут КПП: полиция проверяет проходящих на укусы, заражённых отправляют в изолятор", "good"); return true;
 }
 // КПП на воротах карантина: без своих клеток (стены вокруг уже есть), проход вдоль y, изолятор снаружи
-function addGateCheckpoint(x, y) {
-  const cp = { x, y, v: true, cells: [], queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [x + 22, y + 14], gate: true };
-  sendPosts("police", x, y + 10, [0, 1].map(i => freeNear(x + (i ? 9 : -9), y + 6, 5)), { cp });
-  blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7);
+// пост пропуска карантина: проход вдоль (tx, ty), изолятор сбоку снаружи; клетки барьера ставит сама зона
+function addGateCheckpoint(x, y, tx = 0, ty = 1) {
+  const nx = -ty, ny = tx, cp = { x, y, tx, ty, v: Math.abs(ty) > Math.abs(tx), cells: [], queue: 0, queueT: 0, detained: 0, checked: 0, broken: false, tent: [x + nx * 24 + tx * 14, y + ny * 24 + ty * 14], gate: true };
+  sendPosts("police", x + tx * 14, y + ty * 14, [1, -1].map(s => freeNear(x + nx * s * 9 + tx * 6, y + ny * s * 9 + ty * 6, 5)), { cp });
+  cp.cells2 = blockFree(cp.tent[0] - 7, cp.tent[1] - 7, cp.tent[0] + 7, cp.tent[1] + 7);
   cps.push(cp); return cp;
+}
+// досмотр автобуса на посту: укушенных пассажиров — в изолятор
+function cpCheckBus(c, cp) {
+  if (!c.passengers) return;
+  for (const p of c.passengers.slice()) if (p.bitten && !p.immune && Math.random() < .85) { c.passengers.splice(c.passengers.indexOf(p), 1); p.onBus = null; p.detained = cp; p.hidden = true; p.x = cp.tent[0]; p.y = cp.tent[1]; p.vx = p.vy = 0; cp.detained++; logT("cpdet", "Пост пропуска: из автобуса сняли укушенного, он в изоляторе", "good", 8); }
 }
 function stepCheckpoints(dt) {
   for (const cp of cps) {
     if (cp.broken) continue;
+    // без полиции или военных на посту никто никого не проверяет
+    let staff = 0; near(cp.x, cp.y, 28, a => { if (a.state === "alive" && !a.hidden && (a.role === "police" || a.role === "army")) staff++; });
+    cp.staff = staff;
+    if (cp.openT > 0) { cp.openT -= dt; cp.queue = 0; if (cp.openT <= 0) logT("cpreopen", "Пост пропуска снова проверяет выходящих", "good", 20); continue; }
+    if (!staff) { cp.queue = 0; continue; }
+    const tx = cp.tx !== undefined ? cp.tx : cp.v ? 0 : 1, ty = cp.ty !== undefined ? cp.ty : cp.v ? 1 : 0;
     let waiting = 0;
     near(cp.x, cp.y, 16, a => {
       if (a.state !== "alive" || a.role !== "civ" || a.hidden) return;
-      const lat = cp.v ? a.x - cp.x : a.y - cp.y, along = cp.v ? a.y - cp.y : a.x - cp.x;
+      const dx = a.x - cp.x, dy = a.y - cp.y, lat = -dx * ty + dy * tx, along = dx * tx + dy * ty;
       if (Math.abs(lat) > 8 || Math.abs(along) > 14) return;
       if (a.cpChecked === cp) return;
       if (a.cpWait > 0) { waiting++; return; }
@@ -153,7 +165,12 @@ function stepCheckpoints(dt) {
     });
     cp.queue = waiting;
     cp.queueT = waiting > 10 ? cp.queueT + dt : 0;
-    if (cp.queueT > 40) {
+    if (cp.queueT > 40 && cp.gate) {
+      // толпа у ворот карантина прорывается: минуту проход открыт без проверки, потом полиция восстанавливает порядок
+      cp.openT = 60; cp.queueT = 0;
+      near(cp.x, cp.y, 40, a => { if (a.state === "alive" && a.role === "civ") { a.panic = Math.max(a.panic, .6); a.cpWait = 0; a.cpChecked = cp; } });
+      logE("Бунт у поста пропуска: толпа прорвалась из карантина", "bad"); interest(cp.x, cp.y, 6);
+    } else if (cp.queueT > 40) {
       cp.broken = true; for (const i of cp.cells) { grid[i] = 0; wallMask[i] = 0; quarMask[i] = 0; } barrDirty = true; fieldT = 0;
       near(cp.x, cp.y, 40, a => { if (a.state === "alive" && a.role === "civ") { a.panic = 1; a.cpWait = 0; } });
       logE("Бунт на КПП: толпа снесла барьер", "bad"); interest(cp.x, cp.y, 6);
@@ -237,7 +254,13 @@ let hq = { rep: 0, withdrawnT: 0, nextWave: 0 };
 function hqRep(d, why) {
   const before = hq.rep; hq.rep = clamp(hq.rep + d, -5, 5);
   logE(`Доверие штаба ${d > 0 ? "выросло" : "упало"}: ${why}. Сейчас ${hq.rep > 0 ? "+" : ""}${hq.rep}`, d > 0 ? "good" : "bad");
-  if (hq.rep >= 2 && d > 0 && before < 2) { radio("Штаб: хорошая работа, высылаем подкрепление"); for (let i = 0; i < 2; i++) spawnService("army", W / 2 + rnd(-200, 200), H / 2 + rnd(-150, 150), null); }
+  // награда за директивы — грузовик подкрепления, только если солдат меньше нормы штаба; иначе просто благодарность
+  if (hq.rep >= 2 && d > 0 && before < 2) {
+    let soldiers = 0; for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.withdraw) soldiers++;
+    const cl = zCluster();
+    if (soldiers < (settings.fast ? 32 : 28) - 6 && cl) { radio("Штаб: хорошая работа, высылаем подкрепление"); spawnService("army", cl.x + rnd(-60, 60), cl.y + rnd(-60, 60), null); }
+    else radio("Штаб: хорошая работа, так держать");
+  }
   if (hq.rep >= 4 && d > 0 && !hq.tankGiven) { hq.tankGiven = true; radio("Штаб: передаём вам танк"); const e = edgeLanePoint(); addTank(e.x, e.y); }
   if (hq.rep <= -2 && d < 0) { hq.withdrawnT = 180; radio("Штаб: ваши действия неприемлемы, армия отзывается на 3 минуты"); for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.post) { a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; a.withdraw = true; a.unit = null; } }
 }
@@ -246,7 +269,7 @@ function standDown() {
   let n = 0;
   for (const a of agents) {
     if (a.state !== "alive" || a.hidden) continue;
-    if (a.role === "army" && !a.post && !a.withdraw && !camps.some(c => Math.abs(c.x - a.x) < c.r + 30 && Math.abs(c.y - a.y) < c.r + 30)) { a.withdraw = true; a.squad = 0; a.sweep = false; a.guardJob = null; a.unit = null; a.job = null; a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; n++; }
+    if (a.role === "army" && !a.post && !a.withdraw && !a.fed && !camps.some(c => Math.abs(c.x - a.x) < c.r + 30 && Math.abs(c.y - a.y) < c.r + 30)) { a.withdraw = true; a.squad = 0; a.sweep = false; a.guardJob = null; a.unit = null; a.job = null; a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; n++; }
     else if ((a.role === "police" || a.role === "medic") && !a.unit && !a.tent && !a.post) { const base = a.role === "police" ? special.police : special.hospital; if (!base) continue; a.standDown = true; a.standT = simT; a.cp = null; a.guardB = null; a.order = { x: base.x, y: base.y }; n++; }
   }
   for (const c of cars) if (c.service === "army" && !c.gone && c.deployed) { c.crew = []; releaseUnit(c); }

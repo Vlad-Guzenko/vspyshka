@@ -41,7 +41,9 @@ function stepSquads(dt) {
     const alive = s.members.length;
     if (s.regroupT > 0) { s.regroupT -= 2; if (s.regroupT <= 0) s.state = "hold"; continue; }
     if (close >= 4 && (alive < 4 || ammo < alive * 12)) { s.state = "regroup"; s.regroupT = 8; logT("regroup", "Отряд отходит и перегруппировывается", "", 25); continue; }
+    if (L.clearB && L.clearB.door && !close) { s.state = "hold"; s.holdAt = { x: L.clearB.door[0], y: L.clearB.door[1] }; s.holdT = 6; continue; }
     if (zDist < 360 || close) { s.state = "advance"; continue; }
+    if (alert >= 2) { let kz = null, kd = 900; for (const z of agents) if (z.state === "alive" && z.role === "zombie" && !z.hidden && simT - (z.spotT || -1e9) < 90) { const d = Math.hypot(z.x - L.x, z.y - L.y); if (d < kd) { kd = d; kz = z; } } if (kz) { const tx = kz.x + (L.x - kz.x) / kd * 120, ty = kz.y + (L.y - kz.y) / kd * 120; if (!s.holdAt || Math.hypot(s.holdAt.x - tx, s.holdAt.y - ty) > 60) { const [fx, fy] = freeNear(tx, ty, 12); s.holdAt = { x: fx, y: fy }; } s.state = "hold"; s.holdT = 20; continue; } }
     // спокойно: занять ближайший перекрёсток, раз в полторы минуты сменить
     s.holdT -= 2;
     if (s.state !== "hold" || !s.holdAt || s.holdT <= 0) {

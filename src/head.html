@@ -258,6 +258,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
       <div class="row"><label for="wWeather">Погода</label></div>
       <select id="wWeather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option></select>
       <label class="chk" for="wSvc"><input type="checkbox" id="wSvc" checked> Город реагирует сам: полиция, пожарные, скорая, ремонтники, а штаб ЧС по уровню угрозы вводит армию, оцепление, лагеря, эвакуацию, танки и авиацию</label>
+      <label class="chk" for="wThr"><input type="checkbox" id="wThr" checked> Внешние угрозы: орды с полей на шум города, беженцы на въездах, ультиматум федерального центра</label>
     </section>
     <div class="dlgbar"><button class="btn" id="wBack">Назад</button><button class="btn primary" id="wNext">Далее</button></div>
   </div>
@@ -435,6 +436,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         <input type="range" id="arm" min="0" max="40" step="1" value="5">
         <label class="chk" for="fast"><input type="checkbox" id="fast"> Бегающие зомби</label>
         <label class="chk" for="services"><input type="checkbox" id="services" checked> Город реагирует сам: полиция, пожарные, скорая, ремонтники, армия</label>
+        <label class="chk" for="threats"><input type="checkbox" id="threats" checked> Внешние угрозы: орды, беженцы, ультиматум</label>
         <div class="row"><label for="hour">Время суток</label><output id="hourO">13:00</output></div>
         <input type="range" id="hour" min="0" max="23.9" step=".1" value="13">
         <label class="chk" for="cycle"><input type="checkbox" id="cycle"> Смена дня и ночи (сутки за 12 минут)</label>

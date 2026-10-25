@@ -6,7 +6,7 @@ const LAYOUT_INFO = {
   park: "огромный парк с озером в середине", mega: "плотная сетка, бродвей и центральный парк", suburb: "петли улиц, тупики-разъезды, частные дома",
   industry: "склады и стоянки на полгорода", river: "река и мосты", port: "море вдоль края", mountain: "горы", valley: "долина",
 };
-const wiz = { step: 0, scen: "sandbox", layout: "random", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true };
+const wiz = { step: 0, scen: "sandbox", layout: "random", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true, threats: true };
 function cardHTML(name, value, title, sub, checked) {
   return `<label class="card"><input type="radio" name="${name}" value="${value}"${checked ? " checked" : ""}><b>${title}</b><small>${sub}</small></label>`;
 }
@@ -31,6 +31,7 @@ $("wizard").addEventListener("change", e => {
   if (t.name === "wTime") wiz.time = +t.value;
   if (t.id === "wWeather") wiz.weather = t.value;
   if (t.id === "wSvc") wiz.services = t.checked;
+  if (t.id === "wThr") wiz.threats = t.checked;
 });
 $("wizard").addEventListener("input", e => { const t = e.target; if (t.id === "wPop") $("wPopO").textContent = t.value; if (t.id === "wInc") $("wIncO").textContent = t.value + " с"; if (t.id === "wArm") $("wArmO").textContent = t.value + "%"; });
 $("wBack").addEventListener("click", () => { wiz.step = Math.max(0, wiz.step - 1); renderWizard(); });
@@ -39,8 +40,8 @@ $("wClose").addEventListener("click", () => { $("wizard").hidden = true; setPaus
 function startGame() {
   if (fps.on) stopFps();
   $("wizard").hidden = true; $("result").hidden = true;
-  settings.fast = wiz.fast; settings.inc = wiz.inc; settings.armed = wiz.armed / 100; settings.services = wiz.services;
-  $("fast").checked = wiz.fast; $("inc").value = wiz.inc; $("incO").textContent = wiz.inc + " с"; $("arm").value = wiz.armed; $("armO").textContent = wiz.armed + "%"; $("services").checked = wiz.services;
+  settings.fast = wiz.fast; settings.inc = wiz.inc; settings.armed = wiz.armed / 100; settings.services = wiz.services; settings.threats = wiz.threats;
+  $("fast").checked = wiz.fast; $("inc").value = wiz.inc; $("incO").textContent = wiz.inc + " с"; $("arm").value = wiz.armed; $("armO").textContent = wiz.armed + "%"; $("services").checked = wiz.services; $("threats").checked = wiz.threats;
   $("pop").value = wiz.pop; $("popO").textContent = wiz.pop;
   $("layout").value = SCENARIOS[wiz.scen].layout || wiz.layout;
   world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
@@ -55,7 +56,7 @@ const prefs = { master: 80, weap: 90, voice: 85, amb: 70, music: 50, quality: "m
 try { Object.assign(prefs, JSON.parse(localStorage.getItem("vspyshka-prefs") || "{}")); } catch (e) {}
 function savePrefs() { try { localStorage.setItem("vspyshka-prefs", JSON.stringify(prefs)); } catch (e) {} }
 function applyPrefs() {
-  if (AC) { master.gain.value = muted ? 0 : prefs.master / 100; busW.gain.value = prefs.weap / 100; busV.gain.value = prefs.voice / 100; ambBus.gain.value = prefs.amb / 100; musicBus.gain.value = musicOn ? prefs.music / 100 : 0; }
+  if (master) master.gain.value = muted ? 0 : prefs.master / 100; if (busW) busW.gain.value = prefs.weap / 100; if (busV) busV.gain.value = prefs.voice / 100; if (ambBus) ambBus.gain.value = prefs.amb / 100; if (musicBus) musicBus.gain.value = musicOn ? prefs.music / 100 : 0;
   const q = prefs.quality, pr = q === "low" ? .75 : q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1;
   if (R3.getPixelRatio() !== pr) { R3.setPixelRatio(pr); resize(); }
   const sm = q === "low" ? 1024 : q === "high" ? 4096 : 2048;

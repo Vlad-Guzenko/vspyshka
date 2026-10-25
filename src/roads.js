@@ -353,7 +353,7 @@ function blockAt(x, y) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS);
 
 /* ---------- поиск пути по дорогам ---------- */
 // расстояние от каждого узла до цели по направленным полосам (с учётом перекрытых недавно рёбер)
-function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.hw >= 20 ? .85 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0); }
+function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.hw >= 20 ? .85 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0) + (e.quar && e.quarGate !== e.quar ? 3000 : e.quarGate ? 400 : 0) + (e.narrow ? 150 : 0) + (e.jamN || 0) * 30; }
 function dijkstraTo(seeds) {
   const dist = new Float64Array(RN.length).fill(1e12), done = new Uint8Array(RN.length);
   for (const [n, d] of seeds) dist[n.id] = Math.min(dist[n.id], d);
@@ -380,7 +380,7 @@ function routeTo(x, y) {
 }
 let exitRoute = null;
 function exitDist() {
-  if (exitRoute && simT - exitRoute.t < 30 && exitRoute.n === RN.length) return exitRoute.dist;
-  const seeds = RN.filter(n => n.exit).map(n => [n, 0]);
+  if (exitRoute && simT - exitRoute.t < 15 && exitRoute.n === RN.length) return exitRoute.dist;
+  const seeds = RN.filter(n => n.exit).map(n => { let q = 0; for (const c of cars) if (c.flee && !c.gone && c.moving && Math.abs(c.x - n.x) < 260 && Math.abs(c.y - n.y) < 260) q++; return [n, q * 35]; });
   exitRoute = { t: simT, n: RN.length, dist: dijkstraTo(seeds) }; return exitRoute.dist;
 }

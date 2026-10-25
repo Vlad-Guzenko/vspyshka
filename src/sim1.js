@@ -1,5 +1,6 @@
-/* ---------- масштаб: 1 единица = 25 см; человек 7 ед., этаж 12 ед., город 600 × 400 м ---------- */
-const W = 2400, H = 1600, CS = 8, GW = W / CS, GH = H / CS;
+/* ---------- масштаб: 1 единица = 25 см; человек 7 ед., этаж 12 ед.; мир 900 × 600 м, город в нём — около 660 × 440 м ---------- */
+// CITY_W, CITY_H — рамка города: по ней строятся планировки и районы; вокруг — пригороды, поля, посёлки, трассы к краям карты
+const W = 3600, H = 2400, CS = 8, GW = W / CS, GH = H / CS, CITY_W = 2640, CITY_H = 1760;
 const $ = id => document.getElementById(id);
 const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 const rnd = (a = 0, b = 1) => a + Math.random() * (b - a);
@@ -11,7 +12,7 @@ const TAU = Math.PI * 2;
 const grid = new Uint8Array(GW * GH), bhp = new Float32Array(GW * GH);
 const BLOCK = c => c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10;
 const cellAt = (x, y) => grid[clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1)];
-let buildings = [], trees = [], cars = [], lamps = [], fountains = [], fences = [], special = {}, blocks = [];
+let buildings = [], trees = [], cars = [], lamps = [], fountains = [], fences = [], special = {}, blocks = [], props = [];
 let barrDirty = true, gridDirty = true;
 function fillCells(x0, y0, x1, y1, v) {
   for (let y = Math.max(0, Math.floor(y0 / CS)); y < Math.min(GH, Math.ceil(y1 / CS)); y++)
@@ -37,7 +38,7 @@ const LAYOUTS = {
   valley: { n: "Долина", d: [.28, .82], river: true, hills: true, ridges: "long", hidden: true, gen: "winding" },
 };
 let L = LAYOUTS.grid, layoutKey = "grid", waters = [], bridges = [], walls = [];
-function districtOf(x, y) { const r = Math.hypot((x - W / 2) / (W / 2), (y - H / 2) / (H / 2)); return r < L.d[0] ? 0 : r < L.d[1] ? 1 : 2; }
+function districtOf(x, y) { const r = Math.hypot((x - W / 2) / (CITY_W / 2), (y - H / 2) / (CITY_H / 2)); return r < L.d[0] ? 0 : r < L.d[1] ? 1 : 2; }
 const CARC = ["#8e1f1f", "#24497a", "#d8d8d4", "#1d1f22", "#5f6366", "#b59532", "#2f5a3a", "#6d2c4f", "#9aa0a4", "#e0e0dc", "#30343a"];
 function addBuilding(bb) {
   bb.h = bb.floors * (bb.kind === "house" ? 11 : 12);
@@ -52,7 +53,7 @@ function genCity(layout = "random") {
   layoutKey = layout === "random" || !LAYOUTS[layout] ? pick(Object.keys(LAYOUTS).filter(k => !LAYOUTS[k].hidden)) : layout; L = LAYOUTS[layoutKey];
   for (let attempt = 0; attempt < 4; attempt++) {
     grid.fill(2); bhp.fill(0); TH.fill(0); underRubble.fill(0);
-    buildings = []; trees = []; cars = []; lamps = []; fountains = []; fences = []; special = {}; blocks = []; waters = []; bridges = []; walls = []; hydrants = [];
+    buildings = []; trees = []; cars = []; lamps = []; fountains = []; fences = []; special = {}; blocks = []; props = []; waters = []; bridges = []; walls = []; hydrants = [];
     RN = []; RE = []; RL = []; rounds = []; presets = []; zoneAt = () => null; oldTown = null; bigPark = null; ponds = []; routeCache.clear(); exitRoute = null;
     prepareWater();
     LAYOUT_GEN[L.gen || layoutKey]();
@@ -81,15 +82,15 @@ const NB4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const crossMask = new Uint8Array(GW * GH);
 // стоимость клетки для пешехода: тротуар, газон, площадь — 1; проезжая часть вне зебры — 8; завал — непроходим (зомби карабкаются)
 // mode: 0 пешеход, 1 зомби (карабкается по завалам, дорог не боится), 2 техника и танк (по дорогам и завалам, тротуар хуже)
-function walkCost(j, mode) { const c = grid[j]; if (c === 8) return mode ? 3 : 0; if (c === 6) return mode === 2 ? 0 : 9; if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8; return mode === 2 && roadMask[j] !== 1 ? 2 : 1; }
-function bfs(field, sources, mode) {
+function walkCost(j, mode) { const c = grid[j]; if (c === 8) return mode ? 3 : 0; if (c === 6) return mode === 1 ? 9 : 0; if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8; return mode === 2 && roadMask[j] !== 1 ? 2 : 1; }
+function bfs(field, sources, mode, maxD = 3000) {
   field.fill(FAR);
   let pending = 0;
   for (const s of sources) {
     const i = clamp(Math.floor(s.y / CS), 0, GH - 1) * GW + clamp(Math.floor(s.x / CS), 0, GW - 1);
     if (field[i] !== 0) { field[i] = 0; ring[0].push(i); pending++; }
   }
-  for (let d = 0; pending > 0 && d < 3000; d++) {
+  for (let d = 0; pending > 0 && d < maxD; d++) {
     const b = ring[d % RING];
     while (b.length) {
       const i = b.pop(); pending--;
@@ -100,7 +101,7 @@ function bfs(field, sources, mode) {
         if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
         const j = ny * GW + nx, c = grid[j];
         if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) continue;
-        let wc; if (c === 8) { if (!mode) continue; wc = 3; } else if (c === 6) { if (mode === 2) continue; wc = 9; } else if (c === 0 && roadMask[j] === 1 && !crossMask[j]) wc = mode ? 1 : 8; else wc = mode === 2 && roadMask[j] !== 1 ? 2 : 1;
+        let wc; if (c === 8) { if (!mode) continue; wc = 3; } else if (c === 6) { if (mode !== 1) continue; wc = 9; } else if (c === 0 && roadMask[j] === 1 && !crossMask[j]) wc = mode ? 1 : 8; else wc = mode === 2 && roadMask[j] !== 1 ? 2 : 1;
         const nd = d + wc;
         if (nd < field[j]) { field[j] = nd; ring[nd % RING].push(j); pending++; }
       }

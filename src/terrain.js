@@ -61,7 +61,7 @@ function prepareWater() {
   if (WORLD_WATER && L.sea) { makeShore(); ridgeSides = ridgeSides.filter(s => s !== shore.side); }
   ridgeSides.intrude = !!L.hills;
   if (WORLD_WATER && L.river) makeRiver(Math.random() < .5);
-  cityBlob = { x: W / 2 + rnd(-120, 120), y: H / 2 + rnd(-80, 80), rx: W * (L.compact ? .38 : .48), ry: H * (L.compact ? .42 : .5) };
+  cityBlob = { x: W / 2 + rnd(-120, 120), y: H / 2 + rnd(-80, 80), rx: CITY_W * (L.compact ? .38 : .48), ry: CITY_H * (L.compact ? .42 : .5) };
   if (WORLD_WATER) for (let k = 0; k < 2; k++) if (Math.random() < .6) { const x = rnd(60, W - 60), y = rnd(60, H - 60); if (cityK(x, y) < .2 && riverD(x, y) > 200 && shoreD(x, y) > 200) lakes.push({ x, y, rx: rnd(60, 130), ry: rnd(50, 100) }); }
 }
 

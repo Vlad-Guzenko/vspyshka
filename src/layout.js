@@ -218,8 +218,9 @@ const LAYOUT_GEN = {
   // прямоугольная сетка с проспектами; часть улиц обрывается Т-перекрёстками
   grid(big) {
     const xs = [], ys = [], sx = big ? [230, 300] : [170, 225], sy = big ? [190, 240] : [140, 180];
-    for (let x = rnd(60, 140); x < W - 60; x += rnd(sx[0], sx[1])) xs.push(x);
-    for (let y = rnd(50, 120); y < H - 50; y += rnd(sy[0], sy[1])) ys.push(y);
+    const bx0 = Math.max(60, cityBlob.x - cityBlob.rx - 40), bx1 = Math.min(W - 60, cityBlob.x + cityBlob.rx + 40), by0 = Math.max(50, cityBlob.y - cityBlob.ry - 40), by1 = Math.min(H - 50, cityBlob.y + cityBlob.ry + 40);
+    for (let x = bx0 + rnd(0, 80); x < bx1; x += rnd(sx[0], sx[1])) xs.push(x);
+    for (let y = by0 + rnd(0, 70); y < by1; y += rnd(sy[0], sy[1])) ys.push(y);
     const avX = new Set([Math.floor(xs.length * .33), Math.floor(xs.length * .68)]), avY = new Set([Math.floor(ys.length * .3), Math.floor(ys.length * .7)]);
     // проспекты — через всю карту, за городом становятся шоссе
     xs.forEach((x, i) => { if (avX.has(i)) road([[x, 0], [x, H]], "av"); });
@@ -235,8 +236,9 @@ const LAYOUT_GEN = {
   // плотная сетка, бродвей наискосок, центральный парк без улиц
   mega() {
     const xs = [], ys = [];
-    for (let x = rnd(40, 90); x < W - 40; x += rnd(128, 152)) xs.push(x);
-    for (let y = rnd(40, 80); y < H - 40; y += rnd(98, 118)) ys.push(y);
+    const bx0 = Math.max(40, cityBlob.x - cityBlob.rx - 20), bx1 = Math.min(W - 40, cityBlob.x + cityBlob.rx + 20), by0 = Math.max(40, cityBlob.y - cityBlob.ry - 20), by1 = Math.min(H - 40, cityBlob.y + cityBlob.ry + 20);
+    for (let x = bx0 + rnd(0, 50); x < bx1; x += rnd(128, 152)) xs.push(x);
+    for (let y = by0 + rnd(0, 40); y < by1; y += rnd(98, 118)) ys.push(y);
     const ci = Math.floor(xs.length / 2) - 1, cj = Math.floor(ys.length / 2) - 1, park = { x0: xs[ci - 1], x1: xs[ci + 2], y0: ys[cj], y1: ys[cj + 2] };
     const inPark = (x, y) => x > park.x0 + 2 && x < park.x1 - 2 && y > park.y0 + 2 && y < park.y1 - 2;
     const avX = new Set([2, ci - 1, ci + 2, xs.length - 3]), avY = new Set([1, cj, cj + 2, ys.length - 2]);
@@ -267,12 +269,12 @@ const LAYOUT_GEN = {
     const rings = [[205, "st"], [335, "av"], [470, "st"], [610, "av"], [760, "st"]];
     for (const [r, k] of rings) { const pts = circlePts(cx, cy, r, 16, 0, 0, 1, r * .86); const ins = (x, y) => urbanAt(x, y, .36) && x > 30 && y > 30 && x < W - 30 && y < H - 30; if (pts.every(p => ins(p[0], p[1]))) loopRoad(pts, k, { extra: k === "av" ? { boulevard: true } : undefined }); else for (const part of clipBy(pts.concat([pts[0]]), ins)) road(part, k); }
     // восемь проспектов-лучей от развязки до края карты (по тем же «сплюснутым» направлениям, что и кольца)
-    for (let i = 0; i < 8; i++) { const a = off + i / 8 * TAU, pts = [[cx + Math.cos(a) * R0, cy + Math.sin(a) * R0]]; for (let r = 120; r < 1500; r += 40) pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r * .86]); for (const p of clipMap(pts)) road(p, "av"); }
+    for (let i = 0; i < 8; i++) { const a = off + i / 8 * TAU, pts = [[cx + Math.cos(a) * R0, cy + Math.sin(a) * R0]]; for (let r = 120; r < Math.hypot(W, H) / 2 + 80; r += 40) pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r * .86]); for (const p of clipMap(pts)) road(p, "av"); }
     subdivide({ inside: (x, y) => urbanAt(x, y, .45), area: () => 30000, minW: 108, jit: .04, curve: 0, kind: cutKind });
   },
   // город звёзд: несколько площадей-развязок, прямые бульвары между ними и к краям, кварталы растут вдоль бульваров
   radial() {
-    const stars = [[W * rnd(.3, .38), H * rnd(.38, .5)], [W * rnd(.62, .7), H * rnd(.3, .42)], [W * rnd(.5, .6), H * rnd(.66, .74)]], R0 = 44;
+    const fx = f => W / 2 + CITY_W * (f - .5), fy = f => H / 2 + CITY_H * (f - .5), stars = [[fx(rnd(.3, .38)), fy(rnd(.38, .5))], [fx(rnd(.62, .7)), fy(rnd(.3, .42))], [fx(rnd(.5, .6)), fy(rnd(.66, .74))]], R0 = 44;
     for (const [x, y] of stars) roundabout(x, y, R0);
     const rays = new Map(stars.map(s => [s, []]));
     // бульвары между звёздами
@@ -316,7 +318,7 @@ const LAYOUT_GEN = {
   // улицы вдоль склонов: длинные извилистые «горизонтали» и короткие подъёмы между ними
   winding() {
     const rows = [], k1 = rnd(380, 520), k2 = rnd(160, 230), ph = rnd(0, TAU), ph2 = rnd(0, TAU);
-    for (let y = rnd(110, 160), i = 0; y < H - 90; y += rnd(160, 190), i++) rows.push({ y, A: rnd(50, 80), i });
+    for (let y = Math.max(110, cityBlob.y - cityBlob.ry * .92) + rnd(0, 50), i = 0; y < Math.min(H - 90, cityBlob.y + cityBlob.ry * .92); y += rnd(160, 190), i++) rows.push({ y, A: rnd(50, 80), i });
     const yAt = (r, x) => r.y + r.A * (Math.sin(x / k1 + ph + r.i * .25) * .75 + Math.sin(x / k2 + ph2) * .25);
     for (const r of rows) {
       const ctrl = []; for (let x = -10; x <= W + 10; x += 60) ctrl.push([x, yAt(r, x)]);
@@ -326,7 +328,7 @@ const LAYOUT_GEN = {
     // подъёмы между соседними горизонталями, вразбежку
     for (let i = 0; i < rows.length - 1; i++) {
       const a = rows[i], b = rows[i + 1];
-      for (let x = rnd(60, 220); x < W - 40; x += rnd(170, 250)) {
+      for (let x = Math.max(60, cityBlob.x - cityBlob.rx) + rnd(0, 160); x < Math.min(W - 40, cityBlob.x + cityBlob.rx); x += rnd(170, 250)) {
         const x2 = x + rnd(-50, 50), y1 = yAt(a, x), y2 = yAt(b, x2), mx = (x + x2) / 2 + rnd(-24, 24), my = (y1 + y2) / 2;
         if (!urbanAt(mx, my, .46)) continue;
         road(spline([[x, y1 - 6], [mx, my], [x2, y2 + 6]], 12), "st");
@@ -383,7 +385,7 @@ const LAYOUT_GEN = {
     bigPark = { x0: cx - rx, x1: cx + rx, y0: cy - ry, y1: cy + ry, cx, cy, rx, ry };
     zoneAt = (x, y) => Math.hypot((x - cx) / (rx + 8), (y - cy) / (ry + 8)) < 1 ? "bigpark" : null;
   },
-  industry() { LAYOUT_GEN.grid(true); const side = Math.random() < .5; zoneAt = (x, y) => (side ? x > W * .56 : x < W * .44) && cityK(x, y) > .45 ? "industry" : null; },
+  industry() { LAYOUT_GEN.grid(true); const side = Math.random() < .5; zoneAt = (x, y) => (side ? x > W / 2 + CITY_W * .06 : x < W / 2 - CITY_W * .06) && cityK(x, y) > .45 ? "industry" : null; },
 };
 
 /* ---------- застройка ---------- */
@@ -418,7 +420,7 @@ function kindAt(x, y) { const b = blockAt(x, y); if (!b || b.rural) return b ? "
 const SPEC = {
   towers: () => ({ w: rnd(30, 50), d: [30, 52], set: rnd(6, 14), gap: rnd(14, 28), kind: "tower", floors: Math.round(rnd(12, 34)), style: 8 + Math.floor(Math.random() * 3) }),
   mid: () => ({ w: rnd(26, 46), d: [18, 26], set: rnd(2, 6), gap: rnd(6, 12), kind: "apt", floors: Math.round(rnd(6, 14)), style: Math.floor(Math.random() * 5) }),
-  apt: (x, y) => { const r = Math.hypot((x - W / 2) / (W / 2), (y - H / 2) / (H / 2)); return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(3, 12) * (1.25 - r * .7)), 3, 12), style: Math.floor(Math.random() * 5) }; },
+  apt: (x, y) => { const r = Math.hypot((x - W / 2) / (CITY_W / 2), (y - H / 2) / (CITY_H / 2)); return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(3, 12) * (1.25 - r * .7)), 3, 12), style: Math.floor(Math.random() * 5) }; },
   suburb: () => ({ lot: rnd(34, 46), w: rnd(16, 23), d: [14, 20], set: rnd(9, 14), kind: "house", floors: Math.random() < .55 ? 1 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x" }),
   old: () => ({ w: rnd(13, 24), d: [13, 30], set: 0, gap: rnd(0, .8), kind: "oldhouse", floors: 3 + Math.floor(Math.random() * 3), style: 22 + Math.floor(Math.random() * 4), ridge: "x" }),
   industry: () => ({ w: rnd(40, 70), d: [28, 50], set: rnd(10, 18), gap: rnd(18, 30), kind: "warehouse", floors: Math.random() < .5 ? 2 : 3, style: 15 }),
@@ -469,6 +471,7 @@ function placeSpecial(kind) {
     let cx = lot.cx, cy = lot.cy;
     if (S.lot) { const back = (lot.d - S.d) / 2 - 4; cx += -lot.front.nx * back; cy += -lot.front.ny * back; }
     const bb = addRotBuilding(cx, cy, S.w, S.d, lot.rot, { kind, floors: S.floors, style: S.style });
+    bb.front = lot.front; bb.lotRect = { cx: lot.cx, cy: lot.cy, w: lot.w, d: lot.d, rot: lot.rot };
     if (kind === "fire" || S.lot) b.lot = true;
     const fx = lot.front.x + lot.front.nx * 4, fy = lot.front.y + lot.front.ny * 4;
     bb.doorPref = [fx, fy]; special[kind] = { x: fx, y: fy, b: bb };
@@ -552,7 +555,7 @@ function fillInteriors() {
         const x = b.cx + u * ca - v * sa, y = b.cy + u * sa + v * ca;
         if (!footFree(x, y, 8, 18, ang, b.id, g => g === 0)) continue;
         const cells2 = rotCells(x, y, 7, 16, ang); for (const i of cells2) grid[i] = 5;
-        cars.push({ x, y, ang: ang + Math.PI / 2 + (Math.random() < .5 ? 0 : Math.PI), col: pick(CARC), wreck: false, boomT: 0, burnT: 0 });
+        { const M = pickCarModel(true); cars.push({ x, y, ang: ang + Math.PI / 2 + (Math.random() < .5 ? 0 : Math.PI), model: M.k, len: M.len, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0 }); }
       }
     } else if (k === "industry") {
       const ang = nearestEdgeAng(b.cx, b.cy);
@@ -618,7 +621,7 @@ function streetFurniture() {
           const p = lanePos(l, s), lat = e.hw - 5 - l.off, x = p.x - p.ty * lat, y = p.y + p.tx * lat, ang = Math.atan2(p.ty, p.tx);
           const cs = rotCells(x, y, 17, 7, ang); if (cs.some(i => laneMask[i] || grid[i] !== 0)) continue;
           for (const i of cs) grid[i] = 5;
-          cars.push({ x, y, ang, col: pick(CARC), wreck: false, boomT: 0, burnT: 0 });
+          { const M = pickCarModel(true); cars.push({ x, y, ang, model: M.k, len: M.len, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0 }); }
         }
       }
     }
@@ -695,9 +698,189 @@ function fillCity() {
   classifyBlocks();
   buildWalls();
   for (const k of ["hospital", "police", "mall", "fire", "power", "water", "radio"]) if (!placeSpecial(k)) placeSpecialFallback(k);
+  placeLandmarks(true);
   buildFrontage();
+  placeLandmarks(false);
   if (oldTown) { addRotBuilding(oldTown.x, oldTown.y - 6, 44, 70, rnd(-.3, .3), { kind: "cathedral", floors: 4, style: 21 }); const fx = oldTown.x, fy = oldTown.y + 52; fountains.push({ x: fx, y: fy, r: 9 }); fillDisc(fx, fy, 7, 7, 3); }
-  fillInteriors(); streetFurniture(); buildRural();
+  fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts();
+}
+// достопримечательности: храм, вокзал, школа, заправки, водонапорная башня — у улиц со своим участком;
+// телебашня, стадион, колесо обозрения и стела с вечным огнём — внутри кварталов; каждой по одной, если нашлось место
+Object.assign(SPECIAL, {
+  church: { w: 26, d: 40, set: 10, floors: 2, style: 27, lot: [50, 62, 7], ok: k => k === "apt" || k === "old" || k === "suburb", d0: 2 },
+  station: { w: 80, d: 28, set: 12, floors: 2, style: 22, lot: [104, 56, 7], ok: k => k === "apt" || k === "towers", d0: 1, av: true },
+  school: { w: 64, d: 22, set: 8, floors: 3, style: 3, lot: [96, 96, 2], ok: k => k === "apt" || k === "suburb", d0: 2 },
+  gas: { w: 18, d: 12, set: 34, floors: 1, style: 7, lot: [60, 56, 0], ok: k => k === "apt" || k === "suburb" || k === "industry", d0: 2 },
+  wtower: { w: 14, d: 14, set: 18, floors: 3, style: 1, lot: [38, 38, 2], ok: k => k === "suburb" || k === "industry", d0: 2 },
+});
+function placeLandmarks(street) {
+  if (street) {
+    for (const k of ["church", "station", "school", "gas", "gas", "wtower"]) placeSpecial(k);
+    // школьный стадион перед зданием: беговая дорожка и поле нарисованы на земле, вокруг сетка
+    const sc = special.school && special.school.b;
+    if (sc && sc.lotRect) {
+      const L = sc.lotRect, f = sc.front, pd = L.d - SPECIAL.school.d - 18, pw = L.w - 16, k = SPECIAL.school.d / 2 + 6 + pd / 2;
+      const px = sc.cx + f.nx * k, py = sc.cy + f.ny * k; sc.pitch = { x: px, y: py, w: pw, d: pd, rot: L.rot };
+      for (const i of rotCells(px, py, pw, pd, L.rot)) if (grid[i] === 2) grid[i] = 7; // на поле не сажать деревья
+      const c = Math.cos(L.rot), s = Math.sin(L.rot), P = (u, v) => [px + u * c - v * s, py + u * s + v * c];
+      for (const [a, b2] of [[[-1, -1], [1, -1]], [[1, -1], [1, 1]], [[1, 1], [-1, 1]], [[-1, 1], [-1, -1]]]) { const [x0, y0] = P(a[0] * pw / 2, a[1] * pd / 2), [x1, y1] = P(b2[0] * pw / 2, b2[1] * pd / 2); fences.push([x0, y0, x1, y1]); }
+    }
+    return;
+  }
+  const inner = (kind, w, d, floors, style, pred) => {
+    const cands = blocks.filter(b => !b.rural && pred(b)).sort(() => Math.random() - .5);
+    for (const b of cands) for (let k = 0; k < 30; k++) {
+      const x = b.cx + rnd(-1, 1) * (b.x1 - b.x0) * .22, y = b.cy + rnd(-1, 1) * (b.y1 - b.y0) * .22, rot = nearestEdgeAng(x, y);
+      if (!footFree(x, y, w + 12, d + 12, rot, b.id)) continue;
+      const bb = addRotBuilding(x, y, w, d, rot, { kind, floors, style });
+      for (const i of rotCells(x, y, w + 8, d + 8, rot)) usedMask[i] = 1;
+      return bb;
+    }
+    return null;
+  };
+  inner("stadium", 150, 104, 2, 3, b => b.kind === "park" || b.kind === "bigpark" || b.kind === "lot" || b.kind === "suburb" || b.kind === "apt");
+  inner("tvtower", 14, 14, 16, 3, b => (b.kind === "park" || b.kind === "bigpark" || b.kind === "green" || b.kind === "apt") && b.d <= 1);
+  inner("ferris", 36, 12, 1, 3, b => b.kind === "park" || b.kind === "bigpark");
+  inner("monument", 12, 12, 3, 21, b => b.kind === "plaza" && b.n > 40);
+}
+// уличные мелочи: остановки у бордюра, ларьки у перекрёстков, щиты вдоль трасс на окраине, скамейки у дорожек, детские площадки во дворах;
+// угол a — куда смотрит лицевая сторона; ларьки, щиты и горки занимают клетки, остальное проходимо
+function placeProps() {
+  const near = (arr, x, y, r) => arr.some(o => Math.abs(o.x - x) < r && Math.abs(o.y - y) < r);
+  const clear = (x, y, r) => !near(lamps, x, y, r) && !near(hydrants, x, y, r) && !near(props, x, y, r * 1.5);
+  const cellI = (x, y) => Math.floor(y / CS) * GW + Math.floor(x / CS);
+  for (const e of RE) {
+    if (e.rural || e.kind === "ring") continue;
+    const sw = e.sw || SW;
+    if (e.hw >= 15 && e.kind !== "ln") for (let t = (e.ra || 0) + 40 + rnd(0, 60); t < e.len - (e.rb || 0) - 30; t += rnd(240, 320)) {
+      const side = Math.random() < .5 ? 1 : -1, p = edgePos(e, t), nx = -p.ty * side, ny = p.tx * side, off = e.hw + Math.min(sw, 8) * .55, x = p.x + nx * off, y = p.y + ny * off;
+      if (cellAt(x, y) !== 1 || !clear(x, y, 9)) continue;
+      props.push({ k: "stop", x, y, a: Math.atan2(-ny, -nx) });
+    }
+    for (const end of [0, 1]) {
+      if (Math.random() > .25) continue;
+      const side = Math.random() < .5 ? 1 : -1, t = end ? e.len - (e.rb || 0) - 16 : (e.ra || 0) + 16; if (t < 12 || t > e.len - 12) continue;
+      const p = edgePos(e, t), nx = -p.ty * side, ny = p.tx * side, off = e.hw + sw + 3.5, x = p.x + nx * off, y = p.y + ny * off, k = kindAt(x, y);
+      if (!(k === "apt" || k === "towers" || k === "old" || k === "plaza")) continue;
+      const cs = rotCells(x, y, 7, 5, Math.atan2(p.ty, p.tx)); if (!cs.length || cs.some(i => grid[i] === 3 || grid[i] === 4 || grid[i] === 5 || grid[i] === 9 || roadMask[i] === 1 || usedMask[i])) continue;
+      if (!clear(x, y, 8)) continue;
+      for (const i of cs) { grid[i] = 4; usedMask[i] = 1; }
+      props.push({ k: "kiosk", x, y, a: Math.atan2(-ny, -nx), v: Math.floor(Math.random() * 4) });
+    }
+    if ((e.kind === "hw" || e.kind === "av") && e.len > 140) for (let t = (e.ra || 0) + 50; t < e.len - (e.rb || 0) - 50; t += rnd(300, 420)) {
+      const side = Math.random() < .5 ? 1 : -1, p = edgePos(e, t), nx = -p.ty * side, ny = p.tx * side, off = e.hw + sw + 7, x = p.x + nx * off, y = p.y + ny * off, k = kindAt(x, y);
+      if (!(k === "suburb" || k === "industry" || k === "park" || k === "green" || k === "lot")) continue;
+      const legs = [-5, 5].map(u => cellI(x + p.tx * u, y + p.ty * u)); if (legs.some(i => grid[i] !== 2 && grid[i] !== 0 && grid[i] !== 7) || !clear(x, y, 14)) continue;
+      for (const i of legs) grid[i] = 4;
+      props.push({ k: "board", x, y, a: Math.atan2(-ny, -nx), v: Math.floor(Math.random() * 8) });
+    }
+  }
+  for (const b of blocks) {
+    if (b.rural) continue;
+    if (b.paths) for (const path of b.paths) for (let i = 5; i < path.length - 5; i += 6) {
+      if (Math.random() < .35) continue;
+      const [x, y] = path[i], [x2, y2] = path[i + 1], pa = Math.atan2(y2 - y, x2 - x), s = Math.random() < .5 ? 1 : -1, px = -Math.sin(pa) * s, py = Math.cos(pa) * s, bx = x + px * 5.5, by = y + py * 5.5, g = grid[cellI(bx, by)];
+      if ((g === 2 || g === 7) && !near(trees, bx, by, 4) && !near(props, bx, by, 4)) props.push({ k: "bench", x: bx, y: by, a: Math.atan2(-py, -px) });
+    }
+    if ((b.kind === "plaza" || b.kind === "square") && b.n > 40) for (let k = 0; k < 6; k++) {
+      const a = k / 6 * TAU + rnd(-.2, .2), r = Math.sqrt(b.n) * CS * .28, x = b.cx + Math.cos(a) * r, y = b.cy + Math.sin(a) * r, g = grid[cellI(x, y)];
+      if ((g === 7 || g === 2) && blockAt(x, y) === b && !near(props, x, y, 5)) props.push({ k: "bench", x, y, a: a + Math.PI });
+    }
+    if (b.kind === "apt" && b.n > 260) for (let k = 0; k < 20; k++) {
+      const x = b.cx + rnd(-1, 1) * (b.x1 - b.x0) * .2, y = b.cy + rnd(-1, 1) * (b.y1 - b.y0) * .2, rot = rnd(0, TAU);
+      if (!footFree(x, y, 26, 20, rot, b.id, g => g === 2)) continue;
+      for (const i of rotCells(x, y, 26, 20, rot)) usedMask[i] = 1;
+      const c = Math.cos(rot), s = Math.sin(rot);
+      for (const [u, v] of [[-7, -3], [7, -3]]) { const i = cellI(x + u * c - v * s, y + u * s + v * c); if (grid[i] === 2) grid[i] = 4; }
+      props.push({ k: "play", x, y, a: rot, v: Math.floor(Math.random() * 3) });
+      break;
+    }
+  }
+}
+// ---------- пригороды: посты ДПС на въездах, посёлки вдоль трасс, дачи, военная часть, заправки на трассах ----------
+// entries — въезды в город: где загородная трасса входит в городскую сеть; tx, ty — направление из города наружу.
+// По ним штаб ставит рубеж обороны, к ним идут беженцы, на них внешнее оцепление закрывает город
+let entries = [];
+function buildOutskirts() {
+  entries = [];
+  const urbanNode = n => n.ed.some(e => !e.rural);
+  for (const e of RE) {
+    if (!e.rural || e.len < 80) continue;
+    const atA = urbanNode(e.a), atB = urbanNode(e.b); if (atA === atB) continue;
+    const t = atA ? Math.min(e.len * .4, (e.ra || 0) + 40) : Math.max(e.len * .6, e.len - (e.rb || 0) - 40), p = edgePos(e, t), dir = atA ? 1 : -1;
+    if (entries.some(o => Math.hypot(o.x - p.x, o.y - p.y) < 160)) continue;
+    entries.push({ e: e.id, t, dir, x: p.x, y: p.y, tx: p.tx * dir, ty: p.ty * dir, hw: e.hw });
+  }
+  // пост ДПС: будка и машина на обочине справа по ходу из города
+  for (const en of entries) {
+    const nx = -en.ty, ny = en.tx, off = en.hw + 14, x = en.x + nx * off, y = en.y + ny * off;
+    if (cellAt(x, y) === 3) continue;
+    props.push({ k: "dps", x, y, a: Math.atan2(-ny, -nx) });
+    const cx = en.x + nx * (en.hw + 5) + en.tx * 14, cy = en.y + ny * (en.hw + 5) + en.ty * 14;
+    if (cellAt(cx, cy) !== 3) cars.push({ x: cx, y: cy, ang: Math.atan2(en.ty, en.tx), model: "police", len: 1, col: "#e9e9ee", dps: true, wreck: false, boomT: 0, burnT: 0 });
+  }
+  const ruralEdges = RE.filter(e => e.rural && e.len > 260 && e.kind !== "ring");
+  // воинская часть у одной из трасс недалеко от города: казармы, ангар, штаб, вертолётная площадка, грузовики; армия выезжает отсюда
+  for (let k = 0; k < 40 && !special.base; k++) {
+    const en = pick(entries); if (!en) break;
+    const e = RE.find(x => x.id === en.e); if (!e) continue;
+    const dt = rnd(140, 360) * (en.t < e.len / 2 ? 1 : -1), t = clamp(en.t + dt, 40, e.len - 40), p = edgePos(e, t), side = Math.random() < .5 ? 1 : -1, nx = -p.ty * side, ny = p.tx * side;
+    const dist = e.hw + rnd(100, 180), cx = p.x + nx * dist, cy = p.y + ny * dist, b = blockAt(cx, cy); if (!b || !b.rural) continue;
+    const ang = Math.atan2(p.ty, p.tx), cells = rotCells(cx, cy, 250, 180, ang);
+    if (!cells.length || cells.some(i => roadMask[i] || usedMask[i] || regionOf[i] !== b.id || grid[i] === 3 || grid[i] === 9 || grid[i] === 10)) continue;
+    // деревья на территории части вырубаются
+    const inside = new Set(cells); trees = trees.filter(tr => !inside.has(Math.floor(tr.y / CS) * GW + Math.floor(tr.x / CS)));
+    const ca = Math.cos(ang), sa = Math.sin(ang), at = (u, v) => [cx + ca * u + nx * v, cy + sa * u + ny * v];
+    for (const i of cells) { usedMask[i] = 1; if (grid[i] === 2 || grid[i] === 4) grid[i] = 7; } // плац и площадки — бетон
+    const put = (u, v, w, d, props2) => { const [x, y] = at(u, v); return addRotBuilding(x, y, w, d, ang, props2); };
+    put(-70, 40, 64, 18, { kind: "barracks", floors: 3, style: 28 }); put(-70, -10, 64, 18, { kind: "barracks", floors: 3, style: 28 });
+    put(50, 30, 60, 38, { kind: "hangar", floors: 2, style: 15 });
+    const hq = put(-10, -60, 38, 20, { kind: "basehq", floors: 2, style: 28 });
+    const [hx, hy] = at(60, -50); props.push({ k: "helipad", x: hx, y: hy, a: ang });
+    for (let i = 0; i < 4; i++) { const [x, y] = at(-20 + i * 14, 10); cars.push({ x, y, ang: ang + Math.PI / 2, model: "army", len: 1.45, col: "#4d5634", wreck: false, boomT: 0, burnT: 0 }); for (const i2 of rotCells(x, y, 26, 8, ang + Math.PI / 2)) grid[i2] = 5; }
+    // забор по периметру; ворота — в стороне, обращённой к трассе (v < 0)
+    fences.push([...at(-120, 85), ...at(120, 85)], [...at(-120, -85), ...at(-120, 85)], [...at(120, -85), ...at(120, 85)], [...at(-120, -85), ...at(-20, -85)], [...at(20, -85), ...at(120, -85)]);
+    const [gx, gy] = at(0, -85 - 12);
+    special.base = { x: gx, y: gy, b: hq };
+  }
+  const farFromCity = (x, y) => cityK(x, y) < .2;
+  // посёлок: частные дома с участками по обе стороны трассы, вдали от города
+  const villages = ruralEdges.slice().sort(() => Math.random() - .5).slice(0, 2 + Math.floor(Math.random() * 2));
+  for (const e of villages) {
+    let t0 = -1; for (let t = 80; t < e.len - 200; t += 30) { const p = edgePos(e, t); if (farFromCity(p.x, p.y)) { t0 = t; break; } }
+    if (t0 < 0) continue;
+    const t1 = Math.min(e.len - 60, t0 + rnd(220, 340)); let n = 0;
+    for (const side of [-1, 1]) for (let t = t0; t < t1; t += rnd(38, 46)) {
+      const w = rnd(15, 21), hb = placeAlong(e, t, side, w, 14, 19, rnd(9, 14), { kind: "house", floors: Math.random() < .7 ? 1 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true });
+      if (hb) { suburbLot(e, t - 10, side, w + 20, hb); n++; }
+    }
+    if (n >= 4) { const p = edgePos(e, (t0 + t1) / 2); props.push({ k: "kiosk", x: p.x + (-p.ty) * (e.hw + 9), y: p.y + p.tx * (e.hw + 9), a: Math.atan2(-p.tx, p.ty), v: 0 }); }
+  }
+  // дачи: участки сеткой в стороне от трассы, у каждого домик и забор
+  for (let k = 0; k < 2; k++) {
+    const e = pick(ruralEdges); if (!e) break;
+    const t = rnd(e.len * .25, e.len * .75), p = edgePos(e, t), side = Math.random() < .5 ? 1 : -1, nx = -p.ty * side, ny = p.tx * side;
+    const b = blockAt(p.x + nx * (e.hw + 40), p.y + ny * (e.hw + 40)); if (!b || !b.rural) continue;
+    const ang = Math.atan2(p.ty, p.tx), ca = Math.cos(ang), sa = Math.sin(ang);
+    for (let i = -3; i <= 3; i++) for (let j = 0; j < 4; j++) {
+      const lx = i * 26, lz = e.hw + 34 + j * 26, x = p.x + ca * lx + nx * lz, y = p.y + sa * lx + ny * lz;
+      if (!footFree(x, y, 12, 10, ang, b.id)) continue;
+      addRotBuilding(x, y, rnd(8, 11), rnd(7, 9), ang, { kind: "house", floors: 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", dacha: true });
+      for (const i2 of rotCells(x, y, 14, 12, ang)) usedMask[i2] = 1;
+      const hw2 = 12, c0 = [x - ca * hw2 - nx * hw2, y - sa * hw2 - ny * hw2], c1 = [x + ca * hw2 - nx * hw2, y + sa * hw2 - ny * hw2], c2 = [x + ca * hw2 + nx * hw2, y + sa * hw2 + ny * hw2], c3 = [x - ca * hw2 + nx * hw2, y - sa * hw2 + ny * hw2];
+      fences.push([...c1, ...c2], [...c2, ...c3], [...c3, ...c0]);
+      if (Math.random() < .5) addTree(x + nx * 8 + ca * rnd(-6, 6), y + ny * 8 + sa * rnd(-6, 6), rnd(4, 6), rnd(10, 16));
+    }
+  }
+  // заправка на трассе за городом
+  for (let k = 0; k < 20; k++) {
+    const e = pick(ruralEdges); if (!e) break;
+    const t = rnd(e.len * .3, e.len * .7), side = Math.random() < .5 ? 1 : -1;
+    const g = placeAlong(e, t, side, 18, 12, 12, 34, { kind: "gas", floors: 1, style: 7 });
+    if (!g) continue;
+    const f = g.front; for (const i of rotCells(g.cx + f.nx * 22, g.cy + f.ny * 22, 40, 30, g.rot)) if (grid[i] === 2) grid[i] = 0;
+    break;
+  }
 }
 // запасной вариант: учреждение хоть где-нибудь в городе
 function placeSpecialFallback(kind) {

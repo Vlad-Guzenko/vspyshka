@@ -10,10 +10,11 @@ let hydrants = [], utilT = 0, patrolT = 0, busT = 0, supplyT = 0, closedT = 0, n
 const BUS_CAP = 20;
 function resetServices2() { utilT = 20; patrolT = 30; busT = 10; supplyT = 30; closedT = 0; nestT = 0; patientT = 0; }
 function stepServices2(dt) {
+  // перекрытия считаются и при выключенных службах: завалы и баррикады бывают и без них
+  closedT -= dt; if (closedT <= 0) { closedT = 3; updateClosedRoads(); }
   stepBuses(dt);
   if (!settings.services) return;
   stepPatrols(dt); stepUtilities(dt); stepSupply(dt); stepNests(dt); stepPatients(dt);
-  closedT -= dt; if (closedT <= 0) { closedT = 5; updateClosedRoads(); }
 }
 const zombiesAt = (x, y, r) => { let n = 0; nearZ(x, y, r, () => n++); return n; };
 
@@ -173,8 +174,9 @@ function roamStopDone(c, dt) {
 /* ---------- снабжение: грузовики везут еду в укрытия и лагеря, топливо генераторам; конвой можно потерять ---------- */
 function stepSupply(dt) {
   for (const c of cars) {
-    if (c.service !== "supply" || c.gone || c.leaving || c.wreck) continue;
-    if (zombiesAt(c.x, c.y, 45) >= 2 && c.v < 3) { abandonCar(c, null); for (const a of c.crew || []) { a.unit = null; } c.lost = true; logE("Конвой снабжения потерян: водитель бежал от зомби", "bad"); }
+    if (c.service !== "supply" || c.gone || c.leaving || c.wreck || c.lost) continue;
+    // потерянный конвой — один раз: иначе водитель «выскакивал» бы из машины каждый тик
+    if (zombiesAt(c.x, c.y, 45) >= 2 && c.v < 3) { abandonCar(c, null); c.abandonedSvc = true; for (const a of c.crew || []) { a.unit = null; } c.lost = true; logE("Конвой снабжения потерян: водитель бежал от зомби", "bad"); }
   }
   supplyT -= dt; if (supplyT > 0) return; supplyT = 60;
   if (alert < 2 || cars.filter(c => c.service === "supply" && !c.gone).length >= 2) return;
@@ -213,15 +215,21 @@ function stepNests(dt) {
 }
 
 /* ---------- объезды: улица с завалом на проезжей части закрыта, знаки на въездах, трафик идёт в обход ---------- */
+// перекрытие по полосам: вдоль каждой полосы смотрим её ось и ±3 (ширина кузова) — завал, дом, баррикада или забор;
+// улица закрыта, если заблокированы все полосы, иначе это сужение (машины объезжают по встречной); e.blk — какие полосы
+function laneBlocked(l) { for (let s = laneStart(l) - 4; s < laneEnd(l) + 4; s += 4) { const q = lanePos(l, clamp(s, 0, l.e.len)); for (const o of [-3, 0, 3]) { const c = cellAt(q.x + q.ty * o, q.y - q.tx * o); if (c === 8 || c === 3 || c === 6) return true; } } return false; }
 function updateClosedRoads() {
-  let changed = 0;
+  let changed = 0, closedNew = 0;
   for (const e of RE) {
-    if (e.rural || e.kind === "ring") { e.closed = false; continue; }
-    let closed = false;
-    for (let t = e.ra + 4; t < e.len - e.rb - 4 && !closed; t += 10) { const p = edgePos(e, t); for (const o of [-e.hw * .85, -e.hw * .45, 0, e.hw * .45, e.hw * .85]) { const c = cellAt(p.x - p.ty * o, p.y + p.tx * o); if (c === 8 || c === 3) { closed = true; break; } } }
-    if (closed !== !!e.closed) { e.closed = closed; changed++; }
+    if (e.rural) { if (e.closed || e.narrow) { e.closed = e.narrow = false; e.blk = null; changed++; } continue; }
+    const bl = e.L.map(l => l ? laneBlocked(l) : false), lanes = e.L.filter(Boolean).length, nb = bl.filter(Boolean).length;
+    const closed = lanes > 0 && nb === lanes, narrow = !closed && nb > 0;
+    if (closed !== !!e.closed || narrow !== !!e.narrow) { if (closed && !e.closed) closedNew++; e.closed = closed; e.narrow = narrow; e.blk = nb ? bl : null; changed++; }
   }
-  if (changed) { routeCache.clear(); exitRoute = null; logT("roadclose", "Улицы с завалами перекрыты: движение идёт в объезд", "", 60); }
+  // пробки: сколько машин стоит на ребре — маршрутам это дороже
+  for (const e of RE) e.jamN = 0; for (const c of cars) if (c.lane && !c.gone && c.moving && c.wait > 4) c.lane.e.jamN++;
+  if (changed) { routeCache.clear(); exitRoute = null; }
+  if (closedNew) logT("roadclose", "Улицы перекрыты: движение идёт в объезд", "", 60);
 }
 
 /* ---------- гидранты: у гидранта пожарные тушат быстрее ---------- */

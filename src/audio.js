@@ -121,12 +121,12 @@ const LOOPS = {
 };
 const loopNodes = {};
 function makeIR(seconds = 2.4) {
-  // импульс улицы: ранние отражения от стен и долгий хвост
-  const len = Math.floor(SR * seconds), ir = AC.createBuffer(2, len, SR);
+  // импульс улицы: ранние отражения от стен и долгий хвост; частота — как у звуковой карты (через RDP обычно 48 кГц), иначе свёртка не примет буфер
+  const sr = AC.sampleRate || SR, len = Math.floor(sr * seconds), ir = AC.createBuffer(2, len, sr);
   for (let ch = 0; ch < 2; ch++) {
     const d = ir.getChannelData(ch);
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2) * .5;
-    for (let k = 0; k < 14; k++) { const at = Math.floor(SR * (.02 + Math.random() * .25)); d[at] += (Math.random() < .5 ? -1 : 1) * (.6 - k * .03); }
+    for (let k = 0; k < 14; k++) { const at = Math.floor(sr * (.02 + Math.random() * .25)); d[at] += (Math.random() < .5 ? -1 : 1) * (.6 - k * .03); }
   }
   return ir;
 }
@@ -135,7 +135,8 @@ async function audio() {
   try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; return; }
   comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 5; comp.attack.value = .003; comp.release.value = .25;
   master = AC.createGain(); master.gain.value = muted ? 0 : .8; master.connect(comp).connect(AC.destination);
-  const rev = AC.createConvolver(); rev.buffer = makeIR(); const revG = AC.createGain(); revG.gain.value = .55; rev.connect(revG).connect(master);
+  // эхо необязательно: если браузер не примет буфер, звук работает без него
+  const rev = AC.createConvolver(); try { rev.buffer = makeIR(); } catch (e) { console.warn("эхо выключено:", e.message); } const revG = AC.createGain(); revG.gain.value = .55; rev.connect(revG).connect(master);
   revSend = rev;
   sfxBus = AC.createGain(); sfxBus.connect(master);
   busW = AC.createGain(); busW.connect(sfxBus); busV = AC.createGain(); busV.connect(sfxBus);

@@ -122,10 +122,10 @@ function acidHit(b, k) {
 function stepSpits(dt) {
   for (const s of spits) {
     s.t += dt;
-    if (s.t >= s.T) { s.done = true; acids.push({ x: s.tx, y: s.ty, r: 7, l: 9 }); addDecal(s.tx, s.ty, 5, 4); near(s.tx, s.ty, 7, b => { if (b.state === "alive" && b.role !== "zombie" && !b.hidden) acidHit(b, 1); }); }
+    if (s.t >= s.T) { s.done = true; acids.push({ x: s.tx, y: s.ty, r: 7, l: 9 }); addDecal(s.tx, s.ty, 5, 4); near(s.tx, s.ty, 7, b => { if (b.state === "alive" && b.role !== "zombie" && !b.hidden && Math.hypot(b.x - s.tx, b.y - s.ty) < 7) acidHit(b, 1); }); }
   }
   spits = spits.filter(s => !s.done);
-  for (const ac of acids) { ac.l -= dt; near(ac.x, ac.y, ac.r, b => { if (b.state === "alive" && b.role !== "zombie" && !b.hidden) acidHit(b, dt * .5); }); }
+  for (const ac of acids) { ac.l -= dt; near(ac.x, ac.y, ac.r, b => { if (b.state === "alive" && b.role !== "zombie" && !b.hidden && Math.hypot(b.x - ac.x, b.y - ac.y) < ac.r) acidHit(b, dt * .5); }); }
   acids = acids.filter(a => a.l > 0);
 }
 function spawnTitan(x, y) {
@@ -341,7 +341,7 @@ function stepFireSpread(dt) {
     if (!(b.fire > 0) || b.state !== "ok" || Math.random() > dt * .06) continue;
     const reach = (world.rain || 0) > .5 ? 5 : 15;
     for (const o of buildings) {
-      if (o === b || o.fire > 0 || o.state !== "ok") continue;
+      if (o === b || o.fire > 0 || o.state !== "ok" || simT - (o.wetT || -1e9) < 20) continue; // соседей пожарные проливают водой
       const gx = Math.max(b.x0 - o.x1, o.x0 - b.x1, 0), gy = Math.max(b.y0 - o.y1, o.y0 - b.y1, 0);
       if (Math.hypot(gx, gy) < reach && Math.random() < .5) { o.fire = rnd(30, 60); logT("spread", "Огонь перекинулся на соседний дом", "bad", 15); interest((o.x0 + o.x1) / 2, (o.y0 + o.y1) / 2, 3); break; }
     }

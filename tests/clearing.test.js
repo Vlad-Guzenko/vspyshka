@@ -1,14 +1,15 @@
 // цепочка «обрушение → экскаваторы и самосвалы → площадка чистая → строители → дом» и снос выгоревшего остова
 // node tests/clearing.test.js [планировка] [секунд]
 const fs = require('fs'), path = require('path');
-const src = ['sim1.js', 'roads.js', 'layout.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8')).join('\n');
+const src = ['sim1.js', 'roads.js', 'layout.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js', 'sim19.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8')).join('\n');
 const stub = `let dn=0;function addDecal(){return dn++}function fxBlood(){}function fxHit(){}function fxShot(){}function fxBoom(){}function fxDebris(){}function fxCollapse(){}function fxToppleImpact(){}function fxCannon(){}function onBanner(t){} function onResult(){} function onRadio(){} const world={hour:13}; function hourLabel(){return ""} function mmss(t){return t} let lastCounts=null; function slowMo(){}
 const sfx=new Proxy({},{get:()=>()=>{}});`;
 const body = `
-settings.fast = true; const _g = genCity; genCity = () => _g(process.argv[2] || 'grid'); newCitySim(300); genCity = _g;
+settings.fast = true; settings.threats = false; const _g = genCity; genCity = () => _g(process.argv[2] || 'grid'); newCitySim(300); genCity = _g;
 for (const a of agents) { a.bitten = false; a.incT = 0; }
-const apts = buildings.filter(b => b.state === 'ok' && b.kind === 'apt' && b.floors >= 5), A = apts[0], B = apts[1];
-collapse(A); gutBuilding(B);
+const apts = buildings.filter(b => b.state === 'ok' && b.kind === 'apt' && b.floors >= 5), A = apts[0], B = apts[1], C = apts[2];
+// B выгорел до основания — снос; C выгорел, но каркас крепкий — ремонт
+collapse(A); B.hp = B.maxHp * .2; gutBuilding(B); C.hp = C.maxHp * .4; gutBuilding(C);
 const ev = [], seen = new Set(), mark = (k, t) => { if (!seen.has(k)) { seen.add(k); ev.push((simT | 0) + 's ' + t); } };
 let maxLoad = 0, full = false;
 for (let i = 0; i < 20 * (+process.argv[3] || 1100); i++) {
@@ -26,10 +27,12 @@ for (let i = 0; i < 20 * (+process.argv[3] || 1100); i++) {
   if (B.clearedT) mark('Bcl', 'B: завал вывезен');
   if (B.state === 'construct') mark('Bcon', 'B: стройка началась');
   if (B.state === 'ok' && B.rebuilt) mark('Bok', 'B: дом построен');
+  if (C.state === 'construct') mark('Crep', 'C: остов ремонтируют, без сноса');
+  if (C.state === 'collapsing' || C.state === 'ruin') mark('Cdemo', 'C: крепкий остов снесли — ошибка');
 }
 console.log(layoutKey, 'A', A.floors, 'этажей | B', B.floors, 'этажей');
 for (const e of ev) console.log(e);
-const ok = seen.has('Acl') && seen.has('Acon') && seen.has('Bdown') && full && !seen.has('bad');
+const ok = seen.has('Acl') && seen.has('Acon') && seen.has('Bdown') && seen.has('Crep') && !seen.has('Cdemo') && full && !seen.has('bad');
 console.log('полных рейсов', full ? 'да' : 'нет', 'maxLoad', maxLoad, 'техники осталось', machines.length, 'самосвалов', cars.filter(c => c.service === 'dump' && !c.gone).length, ok ? 'OK' : 'FAIL');
 process.exitCode = ok ? 0 : 1;
 `;

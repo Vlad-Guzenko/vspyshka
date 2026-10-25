@@ -27,17 +27,37 @@ function stepDebris(dt) {
   if (debDirty && debMesh.instanceColor) { debMesh.instanceColor.needsUpdate = true; debDirty = false; }
 }
 function clearDebris() { debris = []; debN = 0; debMesh.count = 0; }
-// экскаватор убрал клетку завала: лежащие на ней обломки убираем
 // площадка вывезена: ни одного обломка вокруг, гребень упавшей башни и остов убраны
 function onSiteCleared(b) {
   const [x0, y0, x1, y1] = rubbleBounds(null, b), wx0 = X(x0 - 24), wx1 = X(x1 + 24), wz0 = Z(y0 - 24), wz1 = Z(y1 + 24);
   for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || d.sx === 0) continue; if (d.x >= wx0 && d.x <= wx1 && d.z >= wz0 && d.z <= wz1) { d.sx = d.sy = d.sz = 0; d.y = -50; d.rest = true; debDirty = true; } }
   if (b.mound) { cityGroup.remove(b.mound); b.mound = null; }
   if (b.obj && b.state === "ruin") b.obj.visible = false;
+  b.pieces = null; paintCells(x0, y0, x1, y1);
 }
-function onRubbleCleared(x, y) {
-  const wx = X(Math.floor(x / CS) * CS + CS / 2), wz = Z(Math.floor(y / CS) * CS + CS / 2);
+// куски остова и гребня с их положением в мире; крупные плиты, которые не привязать к клетке, уходят по доле вывезенного
+const _pv = new THREE.Vector3();
+function ruinPieces(b) {
+  if (b.pieces) return b.pieces;
+  const out = [], add = o => o.traverse(m => { if (!m.isMesh) return; m.getWorldPosition(_pv); const p = m.geometry.parameters || {}, big = Math.max(p.width || 0, p.depth || 0); out.push({ m, wx: _pv.x, wz: _pv.z, r: big > 30 ? 0 : big / 2, th: big > 30 ? rnd(.15, .7) : rnd(0, .2) }); });
+  if (b.obj && b.obj.visible) for (const o of b.obj.children) if (o.userData.shell) add(o);
+  if (b.mound) add(b.mound);
+  return b.pieces = out;
+}
+// экскаватор убрал клетку завала: обломки на ней, куски остова рядом с ковшом; остов и обломанный низ башни оседают по мере вывоза
+function onRubbleCleared(x, y, b) {
+  const cx = Math.floor(x / CS) * CS, cy = Math.floor(y / CS) * CS, wx = X(cx + CS / 2), wz = Z(cy + CS / 2);
   for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || !d.rest || d.sx === 0) continue; if (Math.abs(d.x - wx) <= CS * .75 && Math.abs(d.z - wz) <= CS * .75) { d.sx = d.sy = d.sz = 0; d.y = -50; debDirty = true; } }
+  paintCells(cx, cy, cx + CS, cy + CS);
+  // куски убираем у всех руин, чей завал накрывает клетку: соседние площадки пересекаются, и чужой экскаватор тоже расчищает
+  for (const o of buildings) {
+    if (o.state !== "ruin" || x < o.x0 - 40 || x > o.x1 + 40 || y < o.y0 - 40 || y > o.y1 + 40) continue;
+    const k = o !== b ? 1 : o.rubble0 ? clamp(o.rubbleLeft / o.rubble0) : 0;
+    for (const p of ruinPieces(o)) if (p.m.visible && (k < p.th || Math.hypot(p.wx - wx, p.wz - wz) < CS * 1.5 + p.r)) p.m.visible = false;
+    if (o !== b) continue;
+    if (o.obj && o.ruinDone && !o.topple) o.obj.position.y = (o.baseY || 0) - (o.h - o.ruinH) - (1 - k) * o.ruinH * 1.8;
+    if (o.mound && o.mound.userData.stump) { const u = o.mound.userData; u.stump.position.y = u.stumpY - (1 - k) * u.stumpH * 1.8; }
+  }
 }
 
 /* ---------- обрушение: пыль, обломки, завал ---------- */
@@ -45,6 +65,7 @@ function facadeColor(b) { const st = STYLES[b.style] || STYLES[0]; return st.wal
 function fxCollapse(b) {
   const cx = X((b.x0 + b.x1) / 2), cz = Z((b.y0 + b.y1) / 2), w = b.x1 - b.x0, d = b.y1 - b.y0, k = clamp(b.h / 120, .4, 2), by = b.baseY || 0;
   if (b.kind === "tower") slowMo(2.2);
+  paintCells(...rubbleBounds(null, b));
   shake = Math.max(shake, 5 * k * clamp(1.4 - camDist() / 1600, .2, 1));
   const wall = facadeColor(b);
   // плотная волна пыли расходится от основания

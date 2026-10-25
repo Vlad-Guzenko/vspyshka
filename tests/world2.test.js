@@ -1,11 +1,11 @@
 // ловушки, КПП, фракции, штаб, инфраструктура, санитары: node tests/world2.test.js [layout]
 const fs=require('fs');
-const src=['sim1.js','roads.js','layout.js','traffic.js','terrain.js','sim2.js','sim3.js','sim4.js','sim5.js','sim6.js','sim7.js','sim8.js','sim9.js','sim10.js','sim11.js','sim12.js','sim13.js','sim14.js','sim15.js','sim16.js','sim17.js','sim18.js'].map(f=>fs.readFileSync(require('path').join(__dirname,'..','src',f),'utf8')).join('\n');
+const src=['sim1.js','roads.js','layout.js','traffic.js','terrain.js','sim2.js','sim3.js','sim4.js','sim5.js','sim6.js','sim7.js','sim8.js','sim9.js','sim10.js','sim11.js','sim12.js','sim13.js','sim14.js','sim15.js','sim16.js','sim17.js','sim18.js', 'sim19.js'].map(f=>fs.readFileSync(require('path').join(__dirname,'..','src',f),'utf8')).join('\n');
 const stub=`let dn=0;function addDecal(){return dn++}function setDecal(){}function fxBlood(){}function fxHit(){}function fxShot(){}function fxBoom(){}function fxDebris(){}function fxCollapse(){}function fxToppleImpact(){}function fxCannon(){}function onBanner(t){console.log("BANNER",t)} function onResult(){} function onRadio(){} const world={hour:13}; function hourLabel(){return ""} function mmss(t){return t} let lastCounts=null;
 const sfx=new Proxy({},{get:()=>()=>{}});`;
 new Function('process',stub+src+`
 const layout=process.argv[2]||'grid';
-settings.fast=true; const _g=genCity; genCity=()=>_g(layout);
+settings.fast=true; settings.threats=false; const _g=genCity; genCity=()=>_g(layout);
 newCitySim(900);
 const log=(...a)=>console.log((simT|0)+'s',...a);
 log('infra', Object.keys(INFRA).map(k=>k+':'+(special[k]?special[k].b.kind:'-')).join(' '));

@@ -95,15 +95,18 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
     c.overT += dt;
     // встречная появилась или впереди перекрёсток — возвращаемся и тормозим
     let oncoming = false; nearCars(c.x + dx * 30, c.y + dy * 30, 40, o => { if (oncoming || o === c || o.gone || !o.moving) return; const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = Math.abs((o.x - c.x) * dy - (o.y - c.y) * dx); if (al > 4 && al < 50 && lt < 5 && Math.cos(o.ang) * dx + Math.sin(o.ang) * dy < -.3) oncoming = true; });
-    if ((oncoming && c.over === 1) || (c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > 14 || laneEnd(l) - c.s < 26) { c.over = 0; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
+    if ((oncoming && c.over === 1) || (!c.contra && c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > (c.contra ? 40 : 14) || laneEnd(l) - c.s < 26) { c.over = 0; c.contra = false; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
     return;
   }
+  // реверс: при эвакуации (тревога 3+) бегущие по трассам и проспектам к выезду занимают и встречную полосу, если она пуста на 110 м
+  if (c.flee && alert >= 3 && opp && (l.e.rural || l.e.kind === "hw" || l.e.kind === "av") && clear < 40 && laneEnd(l) - c.s > 60 && c.s - laneStart(l) > 8 && oppClear(c, opp, dx, dy)) { c.over = 1; c.contra = true; c.overT = 0; c.latTgt = 2 * l.off; logT("contra", "Бегущие из города заняли и встречную полосу", "", 60); return; }
   if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
   // очередь у светофора не объезжаем; объезжаем стоящее, разбитое, брошенное
   const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine);
   if (!obstacle) return;
   if (!opp) return;
-  if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) return; // у перекрёстка на встречку не выезжаем
+  // у перекрёстка на встречку не выезжаем, но развернуться можно, если давно стоим, а встречная свободна
+  if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) { if (c.wait > 12 && opp) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; routeCache.clear(); placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } } return; }
   if (oppClear(c, opp, dx, dy)) { c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c); return; }
   // встречная занята — по тротуару справа, медленно и с сигналом
   if (c.wait > 4) { const off = sideClear(c); if (off) { c.over = 2; c.overT = 0; c.latTgt = off; c.wait = 0; sfx.horn(c); logT("sidewalk", "Машина объезжает затор по тротуару", "", 30); return; } }

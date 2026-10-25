@@ -34,8 +34,6 @@ function updateMachines() {
       o = new THREE.Group();
       if (c.service === "dump") {
         const orange = new THREE.MeshStandardMaterial({ color: 0xd8761c, roughness: .55, metalness: .25 }), dark = new THREE.MeshStandardMaterial({ color: 0x2e2e2e, roughness: .8 });
-        addBox(o, dark, 22, 1.2, 5, -4, 3.2, 0); // рама
-        for (const z of [-3.6, 3.6]) for (const x of [-9, -13]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 1.3, 12).rotateX(Math.PI / 2), dark); wh.position.set(x, 1.6, z); wh.castShadow = true; o.add(wh); }
         const bed = new THREE.Group(); bed.position.set(-15, 4.2, 0); o.add(bed); // кузов качается вокруг задней оси
         addBox(bed, orange, 18, .8, 8.4, 9, .4, 0); addBox(bed, orange, 18, 4.2, .5, 9, 2.5, -4.2); addBox(bed, orange, 18, 4.2, .5, 9, 2.5, 4.2); addBox(bed, orange, .6, 4.6, 8.4, 17.7, 2.7, 0); addBox(bed, orange, .5, 3.6, 8.4, .4, 2.2, 0);
         for (const x of [4, 9, 14]) addBox(bed, orange, .5, 4.4, 9, x, 2.6, 0); // рёбра бортов

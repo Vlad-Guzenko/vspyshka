@@ -3,7 +3,7 @@
 let agents = [], nextId = 1, simT = 0, stats = [], events = [], firsts = {}, noises = [];
 let bites = 0, deaths = 0, zkills = 0, saved = 0, cured = 0, fieldT = 0, statT = 0, logDirty = true;
 let evac = null, strikes = [], fires = [], hasMedics = false;
-const settings = { services: true, inc: 20, armed: .05, fast: false, night: false };
+const settings = { services: true, inc: 20, armed: .05, fast: false, night: false, threats: true };
 const CLOTH = ["#b23a3a", "#2f5f9e", "#d9d2c1", "#2a2a2e", "#5c7a45", "#a5702f", "#6b4590", "#cf8337", "#55606a", "#e2e2dc", "#7a2f2f", "#3d7f86"];
 const PANTS = ["#2b2f3a", "#3b3f46", "#1d2230", "#5a4a3a", "#6b6f72", "#23324f", "#4a4f3a"];
 const HAIR = ["#1a1410", "#3b2616", "#6b4a2a", "#a07a48", "#c9b38a", "#2a2a2a", "#8a8a8a", "#5a2a18"];
@@ -151,7 +151,7 @@ function clearShot(s, t) {
 function shoot(s, t) {
   const army = s.role === "army" || s.tank, police = s.role === "police";
   s.burst++; s.cd = army ? (s.burst % 3 ? .1 : rnd(.45, .7)) : police ? rnd(.5, .8) : rnd(.8, 1.3);
-  s.mag--; s.shotT = simT;
+  s.mag--; s.shotT = simT; cityNoise(army ? .03 : .02);
   noises.push({ x: s.x, y: s.y, t: simT, r: army ? 320 : 240 });
   const d = Math.hypot(t.x - s.x, t.y - s.y), moving = Math.hypot(t.vx, t.vy) > 10 ? .85 : 1;
   const sniper = s.hero === "sniper";
@@ -246,6 +246,8 @@ function thinkZombie(a, dt) {
   for (const n of noises) { const d = Math.hypot(n.x - a.x, n.y - a.y); if (d < n.r && d < nd) { nd = d; nz = n; } }
   const toward = (tx, ty, sp) => { const d = Math.hypot(tx - a.x, ty - a.y) || 1, ux = (tx - a.x) / d, uy = (ty - a.y) / d; if (a.stuck < .6 && !blocked(a.x + ux * 7, a.y + uy * 7)) return [ux, uy, sp]; const f = fieldDir(fH, a.x, a.y, false); if (f) return [f[0], f[1], sp]; const w = wander(a, dt); return [w[0], w[1], sp * .6]; };
   if (nz && nd > 15) return toward(nz.x, nz.y, base);
+  // зомби орды с окраин идут к своему въезду
+  if (a.mig) { const r = hordeMove(a, base); if (r) return r; }
   // ночью зомби тянутся к свету прожекторов
   if (settings.night) { const f = nearestFlood(a.x, a.y, 260); if (f && Math.hypot(f.x - a.x, f.y - a.y) > 30) return toward(f.x, f.y, base * .8); }
   const sb = zombieShelterTarget(a);
@@ -263,7 +265,7 @@ function thinkHuman(a, dt) {
   if (a.busGoal) { const r = busBoard(a, dt); if (r) return r; } // идёт к автобусу или скорой и садится
   if (a.standDown && a.order && a.role !== "army" && a.role !== "police") return goTo(a, a.order.x, a.order.y, 9); // отбой: медики едут на базу
   if (a.onFire > 0) { if (a.wanderT > .6) a.wanderT = .6; const w = wander(a, dt); a.idleT = 0; return [w[0] + rnd(-.5, .5), w[1] + rnd(-.5, .5), 15]; } // горящий мечется
-  let zd = 1e9, zn = null, fx = 0, fy = 0;
+  let zd = 1e9, zn = null, fx = 0, fy = 0, spN = null, spD = 100;
   // спокойный прохожий принимает бредущего зомби за пьяного, пока тот не подойдёт вплотную
   const lit = !settings.night || litAt(a.x, a.y);
   const fac = a.faction ? factionOf(a) : null;
@@ -272,7 +274,7 @@ function thinkHuman(a, dt) {
     if (b.state !== "alive") return;
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     const behind = aware < sight && d > 6 && (Math.cos(a.dir) * (b.x - a.x) + Math.sin(a.dir) * (b.y - a.y)) < -.2 * d; // спокойный не смотрит назад
-    if (d < aware && !behind && (d < 12 || a.post || los(a.x, a.y, b.x, b.y))) { fx -= (b.x - a.x) / (d * d + 1); fy -= (b.y - a.y) / (d * d + 1); if (d < zd) { zd = d; zn = b; } }
+    if (d < aware && !behind && (d < 12 || a.post || los(a.x, a.y, b.x, b.y))) { fx -= (b.x - a.x) / (d * d + 1); fy -= (b.y - a.y) / (d * d + 1); if (d < zd) { zd = d; zn = b; } if (b.ztype === "spitter" && d < spD) { spD = d; spN = b; } }
   });
   if (zn) {
     a.panic = 1;
@@ -289,10 +291,13 @@ function thinkHuman(a, dt) {
   const range = (a.role === "army" ? 230 : a.hero === "sniper" ? 260 : a.role === "police" ? 170 : 70) + (a.post ? 90 : 0);
   if (a.armed && a.mag > 0 && a.reload <= 0 && zn && zd < range) {
     if (zd < 120 || a.post || a.hero === "sniper") { a.aim = Math.atan2(zn.y - a.y, zn.x - a.x); a.aimT = .8; }
-    if (a.cd <= 0 && clearShot(a, zn)) shoot(a, zn);
+    { const tz = a.role === "army" && spN && zd > 12 ? spN : zn; if (a.cd <= 0 && clearShot(a, tz)) shoot(a, tz); }
   }
+  if (acids.length) for (const ac of acids) { const dx = a.x - ac.x, dy = a.y - ac.y, d = Math.hypot(dx, dy); if (d < ac.r + 2.5) { const l = d || 1; return [dx / l, dy / l, 14]; } }
   const hurt = clamp(a.hp / 100, .45, 1) * (1 - (a.burn || 0) * .4) * (a.bitten && a.incT < 4 ? .5 : 1);
   const flee = () => { const d = fieldDir(fZ, a.x, a.y, true); const l = Math.hypot(fx, fy) || 1; return [fx / l * 1.5 + (d ? d[0] : 0), fy / l * 1.5 + (d ? d[1] : 0), 17 * hurt]; };
+  if (a.zoneEvac && a.role === "civ") { const r = zoneEvacMove(a, zn, zd); if (r) return r; }
+  if (a.refCol && a.role === "civ") { const r = refugeeMove(a, zn, zd); if (r) return r; }
   if (a.role === "fire" || a.role === "worker" || a.role === "sanitar" || a.role === "builder") { const r = a.unit ? thinkCrew(a, dt, zn, zd) : null; if (r) return r; }
   if (a.role === "bandit") { if (zn && zd < 25 && !(a.mag + a.ammo > 0)) return flee(); const r = thinkBandit(a, dt, zn, zd); if (!(zn && a.mag > 0 && zd < 110)) return r; }
   // в панике — в ближайший дом, пока дверь цела; за лидером — в его укрытие
@@ -304,6 +309,8 @@ function thinkHuman(a, dt) {
     else { const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y); if (d < 5) { enterShelter(a, b); a.hideGoal = null; return [0, 0, 0]; } if (!zn || zd > 10) return goTo(a, b.door[0], b.door[1], 16 * hurt); }
   }
   if (a.vacGoal && !zn) { const t = a.vacGoal; if (a.immune) a.vacGoal = null; else return goTo(a, t.x + rnd(-3, 3), t.y + rnd(-3, 3), 6); }
+  // отозванный штабом отряд идёт к своему грузовику, если зомби не ближе 60 м
+  if (a.unit && a.role === "army" && a.unit.recall && !a.order && !(zn && zd < 60)) { a.done = true; return goTo(a, a.unit.x, a.unit.y, 11); }
   if (a.unit && (a.role === "medic" || a.role === "police") && !a.order) {
     a.quietT = zn ? 0 : (a.quietT || 0) + dt;
     if (a.quietT > 30) a.done = true;
@@ -317,11 +324,11 @@ function thinkHuman(a, dt) {
     if (a.order) { const d = Math.hypot(a.order.x - a.x, a.order.y - a.y); if (zn && zd < 14) return flee(); if (d > 7) return goTo(a, a.order.x, a.order.y, 10); return [0, 0, 0]; }
     if (zn && zd < 18) return flee();
     if (zn && zd < range) return [0, 0, 0];
-    if (a.sweep && a.role === "army") { const r = armyClear(a, dt); if (r) return r; }
+    if (a.sweep && a.role === "army" && (!a.squad || !squadOf(a) || squadOf(a).leader === a.id)) { const r = armyClear(a, dt); if (r) return r; }
     if (a.role === "army" && a.squad) { const r = squadMove(a, dt, zn, zd); if (r) return r; }
     if (a.ammo < a.magMax && depots.length) { const d = nearestDepot(a); if (d) return goTo(a, d.x, d.y, 9); }
     const fv = fieldVal(fZ, a.x, a.y);
-    if (fv < (a.role === "army" ? (a.sweep ? 1e9 : 220) : 70)) { const d = fieldDir(fZ, a.x, a.y, false); if (d) return [d[0], d[1], a.role === "army" ? (a.sweep ? 12 : 10) : 9]; }
+    if (fv < (a.role === "army" ? (a.sweep ? 1e9 : 130) : 70)) { const d = fieldDir(fZ, a.x, a.y, false); if (d) return [d[0], d[1], a.role === "army" ? (a.sweep ? 12 : 10) : 9]; }
     const w = wander(a, dt); return [w[0], w[1], 6 * w[2]];
   }
   if (a.armed && a.mag + a.ammo > 0 && zn && zd > (a.hero === "sniper" ? 25 : fac ? 14 : 40) && zd < range) return [0, 0, 0];
@@ -435,7 +442,7 @@ function step(dt) {
     hasMedics = false;
     for (const a of agents) {
       if (a.role === "medic" && a.state === "alive") hasMedics = true; if (a.state !== "alive") continue; if (a.role === "zombie") Z.push(a); else if (!a.hidden && !a.post) { Hm.push(a); if (a.bitten) I.push(a); } }
-    bfs(fZ, Z); bfs(fH, Hm, 1); if (hasMedics) bfs(fInf, I); if (evac) bfs(fE, [evac]); if (camps.length) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })));
+    bfs(fZ, Z, 0, 140); bfs(fH, Hm, 1, 64); if (hasMedics) bfs(fInf, I); if (evac) bfs(fE, [evac], 0, 280); if (camps.length) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })));
   }
   for (const a of agents) {
     if (a.state === "saved") continue;
@@ -502,12 +509,12 @@ function step(dt) {
   fires = fires.filter(f => f.l > 0);
   if (evac) stepEvac(dt);
   statT -= dt; if (statT <= 0) { statT = 1; record(); }
-  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepResponse(dt); stepAuto(dt); stepSquads(dt);
+  stepShelters(dt); stepRoutine(dt); stepResearch(dt); stepTents(dt); stepWalls(dt); stepGangs(dt); stepExtras(dt); stepBuild(dt); stepWorld2(dt); stepThreats(dt); stepResponse(dt); stepAuto(dt); stepSquads(dt);
   for (const a of agents) if (a.hostile > 0) a.hostile -= dt;
   stepScenario(dt); stepNuke(dt); stepConstruction(dt); stepMachines(dt);
 }
 function boom(x, y, R, big) {
-  interest(x, y, big ? 9 : 5);
+  interest(x, y, big ? 9 : 5); cityNoise(big ? R / 2 : R / 6);
   if (R >= 30) addDanger(x, y, R * 2.2, big ? 240 : 120);
   fxBoom(x, y, R); sfx.boom(x, y, big);
   for (const a of agents) {
@@ -586,10 +593,10 @@ function newCitySim(n) {
   genCity(); buildCrossings();
   agents = []; stats = []; events = []; firsts = {}; noises = []; simT = 0; bites = 0; deaths = 0; zkills = 0; saved = 0; cured = 0;
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
-  research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); wallJobs = []; gangsSpawned = 0; computeDoors();
+  research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); quarMask.fill(0); zoneOf.fill(0); zoneSeq = 0; wallJobs = []; gangsSpawned = 0; computeDoors();
   spawnTraffic(trafficN());
   for (const k in lastLog) delete lastLog[k];
-  resetExtras(); resetBuild(); resetWorld2(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
+  resetExtras(); resetBuild(); resetWorld2(); resetThreats(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
   assignHomes();
   const p0 = pickPatientZero(); pickHeroes(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;

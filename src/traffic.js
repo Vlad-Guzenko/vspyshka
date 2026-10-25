@@ -49,7 +49,7 @@ function chooseNext(c) {
     if (best && bd < 1e11) return best;
   }
   let tot = 0;
-  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed) k *= .02; tot += k; return k; });
+  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
   let r = Math.random() * tot; for (let i = 0; i < opts.length; i++) { r -= w[i]; if (r <= 0) return opts[i]; }
   return opts[0];
 }
@@ -58,12 +58,13 @@ function rankAt(e) { return e.kind === "ring" ? 3 : e.hw >= 22 ? 2 : e.hw >= 15 
 // можно ли въезжать на перекрёсток
 function canEnter(c, l, m) {
   const n = l.to, sig = n.sig && !settings.dark; // без света светофоры гаснут — едут по старшинству
-  if (c.wait > 25) return true;
+  // долго ждёт у «уступи дорогу» — проезжает, но не на красный, не через завал и не туда, где за перекрёстком нет места
+  const force = c.wait > 40;
   if (sig && !c.panic && !(c.service && c.siren)) {
     const st = lightFor(n, l.e);
     if (st === "r" || (st === "y" && c.v < 6)) return false;
   }
-  if (!sig && n.ed.length >= 3) {
+  if (!force && !sig && n.ed.length >= 3) {
     const my = rankAt(l.e);
     for (const e of n.ed) {
       if (e === l.e || rankAt(e) <= my) continue;
@@ -74,9 +75,9 @@ function canEnter(c, l, m) {
     }
   }
   // на перекрёстке уже кто-то едет и наши пути пересекаются — пропускаем
-  if (n.occ.length) { const mine = makeTurn(l, m); for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false; }
+  if (!force && n.occ.length) { const mine = makeTurn(l, m); for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false; }
   // на следующей полосе нет завала
-  for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)); if (cellAt(q.x, q.y) === 8) return false; }
+  for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6) return false; }
   // на следующей полосе есть место
   const s1 = laneStart(m); let room = true;
   const p = lanePos(m, s1 + 6);
@@ -130,6 +131,7 @@ function endTurn(c, extra) {
 function leaveMap(c) {
   if (c.turn) { const i = c.turn.n.occ.indexOf(c); if (i >= 0) c.turn.n.occ.splice(i, 1); }
   if (c.service || c.flee || c.panic) {
+    if (c.service && !c.leaving && typeof releaseJob === "function") releaseJob(c.job);
     c.gone = true; c.moving = false;
     if (!c.service) { fled++; logT("fled", "Машины бегут из города по шоссе", "", 40); }
     return;
@@ -175,7 +177,7 @@ function stepRoadCar(c, dt) {
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
-  if (c.goal && !c.leaving && !c.deployed) {
+  if (c.goal && c.service && !c.leaving && !c.deployed) {
     c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < 200) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
     // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
@@ -183,12 +185,12 @@ function stepRoadCar(c, dt) {
   }
   if (!c.next && sE - c.s < 70 && !l.to.exit) c.next = chooseNext(c);
   const A = scanAhead(c, c.x, c.y, tx, ty, l);
-  let clear = A.clear;
+  let clear = A.clear, cellClear = 1e9;
   // клетки впереди по самой полосе (повторяя изгиб): баррикады, завалы, дома, брошенные машины
   for (let k = 10; k < 40; k += 6) {
     const q = lanePos(l, Math.min(c.s + k, l.e.len)), qx = q.x + q.ty * (c.latOff || 0), qy = q.y - q.tx * (c.latOff || 0), cc = cellAt(qx, qy);
-    if (cc === 5 && !c.over) { clear = Math.min(clear, k - 6); break; }
-    if (cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9) { clear = Math.min(clear, k); break; }
+    if (cc === 5 && !c.over) { clear = Math.min(clear, k - 6); cellClear = k - 6; break; }
+    if (cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9) { clear = Math.min(clear, k); cellClear = k; break; }
   }
   if (c.panic && A.ahead && A.clear < 11 && c.v > 16) { carCollide(c, A.ahead, c.v); return; }
   if (c.panic) clear += 7;
@@ -198,13 +200,33 @@ function stepRoadCar(c, dt) {
   if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.next = null; }
   let slow = c.next && sE - c.s < 30 && (c.next.e === l.e || Math.abs(turnAngle(l, c.next)) > .45) ? 10 : 0;
   if (c.over === 2) { slow = 8; sidewalkScatter(c, tx, ty); }
+  // пост пропуска карантина: перед шлагбаумом машина встаёт на досмотр (службы — коротко, с сиреной — без остановки);
+  // без людей на посту или во время прорыва проверять некому
+  const ckp = l.e.checkCp;
+  if (ckp && !ckp.broken && !(ckp.openT > 0) && ckp.staff > 0 && c.cpChecked !== ckp && !(c.service && c.siren) && ckp.t !== undefined) {
+    const d = laneSOfT(l, ckp.t) - c.s;
+    if (d > -3 && d < 45) {
+      clear = Math.min(clear, Math.max(0, d) + 9);
+      if (d < 10 && c.v < 1.5) { c.checkT = (c.checkT || 0) + dt; if (c.checkT > (c.service ? 1.5 : 6)) { c.cpChecked = ckp; c.checkT = 0; ckp.checked++; cpCheckBus(c, ckp); if (c.refugee) refugeeCarCheck(c, ckp); logT("cpcar", ckp.refugee ? "Пост на въезде: машину беженцев досмотрели" : "Пост пропуска: машину досмотрели и пропустили", "", 30); } }
+    }
+  }
+  // машина беженцев: у цели высаживает людей; у закрытого въезда долго стоит — люди бросают её и идут пешком
+  if (c.refugee && ((c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 60) || (c.wait > 15 && cityK(c.x, c.y) < .5) || c.wait > 40)) { refugeeCarArrive(c); return; }
+  // спецсигнал: гражданская машина, у которой сзади в полосе ближе 60 сирена, прижимается к обочине и почти встаёт;
+  // машина с сиреной, видя уступающих, идёт ближе к осевой и проезжает мимо
+  if (!c.service && !c.panic && !c.over) {
+    let sir = false; nearCars(c.x, c.y, 64, o => { if (!sir && o !== c && o.service && o.siren && o.moving && !o.leaving && !o.deployed && o.lane === l && !o.turn && o.s < c.s && c.s - o.s < 60) sir = true; });
+    if (sir) c.yieldT = 2.5;
+  }
+  if (c.yieldT > 0) { c.yieldT -= dt; c.latTgt = -Math.min(5, l.e.hw - l.off - 1.5); slow = slow ? Math.min(slow, 2) : 2; if (c.yieldT <= 0 && !c.over) c.latTgt = 0; }
+  else if (c.service && c.siren && !c.leaving && !c.over) { let yl = false; nearCars(c.x, c.y, 50, o => { if (!yl && o !== c && o.lane === l && !o.turn && o.s > c.s && o.yieldT > 0) yl = true; }); c.latTgt = yl ? 3.5 : 0; }
   carTarget(c, clear, slow);
   if (A.people && c.wait > 1.5 && Math.random() < dt * .6) sfx.horn(c);
   carHitPeople(c, tx, ty, dt);
   if (!c.moving) return;
   if (c.wait > 3 && A.zNear >= 2 && !c.service) { abandonCar(c, "Водитель бросил машину посреди дороги"); return; }
   if (c.service && !c.leaving && A.zNear >= 1 && (c.service === "police" || c.service === "army")) { deployCrew(c); return; }
-  stepOvertake(c, dt, tx, ty, A.clear, A.ahead);
+  stepOvertake(c, dt, tx, ty, Math.min(A.clear, cellClear), cellClear < A.clear ? null : A.ahead);
   if (c.lane !== l) return; // развернулся
   // движение вдоль полосы
   const ds = c.v * dt;
@@ -245,16 +267,27 @@ function stepTurnPose(c, dt) {
 }
 // сколько машин нужно городу: по суммарной длине полос
 function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.len; return Math.round(L / 700); }
+// городские машины: кузов, длина (в долях седана) и цвета; припаркованным во дворах не достаются фургоны
+const CIV_CARS = [
+  { k: "sedan", w: 30, len: 1 }, { k: "hatch", w: 18, len: .86 }, { k: "lada", w: 14, len: .92, cols: ["#d8cfa8", "#e8e6dc", "#a8322a", "#3f6b4a", "#3a5f8a", "#c9b47a", "#7a2a2a"] },
+  { k: "suv", w: 12, len: 1.03 }, { k: "van", w: 7, len: 1 }, { k: "pickup", w: 6, len: 1.08 }, { k: "taxi", w: 6, len: 1, cols: ["#e8b81a"] },
+  { k: "sport", w: 3, len: 1, cols: ["#c81e1e", "#e8b81a", "#e0601a", "#1e5ac8", "#1d1f22"] }, { k: "boxtruck", w: 4, len: 1.33, cols: ["#e9e9e4", "#2a4a7a", "#a8322a", "#2f5a3a"], noPark: true },
+];
+function pickCarModel(parked) {
+  const pool = parked ? CIV_CARS.filter(m => !m.noPark) : CIV_CARS; let r = Math.random() * pool.reduce((a, m) => a + m.w, 0);
+  for (const m of pool) { r -= m.w; if (r <= 0) return m; } return pool[0];
+}
 function newCar() {
-  return { moving: true, col: pick(CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: 1, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
+  const M = pickCarModel();
+  return { model: M.k, moving: true, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: M.len, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
 }
 function spawnTraffic(n) {
-  const pool = RL.filter(l => laneEnd(l) - laneStart(l) > 30 && !l.e.closed), tot = pool.reduce((a, l) => a + l.e.len, 0);
+  const pool = RL.filter(l => laneEnd(l) - laneStart(l) > 30 && !l.e.closed), wt = l => l.e.len * (l.e.rural ? .25 : 1), tot = pool.reduce((a, l) => a + wt(l), 0);
   for (let i = 0; i < n && pool.length; i++) {
-    let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= l.e.len; if (r <= 0) { lane = l; break; } }
+    let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= wt(l); if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();
-    if (q < .04) { c.tanker = true; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
-    else if (q < .09) { c.bus = true; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
+    if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.6; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
+    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
     const s = rnd(laneStart(lane) + 12, laneEnd(lane) - 12);
     placeOnLane(c, lane, s);
     if (blocked(c.x, c.y) || laneBusy(lane, s, c, 20)) continue;

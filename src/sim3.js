@@ -85,8 +85,17 @@ function insideFoot(b, x, y) {
   return Math.abs(lx) <= b.w / 2 && Math.abs(lz) <= b.d / 2;
 }
 function setRubble(i) { if (grid[i] !== 8) underRubble[i] = grid[i]; grid[i] = 8; }
+// клетки под домом — той же выборкой, что при постройке (полклетки), иначе у повёрнутого дома по краю остаются клетки «стены» без дома
+function footCells(b, fn) {
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, r = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + CS, seen = new Set();
+  for (let y = cy - r; y <= cy + r; y += CS / 2) for (let x = cx - r; x <= cx + r; x += CS / 2) {
+    if (!insideFoot(b, x, y)) continue;
+    const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+    const i = gy * GW + gx; if (!seen.has(i)) { seen.add(i); fn(i); }
+  }
+}
 function collapse(b, demo) {
-  b.state = "collapsing"; b.cT = 0;
+  b.state = "collapsing"; b.cT = 0; b.rubble0 = undefined; b.cT0 = simT; // cT0: когда рухнул — площадку считать вывезенной заново
   // высокий дом после удара сбоку валится в сторону от взрыва; при сносе экскаватором оседает на месте
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
   b.topple = !demo && b.hitX !== undefined && b.h > 36 && b.kind !== "house" && Math.random() < .8;
@@ -106,9 +115,10 @@ function collapse(b, demo) {
     if (a.state !== "alive" || a.x < b.x0 - m || a.x > b.x1 + m || a.y < b.y0 - m || a.y > b.y1 + m) return;
     if (Math.random() < .75) { if (a.role === "zombie") destroyZombie(a, false); else { kill(a, false); a.reanimate = false; } a.crushed = true; }
   });
+  footCells(b, setRubble);
   for (let y = b.y0 - m; y < b.y1 + m; y += CS) for (let x = b.x0 - m; x < b.x1 + m; x += CS) {
-    const inside = insideFoot(b, x, y), c = cellAt(x, y);
-    if (inside || (c !== 3 && c !== 5 && Math.random() < .8 - Math.max(Math.max(b.x0 - x, x - b.x1, 0), Math.max(b.y0 - y, y - b.y1, 0)) / m * .7)) {
+    const c = cellAt(x, y);
+    if (c !== 8 && c !== 3 && c !== 5 && Math.random() < .8 - Math.max(Math.max(b.x0 - x, x - b.x1, 0), Math.max(b.y0 - y, y - b.y1, 0)) / m * .7) {
       const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) setRubble(gy * GW + gx);
     }
   }
@@ -157,6 +167,11 @@ function gutBuilding(b) {
 function stepBuildings(dt) {
   for (const b of buildings) {
     if (b.topple && !b.impacted && b.state === "collapsing" && b.cT > b.fallT) toppleImpact(b);
+    // заправка: загорелась или её задело взрывом — через несколько секунд рвутся колонки и подземные ёмкости
+    if (b.kind === "gas" && !b.blown && b.state === "ok" && (b.fire > 0 || b.hp < b.maxHp * .7)) {
+      b.gasT = (b.gasT || 0) + dt;
+      if (b.gasT > 4) { b.blown = true; const f = b.front, x = f ? f.x - f.nx * 18 : (b.x0 + b.x1) / 2, y = f ? f.y - f.ny * 18 : (b.y0 + b.y1) / 2; boom(x, y, 60, true); fires.push({ x, y, r: 22, l: 60 }); logE("Взорвалась заправка", "bad"); }
+    }
     if (b.fire > 0 && b.state === "ok" && Math.random() < dt * .8) { const s = Math.random() < .5, x = s ? rnd(b.x0, b.x1) : (Math.random() < .5 ? b.x0 - 4 : b.x1 + 4), y = s ? (Math.random() < .5 ? b.y0 - 4 : b.y1 + 4) : rnd(b.y0, b.y1); fires.push({ x, y, r: rnd(5, 9), l: rnd(4, 8) }); } // горящие обломки падают у стен
     if (b.fire > 0) {
       b.fire -= dt;
@@ -172,17 +187,24 @@ function stepBuildings(dt) {
   }
 }
 // взрыв ломает всё вокруг: здания, машины, фонари, деревья
+// каменный дом от взрыва машины или снаряда не падает: копоть на фасаде и иногда пожар; роняют только бомба и метеорит,
+// бензовоз — лишь частный дом вплотную; частные дома ломаются и от малых взрывов
 function blastWorld(x, y, R, big) {
   for (const b of buildings) {
     const dx = Math.max(b.x0 - x, 0, x - b.x1), dy = Math.max(b.y0 - y, 0, y - b.y1), d = Math.hypot(dx, dy);
-    if (d < R) damageBuilding(b, (big ? 280 : R * 2.4) * (1 - d / R) + (big ? 40 : 10), x, y);
+    if (d >= R) continue;
+    const k = 1 - d / R;
+    if (big && R >= 70) damageBuilding(b, 280 * k + 40, x, y);
+    else if (big || b.kind === "house") damageBuilding(b, (big ? 110 : R * 1.2) * k + (big ? 10 : 0), x, y);
+    else if (b.state === "ok") { b.scorch = Math.max(b.scorch, clamp(k * .5)); if (d < 8 && Math.random() < .2) { b.fire = Math.max(b.fire, rnd(20, 40)); first("bfire", "Горит здание", "bad"); } }
   }
   for (const c of cars) {
     if (c.gone || c.z > 0) continue;
     const d = Math.hypot(c.x - x, c.y - y);
     if (d < R * 1.2) {
       const k = 1 - d / (R * 1.2), ang = Math.atan2(c.y - y, c.x - x);
-      if (!c.wreck) c.boomT = rnd(.6, 3);
+      // соседние машины загораются, а взрывается из них лишь каждая пятая (бензовоз — всегда); придавленные завалом не взрываются
+      if (!c.wreck && !c.crushed) { c.burnT = Math.max(c.burnT || 0, 40); if (c.tanker || (d < R * .8 && Math.random() < (big ? .4 : .2))) c.boomT = rnd(.6, 3); }
       c.wreck = true;
       if (c.moving) { c.moving = false; c.stopped = true; c.stopT = simT; }
       clearCarCells(c);
@@ -227,7 +249,7 @@ function stepTanks(dt) {
     let mx = 0, my = 0;
     // сначала к точке, куда послали (в обход домов), потом охота на зомби по полю расстояний
     if (t.goal) { const gd = Math.hypot(t.goal.x - t.x, t.goal.y - t.y); if (gd < 40 || (best && bd < 100)) t.goal = null; else { const e = pathField(t, t.goal.x, t.goal.y), dir = e ? boxDir(e, t.x, t.y) : null; mx = dir ? dir[0] : (t.goal.x - t.x) / gd; my = dir ? dir[1] : (t.goal.y - t.y) / gd; } }
-    if (!(mx || my) && (!best || bd > 120)) { const d = fieldDir(fZ, t.x, t.y, false); if (d && fieldVal(fZ, t.x, t.y) < 400) { mx = d[0]; my = d[1]; } }
+    if (!(mx || my) && (!best || bd > 120)) { const d = fieldDir(fZ, t.x, t.y, false); if (d && fieldVal(fZ, t.x, t.y) < 140) { mx = d[0]; my = d[1]; } }
     const sp = mx || my ? 13 : 0;
     t.v += (sp - t.v) * Math.min(1, dt * 1.5);
     if (mx || my) { const want = Math.atan2(my, mx); let dd = want - t.ang; dd -= Math.round(dd / TAU) * TAU; t.ang += clamp(dd, -dt * .9, dt * .9); t.turret += clamp(dd, -dt * .9, dt * .9) * 0; }
@@ -254,7 +276,8 @@ function fireShell(t, target) {
   for (let s = 16; s < d; s += 4) { const x = t.x + Math.cos(ang) * s, y = t.y + Math.sin(ang) * s; if (cellAt(x, y) === 3) { hx = x; hy = y; hitB = buildings.find(b => x >= b.x0 - 1 && x <= b.x1 + 1 && y >= b.y0 - 1 && y <= b.y1 + 1); break; } }
   fxCannon(t, hx, hy); sfx.cannon(t);
   noises.push({ x: t.x, y: t.y, t: simT, r: 450 });
-  setTimeout0(.12, () => { boom(hx, hy, 26, false); if (hitB) damageBuilding(hitB, 55, t.x, t.y); });
+  // фугас выбивает кусок стены, но дом валится лишь после многих попаданий
+  setTimeout0(.12, () => { boom(hx, hy, 26, false); if (hitB) damageBuilding(hitB, 25, t.x, t.y); });
   first("tank", "Танк открыл огонь", "good");
 }
 // отложенные события в игровом времени

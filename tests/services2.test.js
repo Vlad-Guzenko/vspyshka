@@ -1,11 +1,11 @@
 // службы второй волны: автобус, приёмный покой, патруль, коммунальщики, снабжение, гнёзда, объезды, гидранты
 // node tests/services2.test.js [планировка]
 const fs = require('fs'), path = require('path');
-const src = ['sim1.js', 'roads.js', 'layout.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8')).join('\n');
+const src = ['sim1.js', 'roads.js', 'layout.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js', 'sim19.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8')).join('\n');
 const stub = `let dn=0;function addDecal(){return dn++}function fxBlood(){}function fxHit(){}function fxShot(){}function fxBoom(){}function fxDebris(){}function fxCollapse(){}function fxToppleImpact(){}function fxCannon(){}function onBanner(t){} function onResult(){} function onRadio(){} const world={hour:13}; function hourLabel(){return ""} function mmss(t){return t} let lastCounts=null; function slowMo(){}
 const sfx=new Proxy({},{get:()=>()=>{}});`;
 const body = `
-settings.fast = true; const _g = genCity; genCity = () => _g(process.argv[2] || 'grid'); newCitySim(400); genCity = _g;
+settings.fast = true; settings.threats = false; const _g = genCity; genCity = () => _g(process.argv[2] || 'grid'); newCitySim(400); genCity = _g;
 for (const a of agents) { a.bitten = false; a.incT = 0; }
 const ev = [], seen = new Set(), mark = (k, t) => { if (!seen.has(k)) { seen.add(k); ev.push((simT | 0) + 's ' + t); } };
 console.log(layoutKey, 'гидрантов', hydrants.length, 'больница', !!hospitalB(), 'участок', !!(special.police && special.police.b));
@@ -19,7 +19,9 @@ let camp = null; for (let k = 0; k < 40 && !camp; k++) { const [fx, fy] = freeNe
 const hb = hospitalB(), wounded = agents.filter(a => a.role === 'civ' && a.state === 'alive' && !a.hidden).slice(0, 3); for (const w of wounded) { w.hp = 30; const [x, y] = freeNear(hb.door[0] + 40, hb.door[1] + 20, 20); w.x = x; w.y = y; }
 alert = 2; alertT = simT;
 const gb = buildings.filter(b => b.kind === 'apt' && b.state === 'ok' && b !== sh && b.floors >= 4)[3]; gutBuilding(gb);
-const rb = buildings.filter(b => b.kind === 'apt' && b.state === 'ok' && b !== sh && b !== gb && b.floors >= 6)[5]; collapse(rb);
+// для объезда нужен дом у самой проезжей части: берём тот, до чьих стен дорога ближе всего
+const roadD = b => { let d = 1e9; for (let y = b.y0 - 24; y < b.y1 + 24; y += CS) for (let x = b.x0 - 24; x < b.x1 + 24; x += CS) { const gi = Math.floor(y / CS) * GW + Math.floor(x / CS); if (roadMask[gi] === 1) d = Math.min(d, Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1))); } return d; };
+const rb = buildings.filter(b => b.kind === 'apt' && b.state === 'ok' && b !== sh && b !== gb && b.floors >= 6).sort((a, b) => roadD(a) - roadD(b))[0]; collapse(rb);
 world.hour = 7; let patrol = null;
 for (let i = 0; i < 20 * 700; i++) {
   step(.05); settings.curfew = true;
@@ -41,8 +43,8 @@ for (let i = 0; i < 20 * 700; i++) {
   const sup = cars.find(c => c.service === 'supply' && !c.gone); if (sup) mark('supply', 'снабжение выехало: ' + sup.job.what);
   for (const c of cars) if (c.service === 'supply' && c.job && c.job.feed && c.leaving && (c.job.feed.food > 50 || (c.job.what === 'gen' && c.job.feed.fuel === c.job.feed.max))) mark('fed', 'снабжение доставлено: ' + c.job.what);
   if (gb.nest) mark('nest', 'в остове завелись зомби');
-  if (RE.some(e => e.closed)) mark('closed', 'улица перекрыта');
-  if (seen.has('closed') && !RE.some(e => e.closed)) mark('open', 'улицы снова открыты');
+  if (RE.some(e => e.closed || e.narrow)) mark('closed', 'улица перекрыта или сужена');
+  if (seen.has('closed') && !RE.some(e => e.closed || e.narrow)) mark('open', 'улицы снова открыты');
   if (cars.some(c => c.service === 'fire' && c.hydrant)) mark('hydrant', 'пожарные у гидранта');
 }
 for (const e of ev) console.log(e);

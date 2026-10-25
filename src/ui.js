@@ -362,7 +362,7 @@ function updateUI() {
   for (const [id, v] of [["nH", c.H], ["nI", c.I], ["nZ", c.Z], ["nD", c.D], ["nS", c.S], ["nF", c.F]]) $(id).textContent = v;
   $("vacBar").style.width = Math.floor(research * 100) + "%"; $("vacO").textContent = vaccineReady ? "готова" : Math.floor(research * 100) + "%";
   const hungry = hungryCount();
-  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${alert ? " · ЧС " + alert + " " + ALERT_N[alert] : ""}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
+  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
   renderHeroes(); squadHud(); renderFactions();
   if (logDirty) { logDirty = false; $("log").innerHTML = events.slice(0, 40).map(e => `<li class="${e.cls || ""}"><time>${mmss(e.t)}</time>${e.text}</li>`).join(""); updateNews(); }
   drawChart();
@@ -400,6 +400,7 @@ $("hour").addEventListener("input", e => { world.target = +e.target.value; world
 $("cycle").addEventListener("change", e => { world.cycle = e.target.checked; });
 $("weather").addEventListener("change", e => { world.weather = e.target.value; });
 $("services").addEventListener("change", e => { settings.services = e.target.checked; });
+$("threats").addEventListener("change", e => { settings.threats = e.target.checked; });
 $("marks").addEventListener("change", e => { showMarks = e.target.checked; });
 $("shadows").addEventListener("change", e => { sun.castShadow = e.target.checked; });
 const zeroBtn = document.createElement("button"); zeroBtn.className = "btn"; zeroBtn.textContent = "К нулевому пациенту"; zeroBtn.title = "Клавиша F";
@@ -416,7 +417,16 @@ function resize() {
 window.addEventListener("resize", resize);
 if (window.ResizeObserver) new ResizeObserver(resize).observe($("stage"));
 let last = performance.now(), uiT = 0;
+const frameErrs = new Set();
+// следующий кадр запрашивается до работы: ошибка в одном месте не должна останавливать всю игру
 function frame(now) {
+  requestAnimationFrame(frame);
+  try { frameBody(now); } catch (e) {
+    const key = (e && e.message) || String(e);
+    if (!frameErrs.has(key)) { frameErrs.add(key); console.error(e); logE("Внутренняя ошибка (игра продолжается): " + key, "bad"); }
+  }
+}
+function frameBody(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
 
   let simDt = 0;
@@ -427,14 +437,13 @@ function frame(now) {
   const t1 = performance.now();
   const fxDt = paused ? 0 : Math.min(dt * speed * slowK, dt * 2);
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
-  updateCity(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
+  updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);
   uiT -= dt; if (uiT <= 0) { uiT = .25; updateUI(); }
-  requestAnimationFrame(frame);
 }
 setupPost(); upgradeFacades(); initRealPeople(); renderTools(); setMuted(muted); setMusic(musicOn); resize(); newCity(); applyPrefs(); openWizard();
 $("loading").hidden = true;
