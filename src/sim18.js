@@ -1,6 +1,6 @@
 /* ---------- службы второй волны: автобусы эвакуации, приёмный покой, патрули, коммунальщики, снабжение, объезды, гидранты, гнёзда ---------- */
 Object.assign(SERVICE, {
-  bus: { col: "#e0a020", len: 2.1, crew: null, n: 0, siren: null, name: "Автобус" },
+  bus: { col: "#e0a020", len: 2.3, vlen: 2.45, crew: null, n: 0, siren: null, name: "Автобус" },
   garbage: { col: "#3f7a3a", len: 1.5, crew: null, n: 0, siren: null, name: "Мусоровоз" },
   sweeper: { col: "#e08a20", len: 1.1, crew: null, n: 0, siren: null, name: "Поливалка" },
   delivery: { col: "#f0f0ea", len: 1.25, crew: null, n: 0, siren: null, name: "Доставка" },

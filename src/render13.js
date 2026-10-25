@@ -30,23 +30,33 @@ const bumpers = (L, y, w, h = 1.1) => [_cbox(.7, h, w, L / 2, y, 0), _cbox(.7, h
 const truckCab = () => [_cbox(6.4, 3.4, 7.6, 8.8, 3.9, 0), _cbox(5, 2.6, 7.4, 8.3, 6.9, 0)];
 const truckGlass = () => [_cbox(.3, 1.8, 6.6, 10.82, 7, 0), _cbox(2.6, 1.4, 7.5, 8.6, 7.1, 0)];
 const truckTrim = L => [_cbox(L, 1.2, 5, 0, 3, 0), _cbox(.9, 1.4, 7.8, L / 2, 2.8, 0), _cbox(.9, 1.2, 6, -L / 2, 2.8, 0)];
+// кузов по профилю: силуэт сбоку (капот со скатом, багажник, бамперы), выдавленный на ширину со скруглёнными рёбрами
+function profGeo(pts, w, r = .35) {
+  const s = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+  const d = Math.max(.1, w - 2 * r);
+  return new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 2, curveSegments: 4 }).translate(0, 0, -d / 2);
+}
+// седан: низкий нос, капот к лобовому стеклу, короткий багажник; точки — с запасом на фаску
+const sedanBody = () => profGeo([[-8.65, 1.75], [8.65, 1.75], [8.65, 3.0], [8.25, 3.35], [3.5, 3.7], [-6.2, 3.65], [-8.45, 3.35], [-8.65, 2.9]], 7.2);
+const hatchBody = () => profGeo([[-7.4, 1.75], [7.4, 1.75], [7.4, 3.0], [7.0, 3.35], [3.0, 3.7], [-7.05, 3.75], [-7.4, 3.3]], 7);
+const sportBody = () => profGeo([[-8.65, 1.45], [8.65, 1.45], [8.65, 2.1], [8.0, 2.45], [2.8, 3.05], [-6.0, 3.15], [-8.35, 3.0], [-8.65, 2.5]], 7.6);
 const CAR_MODELS = {
   sedan: { L: 18, wheels: [5.6, -5.6], r: 1.45, track: 3.45, ly: 3.2, roof: 6.9,
-    paint: () => [_cbox(18, 2.4, 7.2, 0, 2.7, 0), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
+    paint: () => [sedanBody(), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
     glass: () => [cabinGeo(10.5, 6.8, 2.6, 6.3, -1, 3.9, -.6)],
     trim: () => [...bumpers(18, 2, 7.3), _cbox(.25, .9, 4.6, 9.05, 3.2, 0)] },
   police: { L: 18, wheels: [5.6, -5.6], r: 1.45, track: 3.45, ly: 3.2, roof: 6.9, lightCol: "#1f3c78",
-    paint: () => [_cbox(18, 2.4, 7.2, 0, 2.7, 0), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
+    paint: () => [sedanBody(), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
     glass: () => [cabinGeo(10.5, 6.8, 2.6, 6.3, -1, 3.9, -.6)],
     trim: () => [...bumpers(18, 2, 7.3)],
     light: () => [_cbox(16, .7, 7.26, -.5, 3.1, 0)] },
   taxi: { L: 18, wheels: [5.6, -5.6], r: 1.45, track: 3.45, ly: 3.2, roof: 7.9, lightCol: "#f4f1e4",
-    paint: () => [_cbox(18, 2.4, 7.2, 0, 2.7, 0), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
+    paint: () => [sedanBody(), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
     glass: () => [cabinGeo(10.5, 6.8, 2.6, 6.3, -1, 3.9, -.6)],
     trim: () => [...bumpers(18, 2, 7.3), _cbox(14, .45, 7.26, -.5, 3.4, 0)],
     light: () => [_cbox(1.6, 1, 3.4, -1.6, 7.2, 0)] },
   hatch: { L: 15.5, wheels: [4.8, -4.8], r: 1.35, track: 3.35, ly: 3.2, roof: 6.9,
-    paint: () => [_cbox(15.5, 2.4, 7, 0, 2.7, 0), _cbox(6.4, .35, 6, -2.4, 6.55, 0)],
+    paint: () => [hatchBody(), _cbox(6.4, .35, 6, -2.4, 6.55, 0)],
     glass: () => [cabinGeo(10, 7.2, 2.6, 6.1, -2, 3.9, -.9)],
     trim: () => [...bumpers(15.5, 2, 7.1)] },
   lada: { L: 16.5, wheels: [5.2, -5.2], r: 1.35, track: 3.2, ly: 3.3, roof: 7.1, lightCol: "#c9c8c2",
@@ -63,7 +73,7 @@ const CAR_MODELS = {
     glass: () => [cabinGeo(7.2, 5.6, 2.9, 6.6, 2.6, 4.5, -.3)],
     trim: () => [...bumpers(19.5, 2.4, 7.5, 1.3), _cbox(8.2, .2, 6.6, -5.4, 4.55, 0)] },
   sport: { L: 18, wheels: [5.8, -5.4], r: 1.4, track: 3.6, ly: 2.5, roof: 5.6,
-    paint: () => [_cbox(18, 2, 7.6, 0, 2.1, 0), _cbox(4.4, .3, 6, -2.2, 5.15, 0), _cbox(1.2, .25, 7, -8.4, 4, 0)],
+    paint: () => [sportBody(), _cbox(4.4, .3, 6, -2.2, 5.15, 0), _cbox(1.2, .25, 7, -8.4, 4, 0)],
     glass: () => [cabinGeo(8.8, 4.6, 2, 6.4, -1.8, 3.1, -.5)],
     trim: () => [...bumpers(18, 1.6, 7.6, .8), _cbox(.3, .8, .3, -8.4, 3.5, 2.5), _cbox(.3, .8, .3, -8.4, 3.5, -2.5)] },
   van: { L: 18, wheels: [5.8, -5.6], r: 1.45, track: 3.5, ly: 3.4, roof: 9.1,
@@ -176,7 +186,7 @@ const MODEL_FIT = { truck: [1.3, 1.28, 2.1], garbage: [1.3, 1.28, 2.1], boxtruck
 for (const k in MODEL_FIT) { const M = CAR_MODELS[k], [sy, sz, r] = MODEL_FIT[k]; M.fit = [sy, sz]; M.track *= sz; M.ly *= sy; M.roof *= sy; M.r = r; }
 
 const CAR_PARTS = ["paint", "glass", "trim", "light"];
-const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .08, metalness: .7 }),
+const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .06, metalness: .8, envMapIntensity: 1.5 }), // стекло отражает небо и улицу, а не глухо-чёрное
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
 const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
 for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
@@ -220,7 +230,7 @@ function updateCars() {
   for (const k in cm.byModel) cm.byModel[k].n = 0;
   let wi = 0, li = 0, bi = 0, bar = 0;
   for (const c of list) {
-    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.len || 1) * 18 / M.L, dead = c.wreck && c.boomT <= 0;
+    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.vlen || c.len || 1) * 18 / M.L, dead = c.wreck && c.boomT <= 0;
     _ce.set(c.roll || 0, -c.ang, 0, "YXZ"); _cq.setFromEuler(_ce);
     _cs.set(sx, c.crushed ? .35 : 1, 1);
     if (c.rx === undefined || Math.hypot(c.rx - c.x, c.ry - c.y) > 40) { c.rx = c.x; c.ry = c.y; } const rk = c.turnT > 0 ? .12 : .25; c.rx += (c.x - c.rx) * rk; c.ry += (c.y - c.ry) * rk;
@@ -228,7 +238,7 @@ function updateCars() {
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#1a2028") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим

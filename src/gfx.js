@@ -24,12 +24,12 @@ const GRADE = {
       gl_FragColor = vec4(c, 1.);
     }`,
 };
-let composer = null, bloomPass = null, ssaoPass = null, gradePass = null;
+let composer = null, bloomPass = null, ssaoPass = null, gradePass = null, scenePass = null;
 function setupPost() {
   if (!THREE.EffectComposer || !THREE.UnrealBloomPass) return;
   const sz = R3.getSize(new THREE.Vector2());
   composer = new THREE.EffectComposer(R3);
-  composer.addPass(new THREE.RenderPass(scene, camera));
+  scenePass = new THREE.RenderPass(scene, camera); composer.addPass(scenePass);
   if (THREE.SSAOPass) { ssaoPass = new THREE.SSAOPass(scene, camera, sz.x, sz.y); ssaoPass.kernelRadius = 10; ssaoPass.minDistance = .0015; ssaoPass.maxDistance = .05; ssaoPass.enabled = false; composer.addPass(ssaoPass); }
   bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(sz.x / 2, sz.y / 2), .55, .55, .92); composer.addPass(bloomPass); // свечение в половинном разрешении
   gradePass = new THREE.ShaderPass(GRADE); composer.addPass(gradePass);
@@ -43,8 +43,21 @@ function renderFrame(dt) {
     g.sat.value = fps.on && fps.mode === "zombie" ? .55 : .9 - world.rain * .18 - world.fogK * .15;
     bloomPass.strength = .45 + nightK * .55;
     // затенение в углах только на высоком качестве и только вблизи — иначе дорого
-    // затенение в углах (SSAOPass) выключено: на нашей дальности камеры оно считает всё затенённым и даёт чёрный кадр
-    if (ssaoPass) ssaoPass.enabled = false;
+    // затенение в углах: проход берёт плоскости и проекцию камеры только при создании, а у нас дальность и пропорции
+    // меняются — обновляем каждый кадр; пороги глубины нормированы на дальность камеры, задаём их в единицах мира
+    if (ssaoPass) {
+      ssaoPass.enabled = prefs.quality !== "low" && camC.dist < (prefs.quality === "high" ? 800 : 480) && !(fps && fps.on);
+      if (ssaoPass.enabled) {
+        const u = ssaoPass.ssaoMaterial.uniforms, d = ssaoPass.depthRenderMaterial && ssaoPass.depthRenderMaterial.uniforms;
+        u.cameraNear.value = camera.near; u.cameraFar.value = camera.far;
+        u.cameraProjectionMatrix.value.copy(camera.projectionMatrix); u.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);
+        if (d) { d.cameraNear.value = camera.near; d.cameraFar.value = camera.far; }
+        const span = camera.far - camera.near;
+        ssaoPass.kernelRadius = 6; ssaoPass.minDistance = .5 / span; ssaoPass.maxDistance = 36 / span;
+      }
+      // SSAO сам рисует сцену заново — обычный проход в этот кадр не нужен
+      if (scenePass) scenePass.enabled = !ssaoPass.enabled;
+    }
     composer.render(dt);
   } else R3.render(scene, camera);
 }
@@ -162,17 +175,17 @@ var leafNormal = leafNormalTex(); leafNormal.wrapS = leafNormal.wrapT = THREE.Re
    кроны — свет ложится как на шар, а силуэт рваный, из листьев */
 var leafAtlas = canvasTex(256, 256, (g, w, h) => {
   g.clearRect(0, 0, w, h);
-  for (let i = 0; i < 2600; i++) {
-    const x = rnd(4, 188), y = rnd(4, 252), s = rnd(3, 7.5), a = rnd(0, TAU), hue = rnd(70, 105), l = rnd(52, 80);
+  for (let i = 0; i < 3400; i++) {
+    const x = rnd(4, 188), y = rnd(4, 252), s = rnd(2.6, 6), a = rnd(0, TAU), hue = rnd(70, 105), l = rnd(36, 66);
     g.save(); g.translate(x, y); g.rotate(a);
     g.fillStyle = `hsl(${hue},${rnd(14, 32)}%,${l}%)`; g.beginPath(); g.ellipse(0, 0, s, s * .48, 0, 0, TAU); g.fill();
     g.strokeStyle = `hsla(${hue},25%,${l - 22}%,.5)`; g.lineWidth = .6; g.beginPath(); g.moveTo(-s, 0); g.lineTo(s, 0); g.stroke();
     g.restore();
   }
-  g.fillStyle = "hsl(88,22%,52%)"; g.fillRect(200, 0, 56, 256);
+  g.fillStyle = "hsl(88,22%,40%)"; g.fillRect(200, 0, 56, 256);
 });
 leafAtlas.wrapS = leafAtlas.wrapT = THREE.ClampToEdgeWrapping;
-function leafCrownGeo(nCards = 26) {
+function leafCrownGeo(nCards = 38) {
   const P = [], N = [], U = [], C = [], v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
   const push = (p, n, u, k) => { P.push(p.x, p.y, p.z); N.push(n.x, n.y, n.z); U.push(u[0], u[1]); C.push(k, k, k); };
   for (let i = 0; i < nCards; i++) {
@@ -180,7 +193,7 @@ function leafCrownGeo(nCards = 26) {
     c.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(.78 * (.5 + .5 * Math.sqrt(Math.random())));
     const nrm = new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().lerp(c.clone().normalize(), .5).normalize();
     a.set(1, 0, 0); if (Math.abs(nrm.x) > .9) a.set(0, 1, 0); a.cross(nrm).normalize(); b.copy(nrm).cross(a).normalize();
-    const s = rnd(.42, .62), u0 = rnd(0, .52), v0 = rnd(0, .72), du = .22, dv = .25;
+    const s = rnd(.3, .48), u0 = rnd(0, .58), v0 = rnd(0, .78), du = .17, dv = .19;
     const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => c.clone().addScaledVector(a, x * s).addScaledVector(b, y * s));
     const uvs = [[u0, v0], [u0 + du, v0], [u0 + du, v0 + dv], [u0, v0 + dv]];
     const shade = .5 + .5 * (c.length() / .78) * (.8 + .2 * (c.y / .78 + 1) / 2);
@@ -216,6 +229,9 @@ ground.material.onBeforeCompile = sh => {
       vec3 bc = diffuseColor.rgb; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
       float asph = (1. - smoothstep(.06, .11, mx)) * (1. - smoothstep(.012, .03, mx - mn));
       float near = 1. - smoothstep(120., 420., length(vViewPosition));
+      // газон вблизи: мелкая пятнистость, чтобы не распадался на квадраты текстуры
+      float grassM = smoothstep(.0, .03, bc.g - max(bc.r, bc.b) * 1.05);
+      if (grassM * near > .01) { vec2 gp = vUv * worldSize; diffuseColor.rgb *= mix(1., .78 + .4 * wn(gp * 1.3) * wn(gp * .37 + 3.1) + .12 * wn(gp * 4.1), grassM * near); }
       if (asph * near > .01) {
         vec2 wp = vUv * worldSize;
         vec2 q = wp * .16 + vec2(wn(wp * .05), wn(wp * .05 + 7.3)) * 3.;

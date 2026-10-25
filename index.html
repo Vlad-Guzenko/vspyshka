@@ -2076,7 +2076,7 @@ function stepRoadCar(c, dt) {
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && !c.leaving && !c.deployed) {
-    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < 200) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
+    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
     // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
     if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }
@@ -2197,7 +2197,7 @@ function spawnTraffic(n) {
     let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= wt(l); if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();
     if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.7; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
-    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
+    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.3; c.vlen = 2.45; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
     const s = rnd(laneStart(lane) + 12, laneEnd(lane) - 12);
     placeOnLane(c, lane, s);
     if (blocked(c.x, c.y) || laneBusy(lane, s, c, 20)) continue;
@@ -3371,7 +3371,7 @@ function spawnService(type, gx, gy, from) {
   if (from == null && type === "army" && special.base && special.base.b && special.base.b.state === "ok") from = special.base;
   let p = from ? nearestLanePoint(from.x, from.y) : null;
   if (!p) p = edgeLanePoint(gx, gy);
-  const c = { ...newCar(), model: SERVICE_MODEL[type] || "van", service: type, col: S.col, len: S.len, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
+  const c = { ...newCar(), model: SERVICE_MODEL[type] || "van", service: type, col: S.col, len: S.len, vlen: S.vlen, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
   styleService(c, type);
   placeOnLane(c, p.l, p.s);
   // разворачиваемся, если по встречной полосе к цели ближе
@@ -3385,7 +3385,7 @@ function spawnService(type, gx, gy, from) {
   return c;
 }
 function deployCrew(c) {
-  if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT;
+  if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
   const S = SERVICE[c.service], sid = S.crew === "army" && !c.posts ? ++squadSeq : 0;
   for (let i = 0; i < (c.crewN || S.n); i++) {
     const [x, y] = freeNear(c.x, c.y, 14);
@@ -3452,6 +3452,8 @@ function stepServiceCar(c, dt) {
     if (alive.every(a => a.done && Math.hypot(a.x - c.x, a.y - c.y) < 10) || (c.allDoneT && simT - c.allDoneT > 60)) { for (const a of alive) a.state = "saved"; releaseUnit(c); }
     return;
   }
+  // не может подъехать к цели (кружит, цель далеко от дорог): за пять минут пути — встаёт где есть; время на поворотах тоже идёт
+  if (!c.leaving && c.goal && !c.patrol) { c.tripT = (c.tripT || 0) + dt; if (c.tripT > 300) { c.tripT = 0; deployCrew(c); return; } } else c.tripT = 0;
   if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.homeGoal && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 40) { if (c.passengers && c.passengers.length) hospitalIntake(c); c.gone = true; return; } if (c.leaveT > (c.homeGoal ? 180 : 60) || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
   // на месте: у цели; в пробке — только если цель уже близко, иначе ищем другой путь
   if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.service === "dump" ? c.wait > 8 && d < 60 : c.wait > 25 && d < 260)) deployCrew(c); else if (c.wait > 40 && c.lane && c.service !== "dump") { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }
@@ -5820,7 +5822,7 @@ function resetSquads() { squads = new Map(); squadSeq = 0; squadT = 5; }
 
 /* ---------- службы второй волны: автобусы эвакуации, приёмный покой, патрули, коммунальщики, снабжение, объезды, гидранты, гнёзда ---------- */
 Object.assign(SERVICE, {
-  bus: { col: "#e0a020", len: 2.1, crew: null, n: 0, siren: null, name: "Автобус" },
+  bus: { col: "#e0a020", len: 2.3, vlen: 2.45, crew: null, n: 0, siren: null, name: "Автобус" },
   garbage: { col: "#3f7a3a", len: 1.5, crew: null, n: 0, siren: null, name: "Мусоровоз" },
   sweeper: { col: "#e08a20", len: 1.1, crew: null, n: 0, siren: null, name: "Поливалка" },
   delivery: { col: "#f0f0ea", len: 1.25, crew: null, n: 0, siren: null, name: "Доставка" },
@@ -7751,7 +7753,8 @@ function updateLighting(dt, simDt) {
   sunDir.copy(_sd);
   sun.intensity = (2.5 * day * (1 - gloom * .7) + .28 * nightK) * (1 - world.fogK * .3);
   sun.color.setHex(0xfff2dc).lerp(_lc1.setHex(0xff9a50), dusk * .8).lerp(_lc2.setHex(0x8fa8ff), nightK);
-  hemi.intensity = (.14 + .5 * day * (1 - gloom * .3) + gloom * .1) * (scene.environment ? .55 : 1);
+  // рассеянный свет неба: отражённое небо приглушено к серому, поэтому тени подсвечиваем чуть сильнее, иначе асфальт в тени чёрный
+  hemi.intensity = (.14 + .5 * day * (1 - gloom * .3) + gloom * .1) * (scene.environment ? .8 : 1);
   hemi.color.setHex(0xe4eaf2).lerp(_lc1.setHex(0x3a4a70), nightK);
   R3.toneMappingExposure = 1 - nightK * .05 + world.flash * 2;
   const sp = camera.position;
@@ -7769,7 +7772,7 @@ function updateLighting(dt, simDt) {
   if (settings.dark) { hemi.intensity *= .6; sun.intensity *= .8; }
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);
   // молнии в грозу
-  world.flash = Math.max(0, world.flash - dt * 4);
+  world.flash = clamp(world.flash - Math.max(0, dt) * 4, 0, 1.5);
   if (world.weather === "storm") { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = rnd(5, 16); world.flash = .9; sfx.thunder(); } }
   // капли
   rain.visible = world.rain > .02;
@@ -8796,23 +8799,33 @@ const bumpers = (L, y, w, h = 1.1) => [_cbox(.7, h, w, L / 2, y, 0), _cbox(.7, h
 const truckCab = () => [_cbox(6.4, 3.4, 7.6, 8.8, 3.9, 0), _cbox(5, 2.6, 7.4, 8.3, 6.9, 0)];
 const truckGlass = () => [_cbox(.3, 1.8, 6.6, 10.82, 7, 0), _cbox(2.6, 1.4, 7.5, 8.6, 7.1, 0)];
 const truckTrim = L => [_cbox(L, 1.2, 5, 0, 3, 0), _cbox(.9, 1.4, 7.8, L / 2, 2.8, 0), _cbox(.9, 1.2, 6, -L / 2, 2.8, 0)];
+// кузов по профилю: силуэт сбоку (капот со скатом, багажник, бамперы), выдавленный на ширину со скруглёнными рёбрами
+function profGeo(pts, w, r = .35) {
+  const s = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+  const d = Math.max(.1, w - 2 * r);
+  return new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 2, curveSegments: 4 }).translate(0, 0, -d / 2);
+}
+// седан: низкий нос, капот к лобовому стеклу, короткий багажник; точки — с запасом на фаску
+const sedanBody = () => profGeo([[-8.65, 1.75], [8.65, 1.75], [8.65, 3.0], [8.25, 3.35], [3.5, 3.7], [-6.2, 3.65], [-8.45, 3.35], [-8.65, 2.9]], 7.2);
+const hatchBody = () => profGeo([[-7.4, 1.75], [7.4, 1.75], [7.4, 3.0], [7.0, 3.35], [3.0, 3.7], [-7.05, 3.75], [-7.4, 3.3]], 7);
+const sportBody = () => profGeo([[-8.65, 1.45], [8.65, 1.45], [8.65, 2.1], [8.0, 2.45], [2.8, 3.05], [-6.0, 3.15], [-8.35, 3.0], [-8.65, 2.5]], 7.6);
 const CAR_MODELS = {
   sedan: { L: 18, wheels: [5.6, -5.6], r: 1.45, track: 3.45, ly: 3.2, roof: 6.9,
-    paint: () => [_cbox(18, 2.4, 7.2, 0, 2.7, 0), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
+    paint: () => [sedanBody(), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
     glass: () => [cabinGeo(10.5, 6.8, 2.6, 6.3, -1, 3.9, -.6)],
     trim: () => [...bumpers(18, 2, 7.3), _cbox(.25, .9, 4.6, 9.05, 3.2, 0)] },
   police: { L: 18, wheels: [5.6, -5.6], r: 1.45, track: 3.45, ly: 3.2, roof: 6.9, lightCol: "#1f3c78",
-    paint: () => [_cbox(18, 2.4, 7.2, 0, 2.7, 0), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
+    paint: () => [sedanBody(), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
     glass: () => [cabinGeo(10.5, 6.8, 2.6, 6.3, -1, 3.9, -.6)],
     trim: () => [...bumpers(18, 2, 7.3)],
     light: () => [_cbox(16, .7, 7.26, -.5, 3.1, 0)] },
   taxi: { L: 18, wheels: [5.6, -5.6], r: 1.45, track: 3.45, ly: 3.2, roof: 7.9, lightCol: "#f4f1e4",
-    paint: () => [_cbox(18, 2.4, 7.2, 0, 2.7, 0), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
+    paint: () => [sedanBody(), _cbox(6.6, .35, 6.2, -1.6, 6.55, 0)],
     glass: () => [cabinGeo(10.5, 6.8, 2.6, 6.3, -1, 3.9, -.6)],
     trim: () => [...bumpers(18, 2, 7.3), _cbox(14, .45, 7.26, -.5, 3.4, 0)],
     light: () => [_cbox(1.6, 1, 3.4, -1.6, 7.2, 0)] },
   hatch: { L: 15.5, wheels: [4.8, -4.8], r: 1.35, track: 3.35, ly: 3.2, roof: 6.9,
-    paint: () => [_cbox(15.5, 2.4, 7, 0, 2.7, 0), _cbox(6.4, .35, 6, -2.4, 6.55, 0)],
+    paint: () => [hatchBody(), _cbox(6.4, .35, 6, -2.4, 6.55, 0)],
     glass: () => [cabinGeo(10, 7.2, 2.6, 6.1, -2, 3.9, -.9)],
     trim: () => [...bumpers(15.5, 2, 7.1)] },
   lada: { L: 16.5, wheels: [5.2, -5.2], r: 1.35, track: 3.2, ly: 3.3, roof: 7.1, lightCol: "#c9c8c2",
@@ -8829,7 +8842,7 @@ const CAR_MODELS = {
     glass: () => [cabinGeo(7.2, 5.6, 2.9, 6.6, 2.6, 4.5, -.3)],
     trim: () => [...bumpers(19.5, 2.4, 7.5, 1.3), _cbox(8.2, .2, 6.6, -5.4, 4.55, 0)] },
   sport: { L: 18, wheels: [5.8, -5.4], r: 1.4, track: 3.6, ly: 2.5, roof: 5.6,
-    paint: () => [_cbox(18, 2, 7.6, 0, 2.1, 0), _cbox(4.4, .3, 6, -2.2, 5.15, 0), _cbox(1.2, .25, 7, -8.4, 4, 0)],
+    paint: () => [sportBody(), _cbox(4.4, .3, 6, -2.2, 5.15, 0), _cbox(1.2, .25, 7, -8.4, 4, 0)],
     glass: () => [cabinGeo(8.8, 4.6, 2, 6.4, -1.8, 3.1, -.5)],
     trim: () => [...bumpers(18, 1.6, 7.6, .8), _cbox(.3, .8, .3, -8.4, 3.5, 2.5), _cbox(.3, .8, .3, -8.4, 3.5, -2.5)] },
   van: { L: 18, wheels: [5.8, -5.6], r: 1.45, track: 3.5, ly: 3.4, roof: 9.1,
@@ -8942,7 +8955,7 @@ const MODEL_FIT = { truck: [1.3, 1.28, 2.1], garbage: [1.3, 1.28, 2.1], boxtruck
 for (const k in MODEL_FIT) { const M = CAR_MODELS[k], [sy, sz, r] = MODEL_FIT[k]; M.fit = [sy, sz]; M.track *= sz; M.ly *= sy; M.roof *= sy; M.r = r; }
 
 const CAR_PARTS = ["paint", "glass", "trim", "light"];
-const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .08, metalness: .7 }),
+const carPaintMat = new THREE.MeshStandardMaterial({ roughness: .3, metalness: .5 }), carGlassMat = new THREE.MeshStandardMaterial({ roughness: .06, metalness: .8, envMapIntensity: 1.5 }), // стекло отражает небо и улицу, а не глухо-чёрное
   carTrimMat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .2 }), carLightMat = new THREE.MeshStandardMaterial({ roughness: .55, metalness: .2 });
 const CAR_MATS = { paint: carPaintMat, glass: carGlassMat, trim: carTrimMat, light: carLightMat };
 for (const k in CAR_MODELS) { const M = CAR_MODELS[k]; M.geo = {}; for (const p of CAR_PARTS) if (M[p]) { M.geo[p] = mergeGeo(M[p]()); if (M.fit) M.geo[p].scale(1, M.fit[0], M.fit[1]); } }
@@ -8986,7 +8999,7 @@ function updateCars() {
   for (const k in cm.byModel) cm.byModel[k].n = 0;
   let wi = 0, li = 0, bi = 0, bar = 0;
   for (const c of list) {
-    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.len || 1) * 18 / M.L, dead = c.wreck && c.boomT <= 0;
+    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.vlen || c.len || 1) * 18 / M.L, dead = c.wreck && c.boomT <= 0;
     _ce.set(c.roll || 0, -c.ang, 0, "YXZ"); _cq.setFromEuler(_ce);
     _cs.set(sx, c.crushed ? .35 : 1, 1);
     if (c.rx === undefined || Math.hypot(c.rx - c.x, c.ry - c.y) > 40) { c.rx = c.x; c.ry = c.y; } const rk = c.turnT > 0 ? .12 : .25; c.rx += (c.x - c.rx) * rk; c.ry += (c.y - c.ry) * rk;
@@ -8994,7 +9007,7 @@ function updateCars() {
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#1a2028") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим
@@ -9064,7 +9077,8 @@ function facadeDetails(b, obj, w, d) {
           const y = by + f * fh + 1.2, glazed = Math.random() < glazeK;
           const box = (ox, oy, oz, sx, sy, sz, c) => { const [qx, qz] = at(lx + ox, s * (d / 2 + oz)); instBoxes.push([qx, y + oy, qz, sx, sy, sz, c, b, -rr]); };
           box(0, 0, 1.2, 10.5, .45, 2.4, 0x9a978f);
-          if (glazed) box(0, 1.75, 1.2, 10.5, 3.1, 2.3, pick(BALC_GLAZE));
+          // застеклённый балкон: глухой парапет внизу, тёмное стекло, рама сверху
+          if (glazed) { const fr = pick(BALC_GLAZE); box(0, .8, 1.2, 10.5, 1.2, 2.3, fr); box(0, 2.45, 1.15, 10.2, 2.1, 2.2, pick([0x4f5b63, 0x5a6670, 0x46525a, 0x606a6e])); box(0, 3.55, 1.2, 10.5, .22, 2.35, fr); }
           else { box(0, .9, 2.3, 10.5, 1.4, .25, rail); box(-5.1, .9, 1.2, .25, 1.4, 2.4, rail); box(5.1, .9, 1.2, .25, 1.4, 2.4, rail); }
         }
       });
@@ -9450,12 +9464,12 @@ const GRADE = {
       gl_FragColor = vec4(c, 1.);
     }`,
 };
-let composer = null, bloomPass = null, ssaoPass = null, gradePass = null;
+let composer = null, bloomPass = null, ssaoPass = null, gradePass = null, scenePass = null;
 function setupPost() {
   if (!THREE.EffectComposer || !THREE.UnrealBloomPass) return;
   const sz = R3.getSize(new THREE.Vector2());
   composer = new THREE.EffectComposer(R3);
-  composer.addPass(new THREE.RenderPass(scene, camera));
+  scenePass = new THREE.RenderPass(scene, camera); composer.addPass(scenePass);
   if (THREE.SSAOPass) { ssaoPass = new THREE.SSAOPass(scene, camera, sz.x, sz.y); ssaoPass.kernelRadius = 10; ssaoPass.minDistance = .0015; ssaoPass.maxDistance = .05; ssaoPass.enabled = false; composer.addPass(ssaoPass); }
   bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(sz.x / 2, sz.y / 2), .55, .55, .92); composer.addPass(bloomPass); // свечение в половинном разрешении
   gradePass = new THREE.ShaderPass(GRADE); composer.addPass(gradePass);
@@ -9469,8 +9483,21 @@ function renderFrame(dt) {
     g.sat.value = fps.on && fps.mode === "zombie" ? .55 : .9 - world.rain * .18 - world.fogK * .15;
     bloomPass.strength = .45 + nightK * .55;
     // затенение в углах только на высоком качестве и только вблизи — иначе дорого
-    // затенение в углах (SSAOPass) выключено: на нашей дальности камеры оно считает всё затенённым и даёт чёрный кадр
-    if (ssaoPass) ssaoPass.enabled = false;
+    // затенение в углах: проход берёт плоскости и проекцию камеры только при создании, а у нас дальность и пропорции
+    // меняются — обновляем каждый кадр; пороги глубины нормированы на дальность камеры, задаём их в единицах мира
+    if (ssaoPass) {
+      ssaoPass.enabled = prefs.quality !== "low" && camC.dist < (prefs.quality === "high" ? 800 : 480) && !(fps && fps.on);
+      if (ssaoPass.enabled) {
+        const u = ssaoPass.ssaoMaterial.uniforms, d = ssaoPass.depthRenderMaterial && ssaoPass.depthRenderMaterial.uniforms;
+        u.cameraNear.value = camera.near; u.cameraFar.value = camera.far;
+        u.cameraProjectionMatrix.value.copy(camera.projectionMatrix); u.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);
+        if (d) { d.cameraNear.value = camera.near; d.cameraFar.value = camera.far; }
+        const span = camera.far - camera.near;
+        ssaoPass.kernelRadius = 6; ssaoPass.minDistance = .5 / span; ssaoPass.maxDistance = 36 / span;
+      }
+      // SSAO сам рисует сцену заново — обычный проход в этот кадр не нужен
+      if (scenePass) scenePass.enabled = !ssaoPass.enabled;
+    }
     composer.render(dt);
   } else R3.render(scene, camera);
 }
@@ -9588,17 +9615,17 @@ var leafNormal = leafNormalTex(); leafNormal.wrapS = leafNormal.wrapT = THREE.Re
    кроны — свет ложится как на шар, а силуэт рваный, из листьев */
 var leafAtlas = canvasTex(256, 256, (g, w, h) => {
   g.clearRect(0, 0, w, h);
-  for (let i = 0; i < 2600; i++) {
-    const x = rnd(4, 188), y = rnd(4, 252), s = rnd(3, 7.5), a = rnd(0, TAU), hue = rnd(70, 105), l = rnd(52, 80);
+  for (let i = 0; i < 3400; i++) {
+    const x = rnd(4, 188), y = rnd(4, 252), s = rnd(2.6, 6), a = rnd(0, TAU), hue = rnd(70, 105), l = rnd(36, 66);
     g.save(); g.translate(x, y); g.rotate(a);
     g.fillStyle = `hsl(${hue},${rnd(14, 32)}%,${l}%)`; g.beginPath(); g.ellipse(0, 0, s, s * .48, 0, 0, TAU); g.fill();
     g.strokeStyle = `hsla(${hue},25%,${l - 22}%,.5)`; g.lineWidth = .6; g.beginPath(); g.moveTo(-s, 0); g.lineTo(s, 0); g.stroke();
     g.restore();
   }
-  g.fillStyle = "hsl(88,22%,52%)"; g.fillRect(200, 0, 56, 256);
+  g.fillStyle = "hsl(88,22%,40%)"; g.fillRect(200, 0, 56, 256);
 });
 leafAtlas.wrapS = leafAtlas.wrapT = THREE.ClampToEdgeWrapping;
-function leafCrownGeo(nCards = 26) {
+function leafCrownGeo(nCards = 38) {
   const P = [], N = [], U = [], C = [], v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
   const push = (p, n, u, k) => { P.push(p.x, p.y, p.z); N.push(n.x, n.y, n.z); U.push(u[0], u[1]); C.push(k, k, k); };
   for (let i = 0; i < nCards; i++) {
@@ -9606,7 +9633,7 @@ function leafCrownGeo(nCards = 26) {
     c.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(.78 * (.5 + .5 * Math.sqrt(Math.random())));
     const nrm = new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().lerp(c.clone().normalize(), .5).normalize();
     a.set(1, 0, 0); if (Math.abs(nrm.x) > .9) a.set(0, 1, 0); a.cross(nrm).normalize(); b.copy(nrm).cross(a).normalize();
-    const s = rnd(.42, .62), u0 = rnd(0, .52), v0 = rnd(0, .72), du = .22, dv = .25;
+    const s = rnd(.3, .48), u0 = rnd(0, .58), v0 = rnd(0, .78), du = .17, dv = .19;
     const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => c.clone().addScaledVector(a, x * s).addScaledVector(b, y * s));
     const uvs = [[u0, v0], [u0 + du, v0], [u0 + du, v0 + dv], [u0, v0 + dv]];
     const shade = .5 + .5 * (c.length() / .78) * (.8 + .2 * (c.y / .78 + 1) / 2);
@@ -9642,6 +9669,9 @@ ground.material.onBeforeCompile = sh => {
       vec3 bc = diffuseColor.rgb; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
       float asph = (1. - smoothstep(.06, .11, mx)) * (1. - smoothstep(.012, .03, mx - mn));
       float near = 1. - smoothstep(120., 420., length(vViewPosition));
+      // газон вблизи: мелкая пятнистость, чтобы не распадался на квадраты текстуры
+      float grassM = smoothstep(.0, .03, bc.g - max(bc.r, bc.b) * 1.05);
+      if (grassM * near > .01) { vec2 gp = vUv * worldSize; diffuseColor.rgb *= mix(1., .78 + .4 * wn(gp * 1.3) * wn(gp * .37 + 3.1) + .12 * wn(gp * 4.1), grassM * near); }
       if (asph * near > .01) {
         vec2 wp = vUv * worldSize;
         vec2 q = wp * .16 + vec2(wn(wp * .05), wn(wp * .05 + 7.3)) * 3.;
@@ -11060,6 +11090,9 @@ function startGame() {
 /* ---------- настройки: громкость и графика ---------- */
 const prefs = { master: 80, weap: 90, voice: 85, amb: 70, music: 50, quality: "medium", particles: "high", shadows: true, post: true, realPeople: true, radioVoice: true, slowmo: true };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem("vspyshka-prefs") || "{}")); } catch (e) {}
+// старая автоподстройка при 20–25 к/с навсегда сохраняла «низкое качество без обработки картинки». Один раз
+// возвращаем настройки по умолчанию тем, у кого стоит именно это сочетание; дальше выбор игрока не трогаем
+if (!prefs.v2) { if (prefs.quality === "low" && prefs.post === false) { prefs.quality = "medium"; prefs.post = true; } prefs.v2 = true; try { localStorage.setItem("vspyshka-prefs", JSON.stringify(prefs)); } catch (e) {} }
 // сохраняем выбор игрока, а не временное снижение автоподстройки (perf.saved — что было до него)
 function savePrefs() { try { localStorage.setItem("vspyshka-prefs", JSON.stringify({ ...prefs, ...(typeof perf !== "undefined" ? perf.saved : {}) })); } catch (e) {} }
 function applyPrefs() {
@@ -11760,7 +11793,8 @@ function frame(now) {
   }
 }
 function frameBody(now) {
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  // шаг кадра не бывает отрицательным: отметки времени кадров могут прийти не по порядку
+  const dt = clamp((now - last) / 1000, 0, .05); last = Math.max(last, now);
 
   let simDt = 0;
   // симуляция идёт фиксированным шагом 30 раз в секунду; большие события — замедленно

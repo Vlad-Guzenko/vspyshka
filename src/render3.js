@@ -281,7 +281,8 @@ function updateLighting(dt, simDt) {
   sunDir.copy(_sd);
   sun.intensity = (2.5 * day * (1 - gloom * .7) + .28 * nightK) * (1 - world.fogK * .3);
   sun.color.setHex(0xfff2dc).lerp(_lc1.setHex(0xff9a50), dusk * .8).lerp(_lc2.setHex(0x8fa8ff), nightK);
-  hemi.intensity = (.14 + .5 * day * (1 - gloom * .3) + gloom * .1) * (scene.environment ? .55 : 1);
+  // рассеянный свет неба: отражённое небо приглушено к серому, поэтому тени подсвечиваем чуть сильнее, иначе асфальт в тени чёрный
+  hemi.intensity = (.14 + .5 * day * (1 - gloom * .3) + gloom * .1) * (scene.environment ? .8 : 1);
   hemi.color.setHex(0xe4eaf2).lerp(_lc1.setHex(0x3a4a70), nightK);
   R3.toneMappingExposure = 1 - nightK * .05 + world.flash * 2;
   const sp = camera.position;
@@ -299,7 +300,7 @@ function updateLighting(dt, simDt) {
   if (settings.dark) { hemi.intensity *= .6; sun.intensity *= .8; }
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);
   // молнии в грозу
-  world.flash = Math.max(0, world.flash - dt * 4);
+  world.flash = clamp(world.flash - Math.max(0, dt) * 4, 0, 1.5);
   if (world.weather === "storm") { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = rnd(5, 16); world.flash = .9; sfx.thunder(); } }
   // капли
   rain.visible = world.rain > .02;

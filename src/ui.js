@@ -427,7 +427,8 @@ function frame(now) {
   }
 }
 function frameBody(now) {
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  // шаг кадра не бывает отрицательным: отметки времени кадров могут прийти не по порядку
+  const dt = clamp((now - last) / 1000, 0, .05); last = Math.max(last, now);
 
   let simDt = 0;
   // симуляция идёт фиксированным шагом 30 раз в секунду; большие события — замедленно

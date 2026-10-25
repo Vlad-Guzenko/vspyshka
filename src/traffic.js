@@ -178,7 +178,7 @@ function stepRoadCar(c, dt) {
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && !c.leaving && !c.deployed) {
-    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < 200) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
+    c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
     // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
     if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }
@@ -299,7 +299,7 @@ function spawnTraffic(n) {
     let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= wt(l); if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();
     if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.7; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
-    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.1; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
+    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.3; c.vlen = 2.45; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
     const s = rnd(laneStart(lane) + 12, laneEnd(lane) - 12);
     placeOnLane(c, lane, s);
     if (blocked(c.x, c.y) || laneBusy(lane, s, c, 20)) continue;

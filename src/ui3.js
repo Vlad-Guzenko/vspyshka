@@ -54,6 +54,9 @@ function startGame() {
 /* ---------- настройки: громкость и графика ---------- */
 const prefs = { master: 80, weap: 90, voice: 85, amb: 70, music: 50, quality: "medium", particles: "high", shadows: true, post: true, realPeople: true, radioVoice: true, slowmo: true };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem("vspyshka-prefs") || "{}")); } catch (e) {}
+// старая автоподстройка при 20–25 к/с навсегда сохраняла «низкое качество без обработки картинки». Один раз
+// возвращаем настройки по умолчанию тем, у кого стоит именно это сочетание; дальше выбор игрока не трогаем
+if (!prefs.v2) { if (prefs.quality === "low" && prefs.post === false) { prefs.quality = "medium"; prefs.post = true; } prefs.v2 = true; try { localStorage.setItem("vspyshka-prefs", JSON.stringify(prefs)); } catch (e) {} }
 // сохраняем выбор игрока, а не временное снижение автоподстройки (perf.saved — что было до него)
 function savePrefs() { try { localStorage.setItem("vspyshka-prefs", JSON.stringify({ ...prefs, ...(typeof perf !== "undefined" ? perf.saved : {}) })); } catch (e) {} }
 function applyPrefs() {

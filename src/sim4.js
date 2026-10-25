@@ -72,7 +72,7 @@ function spawnService(type, gx, gy, from) {
   if (from == null && type === "army" && special.base && special.base.b && special.base.b.state === "ok") from = special.base;
   let p = from ? nearestLanePoint(from.x, from.y) : null;
   if (!p) p = edgeLanePoint(gx, gy);
-  const c = { ...newCar(), model: SERVICE_MODEL[type] || "van", service: type, col: S.col, len: S.len, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
+  const c = { ...newCar(), model: SERVICE_MODEL[type] || "van", service: type, col: S.col, len: S.len, vlen: S.vlen, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
   styleService(c, type);
   placeOnLane(c, p.l, p.s);
   // разворачиваемся, если по встречной полосе к цели ближе
@@ -86,7 +86,7 @@ function spawnService(type, gx, gy, from) {
   return c;
 }
 function deployCrew(c) {
-  if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT;
+  if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
   const S = SERVICE[c.service], sid = S.crew === "army" && !c.posts ? ++squadSeq : 0;
   for (let i = 0; i < (c.crewN || S.n); i++) {
     const [x, y] = freeNear(c.x, c.y, 14);
@@ -153,6 +153,8 @@ function stepServiceCar(c, dt) {
     if (alive.every(a => a.done && Math.hypot(a.x - c.x, a.y - c.y) < 10) || (c.allDoneT && simT - c.allDoneT > 60)) { for (const a of alive) a.state = "saved"; releaseUnit(c); }
     return;
   }
+  // не может подъехать к цели (кружит, цель далеко от дорог): за пять минут пути — встаёт где есть; время на поворотах тоже идёт
+  if (!c.leaving && c.goal && !c.patrol) { c.tripT = (c.tripT || 0) + dt; if (c.tripT > 300) { c.tripT = 0; deployCrew(c); return; } } else c.tripT = 0;
   if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.homeGoal && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 40) { if (c.passengers && c.passengers.length) hospitalIntake(c); c.gone = true; return; } if (c.leaveT > (c.homeGoal ? 180 : 60) || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
   // на месте: у цели; в пробке — только если цель уже близко, иначе ищем другой путь
   if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.service === "dump" ? c.wait > 8 && d < 60 : c.wait > 25 && d < 260)) deployCrew(c); else if (c.wait > 40 && c.lane && c.service !== "dump") { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }

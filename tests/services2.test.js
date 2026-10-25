@@ -25,7 +25,8 @@ const rb = buildings.filter(b => b.kind === 'apt' && b.state === 'ok' && b !== s
 world.hour = 7; let patrol = null;
 for (let i = 0; i < 20 * 700; i++) {
   step(.05); settings.curfew = true;
-  if (i < 20 * 110 && i % 10 === 0) for (const o of shel) if (!o.hidden && !o.busGoal && !o.onBus && o.state === 'alive' && !sh.occ.includes(o)) { o.homeGoal = false; o.dest = null; enterShelter(o, sh); }
+  // люди держатся в укрытии, пока не приедет автобус (он может задержаться в пробке)
+  if (i < 20 * 220 && i % 10 === 0) for (const o of shel) if (!o.hidden && !o.busGoal && !o.onBus && o.state === 'alive' && !sh.occ.includes(o)) { o.homeGoal = false; o.dest = null; enterShelter(o, sh); }
   if (i === 20 * 200) world.hour = 10;
   if (i === 20 * 300) { alert = 0; alertT = simT; }
   const bus = cars.find(c => c.service === 'bus' && !c.gone);
@@ -36,7 +37,8 @@ for (let i = 0; i < 20 * 700; i++) {
   if (wounded.some(w => w.onBus)) mark('inamb', 'раненый в скорой');
   if (hb.occ && hb.occ.some(o => o.patient)) mark('intake', 'раненый в приёмном покое, занято коек ' + (hb.patients || 0));
   const p = cars.find(c => c.service === 'police' && c.patrol && !c.gone); if (p) { patrol = p; mark('patrol', 'патруль выехал из участка'); }
-  if (patrol && i % 20 === 0 && simT > 120 && !seen.has('noise')) { noises.push({ x: patrol.x + 60, y: patrol.y, t: simT, r: 300 }); mark('noise', 'шум рядом с патрулём'); }
+  // шум рядом с патрулём — каждые 20 с, пока патруль не поедет (в повороте или на светофоре он может его пропустить)
+  if (patrol && i % 400 === 0 && simT > 120 && !seen.has('patrolgo') && !seen.has('patroldep')) { noises.push({ x: patrol.x + 60, y: patrol.y, t: simT, r: 300 }); mark('noise', 'шум рядом с патрулём'); }
   if (patrol && !patrol.patrol && patrol.goal && !patrol.leaving) mark('patrolgo', 'патруль поехал на вызов');
   if (patrol && patrol.deployed) mark('patroldep', 'патруль на месте, полиция вышла');
   for (const t of ['garbage', 'sweeper', 'delivery']) { const c = cars.find(c => c.service === t && !c.gone); if (c) mark(t, SERVICE[t].name + ' выехал'); if (c && c.deployed) mark(t + 'stop', SERVICE[t].name + ': остановка'); }

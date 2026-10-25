@@ -42,7 +42,8 @@ function facadeDetails(b, obj, w, d) {
           const y = by + f * fh + 1.2, glazed = Math.random() < glazeK;
           const box = (ox, oy, oz, sx, sy, sz, c) => { const [qx, qz] = at(lx + ox, s * (d / 2 + oz)); instBoxes.push([qx, y + oy, qz, sx, sy, sz, c, b, -rr]); };
           box(0, 0, 1.2, 10.5, .45, 2.4, 0x9a978f);
-          if (glazed) box(0, 1.75, 1.2, 10.5, 3.1, 2.3, pick(BALC_GLAZE));
+          // застеклённый балкон: глухой парапет внизу, тёмное стекло, рама сверху
+          if (glazed) { const fr = pick(BALC_GLAZE); box(0, .8, 1.2, 10.5, 1.2, 2.3, fr); box(0, 2.45, 1.15, 10.2, 2.1, 2.2, pick([0x4f5b63, 0x5a6670, 0x46525a, 0x606a6e])); box(0, 3.55, 1.2, 10.5, .22, 2.35, fr); }
           else { box(0, .9, 2.3, 10.5, 1.4, .25, rail); box(-5.1, .9, 1.2, .25, 1.4, 2.4, rail); box(5.1, .9, 1.2, .25, 1.4, 2.4, rail); }
         }
       });
