@@ -2053,6 +2053,7 @@ function leaveMap(c) {
   const cnt = lastCounts || null;
   if (cnt && cnt.Z > 6) { c.gone = true; c.moving = false; return; }
   const e = edgeLanePoint(); if (laneBusy(e.l, e.s, c)) { c.gone = true; c.moving = false; return; }
+  cancelGas(c); c.fuel = rnd(.2, 1);
   placeOnLane(c, e.l, e.s); c.v = c.spd * .6; c.wait = 0; c.offx = c.offy = 0;
 }
 // что впереди по ходу: машины, люди, препятствия в клетках
@@ -2086,8 +2087,10 @@ function carTarget(c, clear, slow) {
 }
 function stepRoadCar(c, dt) {
   c.dt = dt;
+  if (c.gas && c.gas.pts) return stepGas(c, dt);
   if (c.turn) return stepTurnCar(c, dt);
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
+  if (c.gas) { if (c.panic || c.flee) cancelGas(c); else if (gasArrive(c, l)) return stepGas(c, dt); }
   if (c.pulled && !c.deployed) { c.pulled = false; if (!c.over) c.latTgt = 0; }
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
@@ -2162,6 +2165,11 @@ function stepRoadCar(c, dt) {
     else if (c.next && canEnter(c, l, c.next)) { const extra = c.s + ds - sE; c.s = sE; startTurn(c, c.next); c.turn.u = extra; return stepTurnPose(c, dt); }
     else { c.s = sE; c.v = 0; if (!c.next && c.wait > 30) { abandonCar(c, null); return; } }
   } else c.s += ds;
+  // бак пустеет по пройденному пути; почти пуст — на заправку
+  if (c.fuel !== undefined && !c.service && !c.bus && !c.tanker && !c.refugee) {
+    c.fuel -= ds / FUEL_RANGE;
+    if (c.fuel < .1 && !c.gas && !c.panic && !c.flee && !c.goal && simT > c.gasTry) pickGas(c);
+  }
   poseOnLane(c, dt);
 }
 function poseOnLane(c, dt) {
@@ -2207,7 +2215,7 @@ function pickCarModel(parked) {
 }
 function newCar() {
   const M = pickCarModel();
-  return { model: M.k, moving: true, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: M.len, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
+  return { model: M.k, moving: true, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: M.len, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, fuel: rnd(.12, 1), gas: null, gasTry: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
 }
 function spawnTraffic(n) {
   const pool = RL.filter(l => laneEnd(l) - laneStart(l) > 30 && !l.e.closed), wt = l => l.e.len * (l.e.rural ? .25 : 1), tot = pool.reduce((a, l) => a + wt(l), 0);
@@ -2221,6 +2229,115 @@ function spawnTraffic(n) {
     if (blocked(c.x, c.y) || laneBusy(lane, s, c, 20)) continue;
     c.v = c.spd * rnd(.5, 1);
     cars.push(c);
+  }
+}
+
+/* ---------- заправка: машины иногда заезжают залить бак ----------
+   Бензин тратится по пройденному пути. Когда бак почти пуст, водитель едет на ближайшую заправку, где есть свободная
+   колонка: с улицы заезжает на участок у одного края, встаёт у колонки, стоит, пока льётся бензин, и выезжает у другого
+   края обратно в свою полосу. У заправки свой запас топлива; когда он на исходе, приезжает бензовоз и сливает топливо */
+const FUEL_RANGE = 120000; // столько единиц пути на полном баке — около часа езды по городу
+const GAS = new Map(); // заправка → { stock, stalls: [машина у каждого из трёх рядов], tanker, geo, needT }
+function gasStations() { return buildings.filter(b => b.kind === "gas" && b.lotRect && b.state === "ok" && !b.blown); }
+function gasState(b) { let s = GAS.get(b); if (!s) GAS.set(b, s = { stock: Math.round(rnd(20, 40)), stalls: [null, null, null], tanker: null, geo: null, needT: 0 }); return s; }
+// участок в своих осях: x — вдоль улицы, z — от магазина к улице; три ряда у колонок идут вдоль x (как в render15.js)
+function gasGeo(b) {
+  const st = gasState(b); if (st.geo) return st.geo;
+  const L = b.lotRect, r = L.rot, ax = [Math.cos(r), Math.sin(r)]; let az = [-Math.sin(r), Math.cos(r)];
+  if ((b.front.x - L.cx) * az[0] + (b.front.y - L.cy) * az[1] < 0) az = [-az[0], -az[1]];
+  const back = (L.d - SPECIAL.gas.d) / 2 - 4, cz = (SPECIAL.gas.d / 2 + back + L.d / 2) / 2 - 2 - back;
+  return st.geo = { cx: L.cx, cy: L.cy, ax, az, edge: L.d / 2, rows: [cz - 10, cz, cz + 10] };
+}
+const gasPt = (g, lx, lz) => [g.cx + g.ax[0] * lx + g.az[0] * lz, g.cy + g.ax[1] * lx + g.az[1] * lz];
+// ближайшая заправка со свободной колонкой и топливом; место занимается сразу
+function pickGas(c) {
+  c.gasTry = simT + 25;
+  let best = null, bd = 1800, bk = -1;
+  for (const b of gasStations()) {
+    const st = gasState(b); if (st.stock <= 0) continue;
+    const k = st.stalls.findIndex((o, i) => !o && !(i === 2 && st.tanker)); if (k < 0) continue;
+    const g = gasGeo(b), d = Math.hypot(g.cx - c.x, g.cy - c.y); if (d < bd) { bd = d; best = b; bk = k; }
+  }
+  if (!best) return;
+  const g = gasGeo(best), [ex, ey] = gasPt(g, 0, g.edge);
+  gasState(best).stalls[bk] = c; c.gas = { b: best, k: bk, t0: simT, tanker: false, pts: null }; c.goal = { x: ex, y: ey };
+}
+function cancelGas(c) {
+  const g = c.gas; if (!g) return;
+  const st = gasState(g.b); if (st.stalls[g.k] === c) st.stalls[g.k] = null; if (st.tanker === c) st.tanker = null;
+  c.gas = null; c.goal = null;
+}
+// подъехали по нужной улице к участку — съезжаем с полосы
+function gasArrive(c, l) {
+  const g = c.gas, b = g.b;
+  if (b.state !== "ok" || b.blown || simT - g.t0 > 300) { if (!g.tanker) c.fuel = Math.max(c.fuel, .35); cancelGas(c); return false; }
+  const R = routeTo(c.goal.x, c.goal.y); if (!R || l.e !== R.e || c.over) return false;
+  const d = laneSOfT(l, R.et) - c.s; if (d < 30 || d > 48) return false;
+  startGasPath(c, l, gasGeo(b)); return true;
+}
+// путь по участку: от полосы через край участка к колонке своего ряда, дальше к другому краю и обратно в полосу;
+// углы ломаной сглажены (Чайкин), остановка — в точке пути, ближайшей к колонке
+function startGasPath(c, l, G) {
+  const q = lanePos(l, c.s), xs = q.tx * G.ax[0] + q.ty * G.ax[1] >= 0 ? 1 : -1, row = G.rows[c.gas.k], E = G.edge;
+  const u0 = xs * ((c.x - G.cx) * G.ax[0] + (c.y - G.cy) * G.ax[1]), sOut = clamp(c.s + 44 - u0, laneStart(l) + 4, laneEnd(l) - 6), o = lanePos(l, sOut);
+  const P = (u, z) => gasPt(G, xs * u, z);
+  let pts = [[c.x, c.y], [c.x + q.tx * 8, c.y + q.ty * 8], P(-24, E - 1), P(-16, (E + row) / 2), P(-8, row), P(0, row), P(8, row), P(16, (E + row) / 2), P(24, E - 1), [o.x - o.tx * 8, o.y - o.ty * 8], [o.x, o.y]];
+  for (let it = 0; it < 3; it++) { const n = [pts[0]]; for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1]; n.push([a[0] * .75 + b[0] * .25, a[1] * .75 + b[1] * .25], [a[0] * .25 + b[0] * .75, a[1] * .25 + b[1] * .75]); } n.push(pts[pts.length - 1]); pts = n; }
+  const cum = plCum(pts), S = P(0, row); let stopU = 0, sd = 1e9;
+  for (let i = 0; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - S[0], pts[i][1] - S[1]); if (d < sd) { sd = d; stopU = cum[i]; } }
+  Object.assign(c.gas, { pts, cum, u: 0, stopU, len: cum[cum.length - 1], phase: "in", l, s: c.s, sOut, wait: 0 });
+  c.lane = null; c.turn = null; c.next = null; c.latOff = c.latTgt = 0; c.over = 0;
+}
+// машина на участке: заезд, заправка, выезд; дальше — снова в своей полосе
+function stepGas(c, dt) {
+  const g = c.gas, st = gasState(g.b);
+  if (g.phase === "fuel") {
+    c.v = 0; g.wait -= dt;
+    if (g.wait <= 0) {
+      g.phase = "out";
+      if (g.tanker) { st.stock = 60; if (st.tanker === c) st.tanker = null; logT("gasfill", "Бензовоз слил топливо на заправку", "", 120); }
+      else { c.fuel = 1; st.stock = Math.max(0, st.stock - 1); }
+      if (st.stalls[g.k] === c) st.stalls[g.k] = null;
+    }
+    return;
+  }
+  const end = g.phase === "in" ? g.stopU : g.len, left = end - g.u, vmax = g.phase === "in" ? Math.min(9, 1.5 + left * .5) : Math.min(11, 4 + g.u * .2);
+  c.v += clamp(vmax - c.v, -30 * dt, 12 * dt); c.wait = 0;
+  g.u = Math.min(end, g.u + Math.max(0, c.v) * dt);
+  const p = plPos(g.pts, g.cum, g.u); c.x = p.x; c.y = p.y;
+  let da = Math.atan2(p.ty, p.tx) - c.ang; da -= Math.round(da / TAU) * TAU; c.ang += clamp(da * Math.min(1, dt * 6), -dt * 3, dt * 3); c.dir = dirOf(p.tx, p.ty);
+  if (g.phase === "in" && g.u >= g.stopU - .05) { g.phase = "fuel"; g.wait = g.tanker ? 50 : rnd(18, 32); c.v = 0; return; }
+  if (g.phase === "out" && g.u >= g.len - .05) {
+    // в полосу — когда за спиной в ней свободно (или уже долго ждём)
+    g.wait += dt; c.v = 0;
+    if (laneBusy(g.l, g.sOut, c, 14) && g.wait < 8) return;
+    const l = g.l, s = g.sOut; c.gas = null; c.goal = null;
+    placeOnLane(c, l, s); c.v = 8; c.wait = 0;
+  }
+}
+// раз в несколько секунд: занятые места без машин освобождаются; заправке с пустеющим запасом — бензовоз
+let gasT = 0;
+function gasTick(dt) {
+  gasT -= dt; if (gasT > 0) return; gasT = 3;
+  for (const b of gasStations()) {
+    const st = gasState(b);
+    st.stalls.forEach((o, i) => { if (o && (o.gone || o.wreck || !o.gas || o.gas.b !== b || !cars.includes(o))) st.stalls[i] = null; });
+    if (st.tanker && (st.tanker.gone || st.tanker.wreck || !st.tanker.gas || st.tanker.gas.b !== b)) st.tanker = null;
+    if (st.stock >= 12 || st.tanker) { st.needT = 0; continue; }
+    st.needT += 3;
+    const G = gasGeo(b);
+    let tk = null, bd = 3000;
+    for (const c of cars) if (c.tanker && c.moving && !c.gone && !c.gas && !c.panic && !c.wreck && c.lane && !c.turn) { const d = Math.hypot(c.x - G.cx, c.y - G.cy); if (d < bd) { bd = d; tk = c; } }
+    // своих бензовозов в городе нет — свой приезжает из-за города
+    if (!tk && st.needT > 60) {
+      const e = edgeLanePoint(G.cx, G.cy); if (laneBusy(e.l, e.s, null)) continue;
+      tk = newCar(); Object.assign(tk, { tanker: true, model: "tanker", len: 1.7, col: pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]), fuel: undefined }); tk.spd *= .85;
+      placeOnLane(tk, e.l, e.s); tk.v = tk.spd * .6; cars.push(tk);
+    }
+    if (!tk || st.stalls[2]) continue;
+    // бензовоз встаёт в ближний к улице ряд; пока он едет, легковые туда не заезжают
+    const [ex, ey] = gasPt(G, 0, G.edge);
+    st.tanker = tk; st.stalls[2] = tk; tk.gas = { b, k: 2, t0: simT, tanker: true, pts: null }; tk.goal = { x: ex, y: ey }; st.needT = 0;
   }
 }
 
@@ -3060,6 +3177,7 @@ function abandonCar(c, why) {
 }
 let carsCompactT = 20;
 function stepTraffic(dt) {
+  gasTick(dt);
   carsCompactT -= dt; if (carsCompactT <= 0) { carsCompactT = 20; if (cars.some(c => c.gone)) cars = cars.filter(c => !c.gone); for (const n of RN) if (n.occ.length) n.occ = n.occ.filter(o => !o.gone && o.turn && o.turn.n === n); }
   for (const c of cars) {
     if (c.gone) { c.moving = false; continue; }
@@ -4539,7 +4657,7 @@ function stepRoutine(dt) {
   }
   // машин на улицах столько, сколько нужно в этот час
   const moving = cars.filter(c => c.moving && !c.service), target = Math.round(trafficN() * act);
-  if (moving.length > target + 4) { const c = moving.find(c => typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500); if (c) { c.gone = true; c.moving = false; } }
+  if (moving.length > target + 4) { const c = moving.find(c => !c.gas && (typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500)); if (c) { c.gone = true; c.moving = false; } } // кто едет заправляться, тот доедет
   else if (moving.length < target - 4 && !outbreak) spawnTraffic(2);
 }
 
@@ -9357,9 +9475,14 @@ function landmarkMesh(b, obj, box, w, d) {
     // магазин в глубине, навес над колонками, стела с ценами у дороги
     // от центра магазина до края участка у дороги: магазин сдвинут в глубину участка (как в placeSpecial)
     const lot = b.lotRect, edge = lot ? (lot.d - SPECIAL.gas.d) / 2 - 4 + lot.d / 2 : 46, cz = (d / 2 + edge) / 2 - 2;
-    lmAdd(obj, new THREE.BoxGeometry(32, 1.6, 22), whiteMat, 0, 10, cz); lmAdd(obj, new THREE.BoxGeometry(32.2, .9, 22.2), redMat2, 0, 9.1, cz);
-    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) lmAdd(obj, new THREE.BoxGeometry(.9, 9, .9), whiteMat, sx * 12, 4.5, cz + sz * 7);
-    for (const sx of [-6, 6]) { lmAdd(obj, new THREE.BoxGeometry(3, .5, 12), concreteMat, sx, .25, cz); for (const sz of [-3.5, 3.5]) { lmAdd(obj, new THREE.BoxGeometry(1.6, 3.6, 1.2), redMat2, sx, 2.3, cz + sz); lmAdd(obj, new THREE.BoxGeometry(1.7, 1, 1.3), whiteMat, sx, 4.5, cz + sz); } }
+    // навес над тремя рядами; островки с колонками идут вдоль улицы между рядами — машина проезжает заправку насквозь
+    // (ряды — в gasGeo, traffic.js: cz - 10, cz, cz + 10)
+    lmAdd(obj, new THREE.BoxGeometry(34, 1.6, 28), whiteMat, 0, 10, cz); lmAdd(obj, new THREE.BoxGeometry(34.2, .9, 28.2), redMat2, 0, 9.1, cz);
+    for (const sz of [-5, 5]) {
+      lmAdd(obj, new THREE.BoxGeometry(14, .5, 2), concreteMat, 0, .25, cz + sz);
+      for (const sx of [-3.5, 3.5]) { lmAdd(obj, new THREE.BoxGeometry(1.6, 3.6, 1.2), redMat2, sx, 2.3, cz + sz); lmAdd(obj, new THREE.BoxGeometry(1.7, 1, 1.3), whiteMat, sx, 4.5, cz + sz); }
+      for (const sx of [-9, 9]) lmAdd(obj, new THREE.BoxGeometry(.9, 9, .9), whiteMat, sx, 4.5, cz + sz);
+    }
     const py = new THREE.Group(); py.position.set(w / 2 + 12, 0, edge - 4); obj.add(py);
     lmAdd(py, new THREE.BoxGeometry(4.2, 14, 1.2), redMat2, 0, 7, 0);
     const ps = new THREE.Mesh(new THREE.PlaneGeometry(4, 8), signMat(canvasTex(128, 256, g => { g.fillStyle = "#c8281e"; g.fillRect(0, 0, 128, 256); g.fillStyle = "#fff"; g.font = "bold 46px Arial"; g.textAlign = "center"; g.fillText("АЗС", 64, 52); g.fillStyle = "#111"; g.fillRect(10, 76, 108, 168); g.fillStyle = "#ffcf3a"; g.font = "bold 30px monospace"; ["92 55.9", "95 61.4", "ДТ 69.2"].forEach((t, i) => g.fillText(t, 64, 112 + i * 50)); })));
@@ -11054,9 +11177,9 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route"].includes(k)) o[k] = c[k];
-    // на перекрёстке — переносим на начало следующей полосы
-    if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else o.lane = c.lane ? c.lane.id : -1;
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas"].includes(k)) o[k] = c[k];
+    // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
+    if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
   });
   return {

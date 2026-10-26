@@ -14,9 +14,9 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route"].includes(k)) o[k] = c[k];
-    // на перекрёстке — переносим на начало следующей полосы
-    if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else o.lane = c.lane ? c.lane.id : -1;
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas"].includes(k)) o[k] = c[k];
+    // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
+    if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
   });
   return {

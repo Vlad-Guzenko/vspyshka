@@ -62,9 +62,14 @@ function landmarkMesh(b, obj, box, w, d) {
     // магазин в глубине, навес над колонками, стела с ценами у дороги
     // от центра магазина до края участка у дороги: магазин сдвинут в глубину участка (как в placeSpecial)
     const lot = b.lotRect, edge = lot ? (lot.d - SPECIAL.gas.d) / 2 - 4 + lot.d / 2 : 46, cz = (d / 2 + edge) / 2 - 2;
-    lmAdd(obj, new THREE.BoxGeometry(32, 1.6, 22), whiteMat, 0, 10, cz); lmAdd(obj, new THREE.BoxGeometry(32.2, .9, 22.2), redMat2, 0, 9.1, cz);
-    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) lmAdd(obj, new THREE.BoxGeometry(.9, 9, .9), whiteMat, sx * 12, 4.5, cz + sz * 7);
-    for (const sx of [-6, 6]) { lmAdd(obj, new THREE.BoxGeometry(3, .5, 12), concreteMat, sx, .25, cz); for (const sz of [-3.5, 3.5]) { lmAdd(obj, new THREE.BoxGeometry(1.6, 3.6, 1.2), redMat2, sx, 2.3, cz + sz); lmAdd(obj, new THREE.BoxGeometry(1.7, 1, 1.3), whiteMat, sx, 4.5, cz + sz); } }
+    // навес над тремя рядами; островки с колонками идут вдоль улицы между рядами — машина проезжает заправку насквозь
+    // (ряды — в gasGeo, traffic.js: cz - 10, cz, cz + 10)
+    lmAdd(obj, new THREE.BoxGeometry(34, 1.6, 28), whiteMat, 0, 10, cz); lmAdd(obj, new THREE.BoxGeometry(34.2, .9, 28.2), redMat2, 0, 9.1, cz);
+    for (const sz of [-5, 5]) {
+      lmAdd(obj, new THREE.BoxGeometry(14, .5, 2), concreteMat, 0, .25, cz + sz);
+      for (const sx of [-3.5, 3.5]) { lmAdd(obj, new THREE.BoxGeometry(1.6, 3.6, 1.2), redMat2, sx, 2.3, cz + sz); lmAdd(obj, new THREE.BoxGeometry(1.7, 1, 1.3), whiteMat, sx, 4.5, cz + sz); }
+      for (const sx of [-9, 9]) lmAdd(obj, new THREE.BoxGeometry(.9, 9, .9), whiteMat, sx, 4.5, cz + sz);
+    }
     const py = new THREE.Group(); py.position.set(w / 2 + 12, 0, edge - 4); obj.add(py);
     lmAdd(py, new THREE.BoxGeometry(4.2, 14, 1.2), redMat2, 0, 7, 0);
     const ps = new THREE.Mesh(new THREE.PlaneGeometry(4, 8), signMat(canvasTex(128, 256, g => { g.fillStyle = "#c8281e"; g.fillRect(0, 0, 128, 256); g.fillStyle = "#fff"; g.font = "bold 46px Arial"; g.textAlign = "center"; g.fillText("АЗС", 64, 52); g.fillStyle = "#111"; g.fillRect(10, 76, 108, 168); g.fillStyle = "#ffcf3a"; g.font = "bold 30px monospace"; ["92 55.9", "95 61.4", "ДТ 69.2"].forEach((t, i) => g.fillText(t, 64, 112 + i * 50)); })));
