@@ -68,6 +68,7 @@ legend{font-size:12px;color:var(--muted);padding:0 4px}
 .note{font-size:12.5px;color:var(--amber);margin:0}
 .dlgbar{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
 .btn.primary{background:var(--amber);color:#1a1405;border-color:var(--amber)}
+.campbar{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px;margin-top:4px}.campbar p{margin:0}
 .resstats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .resstats div{background:var(--raise);border-radius:4px;padding:6px 8px;display:flex;flex-direction:column}
 .resstats small{font-size:10.5px;color:var(--muted);text-transform:uppercase}.resstats b{font-family:var(--f-mono);font-size:17px}
@@ -240,7 +241,10 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
   <div class="dlg wide">
     <div class="dlghead"><h2 id="wTitle">Новая игра</h2><button class="x" id="wClose" aria-label="Закрыть">×</button></div>
     <ol class="steps"><li data-s="0">Сценарий</li><li data-s="1">Город</li><li data-s="2">Условия</li></ol>
-    <section data-s="0"><div class="cards" id="scenCards"></div></section>
+    <section data-s="0">
+      <div class="cards" id="scenCards"></div>
+      <div class="campbar"><p class="note">Или сыграй кампанию: один город на семь дней. Каждое утро штаб выдаёт бюджет по доверию, за ночь город приходит в себя, а с окраин идут новые беды.</p><div class="slotbtns"><button class="btn primary" id="wCampaign">Кампания: 7 дней</button><button class="btn" id="wResume" hidden>Продолжить кампанию</button></div></div>
+    </section>
     <section data-s="1" hidden>
       <div class="cards small" id="layoutCards"></div>
       <p class="note" id="layoutNote" hidden></p>
@@ -303,6 +307,16 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
     <div class="dlgbar"><button class="btn" id="resChron">Хроника</button><button class="btn" id="resStay">Смотреть дальше</button><button class="btn" id="resNew">Новая игра</button><button class="btn primary" id="resAgain">Ещё раз</button></div>
   </div>
 </div>
+<div class="modal" id="dayEnd" hidden role="dialog" aria-modal="true" aria-labelledby="deTitle">
+  <div class="dlg wide">
+    <h2 id="deTitle">Итоги дня</h2><p id="deText"></p>
+    <div class="resstats" id="deStats"></div>
+    <p class="muted" id="deSpent"></p>
+    <h3>Ночь</h3><p id="deNight"></p>
+    <h3>Утро</h3><p id="deNext"></p>
+    <div class="dlgbar"><button class="btn" id="deChron">Хроника</button><button class="btn primary" id="deNextBtn">Следующий день</button></div>
+  </div>
+</div>
 <div class="modal" id="chron" hidden role="dialog" aria-modal="true" aria-labelledby="chTitle">
   <div class="dlg wide chron">
     <div class="dlghead"><h2 id="chTitle">Хроника города</h2><button class="x" id="chronClose" aria-label="Закрыть">×</button></div>
@@ -336,6 +350,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
     <div class="brand"><h1>Вспыш<span>ка</span></h1><span class="clock" id="clock">00:00</span></div>
     <div class="acts">
       <button class="btn primary" id="newCity">Новая игра</button>
+      <button class="btn" id="endDay" hidden title="Кампания: закончить день раньше утра, если зомби не осталось">Закончить день</button>
       <button class="btn day" id="dayNight" aria-pressed="false" title="Клавиша N"><i></i><span>Ночь</span></button>
       <button class="btn" id="pause" aria-pressed="false">Пауза</button>
       <button class="btn" id="speed">Скорость ×1</button>

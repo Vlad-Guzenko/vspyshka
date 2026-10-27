@@ -7,7 +7,7 @@ function resetThreats() {
   threat = { noise: 0, hordeT: rnd(600, 840), hordes: [], hordeN: 0, refT: rnd(300, 480), cols: [], fed: null, lines: [] };
 }
 function cityNoise(v) { if (threat) threat.noise = Math.min(400, threat.noise + v); }
-const threatsOn = () => settings.threats !== false && (!scenKey || scenKey === "sandbox") && entries.length > 0;
+const threatsOn = () => settings.threats !== false && (!scenKey || scenKey === "sandbox" || scenKey === "campaign") && entries.length > 0;
 // стороны света: север — вверх карты
 function compass(dx, dy) { const a = Math.atan2(-dy, dx), k = Math.round(a / (Math.PI / 4)); return ["с востока", "с северо-востока", "с севера", "с северо-запада", "с запада", "с юго-запада", "с юга", "с юго-востока", "с востока"][((k % 8) + 8) % 8]; }
 const entryEdge = en => RE.find(e => e.id === en.e) || null;

@@ -14,7 +14,7 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park"].includes(k)) o[k] = c[k];
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park", "yieldTo"].includes(k)) o[k] = c[k];
     // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
     if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
@@ -33,6 +33,7 @@ function serializeGame() {
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
+    camp, // кампания: день, итоги по дням, бюджет (campaign.js)
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
@@ -79,6 +80,7 @@ function loadGame(S) {
   river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || [];
   TH.fill(0); if (T.th) { const u = unb64(T.th, Uint8Array); for (let i = 0; i < TH.length && i < u.length; i++) TH[i] = u[i] * 2 - 10; }
   scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = []; wave = S.wave || 0; waveT = S.waveT ?? 40;
+  loadCampaignState(S);
   patientZero = S.pz != null ? agentById(S.pz) || null : null;
   logE("Партия загружена", "good");
   clearDecals(); clearDebris(); for (const [t, o] of tankObjs) { scene.remove(o); tankObjs.delete(t); }

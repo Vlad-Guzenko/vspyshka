@@ -214,7 +214,7 @@ const CHALLENGES = {
 let challenge = null, chT = 100, chDone = 0, chFail = 0;
 function challengeText() { if (!challenge) return ""; const C = CHALLENGES[challenge.k]; return `${C.n}: ${C.text(challenge)} · ${mmss(Math.max(0, challenge.left))}`; }
 function stepChallenges(dt) {
-  if (scenKey !== "sandbox" || !firsts.zombie || scenDone) return;
+  if (!(scenKey === "sandbox" || scenKey === "campaign") || !firsts.zombie || scenDone) return;
   if (challenge) {
     challenge.left -= dt; const C = CHALLENGES[challenge.k];
     if (C.fail && C.fail(challenge)) { chFail++; logE(`Директива «${C.n}» провалена`, "bad"); onBanner("Директива провалена"); hqRep(-1, `провалена директива «${C.n}»`); challenge = null; chT = rnd(90, 150); return; }
@@ -254,6 +254,10 @@ const ACHS = [
   ["cp", "Контроль", "КПП выявил 10 укушенных", () => cps.some(c => c.detained >= 10)],
   ["zap", "Под током", "Зомби сгорел на электрозаборе", () => !!lastLog.zap],
   ["day", "Вторые сутки", "Пережить первые сутки вспышки", () => dayN >= 2 && firsts.zombie],
+  // кампания (campaign.js): camp есть только там, где она подключена
+  ["camp3", "Трое суток", "Пережить три дня кампании", () => typeof camp !== "undefined" && !!camp && !!camp.days && camp.day >= 4],
+  ["camp7", "Неделя", "Выстоять в кампании семь дней", () => typeof camp !== "undefined" && !!camp && !!camp.days && camp.won && camp.wonBy === "days"],
+  ["campvac", "Чистый город", "Выиграть кампанию вакциной и зачисткой", () => typeof camp !== "undefined" && !!camp && !!camp.days && camp.won && camp.wonBy === "vac"],
 ];
 let achDone = {}, achT = 0, achNew = [];
 try { if (typeof localStorage !== "undefined") achDone = JSON.parse(localStorage.getItem("vspyshka-ach") || "{}"); } catch (e) {}
@@ -316,6 +320,7 @@ function fateLine(a) {
 function chronicle() {
   const c = counts(), out = [];
   out.push({ h: "Итог", lines: [`${(LAYOUTS[layoutKey] || {}).n || "Город"}, ${mmss(simT)} игры. Укусов ${bites}, погибших ${deaths}, спасено ${saved}, уничтожено зомби ${zkills}, вылечено ${cured}.`, firsts.fall ? "Город пал." : firsts.end ? "Вспышка подавлена." : `Сейчас в городе ${c.Z} зомби и ${c.H + c.I} живых.`] });
+  if (typeof campaignChronicle === "function" && camp && camp.days) out.push(campaignChronicle());
   const z = agents.find(a => a.zero); if (z) out.push({ h: "Нулевой пациент", lines: [fateLine(z)] });
   if (heroes.length) out.push({ h: "Герои", lines: heroes.map(h => `${HERO_KINDS[h.hero].n[0].toUpperCase() + HERO_KINDS[h.hero].n.slice(1)} ${fateLine(h)}`) });
   const shooters = agents.filter(a => (a.kills || 0) > 0 && !a.hero).sort((p, q) => q.kills - p.kills).slice(0, 4);

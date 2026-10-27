@@ -18,6 +18,7 @@ function renderWizard() {
   document.querySelectorAll("#wizard [data-s]").forEach(el => { if (el.tagName === "SECTION") el.hidden = +el.dataset.s !== wiz.step; else el.setAttribute("aria-current", +el.dataset.s === wiz.step ? "step" : "false"); });
   $("wBack").hidden = wiz.step === 0;
   $("wNext").textContent = wiz.step === 2 ? "Начать" : "Далее";
+  renderCampaignWizard();
 }
 function openWizard() { setPaused(true); wiz.step = 0; renderWizard(); $("wizard").hidden = false; }
 $("wizard").addEventListener("change", e => {
@@ -47,6 +48,7 @@ function startGame() {
   world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);
+  if (wiz.scen === "campaign") campaignStarted();
   setPaused(false);
   audio(); maybeTutorial();
 }

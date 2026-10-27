@@ -7,6 +7,8 @@ const SCENARIOS = {
   evac: { n: "Эвакуация", tag: "вывезти 150 · спасение", brief: "Город уже не удержать. Вывези вертолётами 150 человек, пока не стало поздно. Вертолётов всего пять, авиаударов нет.", limits: { evac: 5, strike: 0, army: 2, nuke: 0 } },
   mall: { n: "Последний рубеж", tag: "10 минут · волны", brief: "Выжившие собрались у торгового центра. С окраин идут волны зомби, каждая больше прежней. Сохрани хотя бы 40 человек у ТЦ в течение 10 минут.", limits: { army: 3, tank: 1, strike: 1, nuke: 0 }, time: 600 },
   purge: { n: "Зачистка", tag: "без лимита · охота", brief: "Вспышка уже везде: 150 зомби по всему городу. Уничтожь всех до последнего, но не потеряй больше 400 мирных.", limits: { army: 6, tank: 2, strike: 3, nuke: 1 } },
+  // кампания (campaign.js): не карточка, а кнопка в мастере; лимиты — бюджет дня, который штаб выдаёт каждое утро
+  campaign: { hidden: true, n: "Кампания", tag: "7 дней · город живёт", brief: "Один город на семь дней. Каждое утро штаб выдаёт бюджет по доверию, за ночь город приходит в себя, а с окраин идут новые беды.", limits: {} },
 };
 let scen = null, scenKey = "sandbox", uses = {}, scenT = 0, scenDone = false, radioQ = [], waveT = 0, wave = 0;
 function limitLeft(tool) { if (!scen || !scen.limits || scen.limits[tool] === undefined) return Infinity; return scen.limits[tool] - (uses[tool] || 0); }
@@ -53,9 +55,11 @@ function setupScenario(key, p0) {
     firsts.titan = true; spawnTitan();
     radio("Штаб: зачистить город. Беречь мирных", 1);
   }
+  if (key === "campaign") startCampaign();
 }
 function scenarioHud() {
   if (!scen || scenKey === "sandbox") return "";
+  if (scenKey === "campaign") return campaignHud();
   const c = lastCounts || counts(), left = scen.time ? Math.max(0, scen.time - scenT) : null, mm = left !== null ? mmss(left) : "";
   if (scenKey === "hospital") return `Осталось ${mm} · зомби ${c.Z} (нужно < 15) · погибших ${deaths} (не больше 200)`;
   if (scenKey === "bridges") return `Осталось ${mm} · держите мосты`;
@@ -71,6 +75,7 @@ function stepScenario(dt) {
   for (const r of radioQ) if (!r.done && simT >= r.t) { r.done = true; logE("Рация: " + r.text); onRadio(r.text); sfx.radio(); }
   if (!scen || scenDone || scenKey === "sandbox") return;
   scenT += dt;
+  if (scenKey === "campaign") { stepCampaign(dt); return; }
   const c = counts();
   if (scenKey === "hospital") { if (scenT >= scen.time) endScenario(c.Z < 15 && deaths <= 200, c.Z < 15 && deaths <= 200 ? "Вспышка сдержана. Город спасён" : "Не удалось сдержать вспышку"); else if (deaths > 200) endScenario(false, "Слишком много погибших"); }
   if (scenKey === "bridges") {
