@@ -157,7 +157,7 @@ function paintBarricade(x, y, erase, wall) {
 }
 const BARR_KIND = { barricade: 0, wall: 1, efence: 2 };
 function useTool(e, x, y) {
-  if (["army", "tank", "strike", "evac", "nuke"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } if (tool === "evac" && blocked(x, y)) { warn("<b>Здесь вертолёту не сесть.</b>"); return; } spendLimit(tool); setTimeout(renderTools, 0); }
+  if (["army", "tank", "strike", "evac", "nuke", "police", "supply"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } if (tool === "evac" && blocked(x, y)) { warn("<b>Здесь вертолёту не сесть.</b>"); return; } spendLimit(tool); setTimeout(renderTools, 0); }
   if (tool === "watch") { const a = agentAt(e); if (a) { followA = a; camS.dist = Math.min(camS.dist, 160); camS.pitch = Math.min(camS.pitch, .55); } return; }
   if (tool === "infect") { const a = agentAt(e, a => a.state === "alive" && a.role !== "zombie" && !a.bitten); if (a) { a.bitten = true; a.incT = settings.inc * rnd(.7, 1.3); bites++; logE("Заражён ещё один человек", "bad"); } return; }
   if (tool === "zombie") { if (!blocked(x, y)) { const a = newAgent("zombie", x, y); turn(a); a.riseT = 0; } return; }
@@ -363,7 +363,7 @@ function updateUI() {
   $("vacBar").style.width = Math.floor(research * 100) + "%"; $("vacO").textContent = vaccineReady ? "готова" : Math.floor(research * 100) + "%";
   const hungry = hungryCount();
   $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
-  renderHeroes(); squadHud(); renderFactions();
+  renderHeroes(); squadHud(); renderFactions(); updateCampaignUI();
   if (logDirty) { logDirty = false; $("log").innerHTML = events.slice(0, 40).map(e => `<li class="${e.cls || ""}"><time>${mmss(e.t)}</time>${e.text}</li>`).join(""); updateNews(); }
   drawChart();
 }

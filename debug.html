@@ -37,7 +37,6 @@
 .fhelp{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:11.5px;color:#d5dbd8;background:rgba(14,17,18,.65);border-radius:4px;padding:4px 8px;pointer-events:none;white-space:nowrap}
 .fpause{position:absolute;inset:0;display:grid;place-items:center;background:rgba(5,7,8,.5)}
 body.fps .cams,body.fps #mini,body.fps .camhelp,body.fps .objective{display:none}
-body.drive .cross{display:none}
 button.card{text-align:left;font:inherit;color:inherit}
 @media (max-width:700px){.fhelp{white-space:normal;width:90%}}
 
@@ -74,6 +73,7 @@ legend{font-size:12px;color:var(--muted);padding:0 4px}
 .note{font-size:12.5px;color:var(--amber);margin:0}
 .dlgbar{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
 .btn.primary{background:var(--amber);color:#1a1405;border-color:var(--amber)}
+.campbar{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px;margin-top:4px}.campbar p{margin:0}
 .resstats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .resstats div{background:var(--raise);border-radius:4px;padding:6px 8px;display:flex;flex-direction:column}
 .resstats small{font-size:10.5px;color:var(--muted);text-transform:uppercase}.resstats b{font-family:var(--f-mono);font-size:17px}
@@ -246,7 +246,10 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
   <div class="dlg wide">
     <div class="dlghead"><h2 id="wTitle">Новая игра</h2><button class="x" id="wClose" aria-label="Закрыть">×</button></div>
     <ol class="steps"><li data-s="0">Сценарий</li><li data-s="1">Город</li><li data-s="2">Условия</li></ol>
-    <section data-s="0"><div class="cards" id="scenCards"></div></section>
+    <section data-s="0">
+      <div class="cards" id="scenCards"></div>
+      <div class="campbar"><p class="note">Или сыграй кампанию: один город на семь дней. Каждое утро штаб выдаёт бюджет по доверию, за ночь город приходит в себя, а с окраин идут новые беды.</p><div class="slotbtns"><button class="btn primary" id="wCampaign">Кампания: 7 дней</button><button class="btn" id="wResume" hidden>Продолжить кампанию</button></div></div>
+    </section>
     <section data-s="1" hidden>
       <div class="cards small" id="layoutCards"></div>
       <p class="note" id="layoutNote" hidden></p>
@@ -309,6 +312,16 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
     <div class="dlgbar"><button class="btn" id="resChron">Хроника</button><button class="btn" id="resStay">Смотреть дальше</button><button class="btn" id="resNew">Новая игра</button><button class="btn primary" id="resAgain">Ещё раз</button></div>
   </div>
 </div>
+<div class="modal" id="dayEnd" hidden role="dialog" aria-modal="true" aria-labelledby="deTitle">
+  <div class="dlg wide">
+    <h2 id="deTitle">Итоги дня</h2><p id="deText"></p>
+    <div class="resstats" id="deStats"></div>
+    <p class="muted" id="deSpent"></p>
+    <h3>Ночь</h3><p id="deNight"></p>
+    <h3>Утро</h3><p id="deNext"></p>
+    <div class="dlgbar"><button class="btn" id="deChron">Хроника</button><button class="btn primary" id="deNextBtn">Следующий день</button></div>
+  </div>
+</div>
 <div class="modal" id="chron" hidden role="dialog" aria-modal="true" aria-labelledby="chTitle">
   <div class="dlg wide chron">
     <div class="dlghead"><h2 id="chTitle">Хроника города</h2><button class="x" id="chronClose" aria-label="Закрыть">×</button></div>
@@ -325,7 +338,6 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
     <div class="cards">
       <button class="card" id="fpsAsHuman"><b>Выживший</b><small>Пистолет, 12 патронов в магазине. Беги, прячься, собирай патроны у погибших полицейских и солдат. Если укусят — станешь зомби и продолжишь за них.</small></button>
       <button class="card" id="fpsAsZombie"><b>Зомби</b><small>Быстрый бег, укус, чутьё: живые светятся сквозь стены, слышно их сердцебиение. Заражай как можно больше людей, пока тебя не упокоили.</small></button>
-      <button class="card" id="fpsAsDriver"><b>За рулём</b><small>Ближайшая машина — твоя: газ, тормоз, ручник, сигнал, вид из-за машины или из кабины. Можно таранить, сбивать и возить пассажиров автобуса. Врезался на скорости — машина разбита. Выживший садится в машину рядом клавишей E.</small></button>
     </div>
   </div>
 </div>
@@ -343,6 +355,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
     <div class="brand"><h1>Вспыш<span>ка</span></h1><span class="clock" id="clock">00:00</span></div>
     <div class="acts">
       <button class="btn primary" id="newCity">Новая игра</button>
+      <button class="btn" id="endDay" hidden title="Кампания: закончить день раньше утра, если зомби не осталось">Закончить день</button>
       <button class="btn day" id="dayNight" aria-pressed="false" title="Клавиша N"><i></i><span>Ночь</span></button>
       <button class="btn" id="pause" aria-pressed="false">Пауза</button>
       <button class="btn" id="speed">Скорость ×1</button>
@@ -3413,7 +3426,6 @@ function stepTraffic(dt) {
   carsCompactT -= dt; if (carsCompactT <= 0) { carsCompactT = 20; if (cars.some(c => c.gone)) cars = cars.filter(c => !c.gone); for (const n of RN) if (n.occ.length) n.occ = n.occ.filter(o => !o.gone && o.turn && o.turn.n === n); }
   for (const c of cars) {
     if (c.gone) { c.moving = false; continue; }
-    if (c.player && typeof stepPlayerCar === "function") { stepPlayerCar(c, dt); continue; } // за рулём игрок (drive.js)
     if (c.alarm > 0) c.alarm -= dt;
     // машина в полёте после взрыва
     if (c.z > 0 || c.vz) {
@@ -3809,7 +3821,7 @@ function stepServiceCar(c, dt) {
   if (c.abandonedSvc) return;
   if (c.leaving && !c.moving) c.moving = true;
   if (c.deployed && !SERVICE[c.service].crew) {
-    if (c.service === "tow") { const w = c.job && c.job.tow; if (w && !w.gone && !w.towedBy && !w.player) { w.towedBy = c; w.stopped = false; w.moving = false; clearCarCells(w); logT("tow", w.wreck ? "Эвакуатор забрал разбитую машину" : "Эвакуатор увёз брошенную машину", "good", 20); } releaseUnit(c); }
+    if (c.service === "tow") { const w = c.job && c.job.tow; if (w && !w.gone && !w.towedBy) { w.towedBy = c; w.stopped = false; w.moving = false; clearCarCells(w); logT("tow", w.wreck ? "Эвакуатор забрал разбитую машину" : "Эвакуатор увёз брошенную машину", "good", 20); } releaseUnit(c); }
     else if (c.service === "dump") { const r = c.job && c.job.dump; if (!machines.some(m => !m.gone && m.job && (m.job.ruin === r || m.job.demo === r))) releaseUnit(c); }
     else if (c.service === "mixer") { const b = c.job && c.job.build; if (!b || b.state !== "construct") releaseUnit(c); }
     else if (c.service === "bus") stepBusStop(c, dt);
@@ -3894,7 +3906,7 @@ function roadSiteFor(m, cur) {
 }
 function activeUnits(type) { return cars.filter(c => c.service === type && !c.gone && !c.wreck && !c.leaving && !c.abandonedSvc).length; }
 function stepServices(dt) {
-  for (const c of cars) if (c.service && !c.player) stepServiceCar(c, dt);
+  for (const c of cars) if (c.service) stepServiceCar(c, dt);
   stepServices2(dt);
   reports = reports.filter(r => simT - r.t < 40);
   dispatchT -= dt;
@@ -4159,6 +4171,8 @@ const SCENARIOS = {
   evac: { n: "Эвакуация", tag: "вывезти 150 · спасение", brief: "Город уже не удержать. Вывези вертолётами 150 человек, пока не стало поздно. Вертолётов всего пять, авиаударов нет.", limits: { evac: 5, strike: 0, army: 2, nuke: 0 } },
   mall: { n: "Последний рубеж", tag: "10 минут · волны", brief: "Выжившие собрались у торгового центра. С окраин идут волны зомби, каждая больше прежней. Сохрани хотя бы 40 человек у ТЦ в течение 10 минут.", limits: { army: 3, tank: 1, strike: 1, nuke: 0 }, time: 600 },
   purge: { n: "Зачистка", tag: "без лимита · охота", brief: "Вспышка уже везде: 150 зомби по всему городу. Уничтожь всех до последнего, но не потеряй больше 400 мирных.", limits: { army: 6, tank: 2, strike: 3, nuke: 1 } },
+  // кампания (campaign.js): не карточка, а кнопка в мастере; лимиты — бюджет дня, который штаб выдаёт каждое утро
+  campaign: { hidden: true, n: "Кампания", tag: "7 дней · город живёт", brief: "Один город на семь дней. Каждое утро штаб выдаёт бюджет по доверию, за ночь город приходит в себя, а с окраин идут новые беды.", limits: {} },
 };
 let scen = null, scenKey = "sandbox", uses = {}, scenT = 0, scenDone = false, radioQ = [], waveT = 0, wave = 0;
 function limitLeft(tool) { if (!scen || !scen.limits || scen.limits[tool] === undefined) return Infinity; return scen.limits[tool] - (uses[tool] || 0); }
@@ -4205,9 +4219,11 @@ function setupScenario(key, p0) {
     firsts.titan = true; spawnTitan();
     radio("Штаб: зачистить город. Беречь мирных", 1);
   }
+  if (key === "campaign") startCampaign();
 }
 function scenarioHud() {
   if (!scen || scenKey === "sandbox") return "";
+  if (scenKey === "campaign") return campaignHud();
   const c = lastCounts || counts(), left = scen.time ? Math.max(0, scen.time - scenT) : null, mm = left !== null ? mmss(left) : "";
   if (scenKey === "hospital") return `Осталось ${mm} · зомби ${c.Z} (нужно < 15) · погибших ${deaths} (не больше 200)`;
   if (scenKey === "bridges") return `Осталось ${mm} · держите мосты`;
@@ -4223,6 +4239,7 @@ function stepScenario(dt) {
   for (const r of radioQ) if (!r.done && simT >= r.t) { r.done = true; logE("Рация: " + r.text); onRadio(r.text); sfx.radio(); }
   if (!scen || scenDone || scenKey === "sandbox") return;
   scenT += dt;
+  if (scenKey === "campaign") { stepCampaign(dt); return; }
   const c = counts();
   if (scenKey === "hospital") { if (scenT >= scen.time) endScenario(c.Z < 15 && deaths <= 200, c.Z < 15 && deaths <= 200 ? "Вспышка сдержана. Город спасён" : "Не удалось сдержать вспышку"); else if (deaths > 200) endScenario(false, "Слишком много погибших"); }
   if (scenKey === "bridges") {
@@ -4889,7 +4906,7 @@ function stepRoutine(dt) {
     else if (a.hidden && a.homeTrip && Math.random() < act && !outbreak && !settings.curfew) { leaveShelter(a, false); a.homeTrip = false; a.dest = civDestination(a); }
   }
   // машин на улицах столько, сколько нужно в этот час
-  const moving = cars.filter(c => c.moving && !c.service && !c.player), target = Math.round(trafficN() * act);
+  const moving = cars.filter(c => c.moving && !c.service), target = Math.round(trafficN() * act);
   if (moving.length > target + 4) { const c = moving.find(c => !c.gas && (typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500)); if (c) { c.gone = true; c.moving = false; } } // кто едет заправляться, тот доедет
   else if (moving.length < target - 4 && !outbreak) spawnTraffic(2);
 }
@@ -5121,7 +5138,7 @@ const CHALLENGES = {
 let challenge = null, chT = 100, chDone = 0, chFail = 0;
 function challengeText() { if (!challenge) return ""; const C = CHALLENGES[challenge.k]; return `${C.n}: ${C.text(challenge)} · ${mmss(Math.max(0, challenge.left))}`; }
 function stepChallenges(dt) {
-  if (scenKey !== "sandbox" || !firsts.zombie || scenDone) return;
+  if (!(scenKey === "sandbox" || scenKey === "campaign") || !firsts.zombie || scenDone) return;
   if (challenge) {
     challenge.left -= dt; const C = CHALLENGES[challenge.k];
     if (C.fail && C.fail(challenge)) { chFail++; logE(`Директива «${C.n}» провалена`, "bad"); onBanner("Директива провалена"); hqRep(-1, `провалена директива «${C.n}»`); challenge = null; chT = rnd(90, 150); return; }
@@ -5161,6 +5178,10 @@ const ACHS = [
   ["cp", "Контроль", "КПП выявил 10 укушенных", () => cps.some(c => c.detained >= 10)],
   ["zap", "Под током", "Зомби сгорел на электрозаборе", () => !!lastLog.zap],
   ["day", "Вторые сутки", "Пережить первые сутки вспышки", () => dayN >= 2 && firsts.zombie],
+  // кампания (campaign.js): camp есть только там, где она подключена
+  ["camp3", "Трое суток", "Пережить три дня кампании", () => typeof camp !== "undefined" && !!camp && !!camp.days && camp.day >= 4],
+  ["camp7", "Неделя", "Выстоять в кампании семь дней", () => typeof camp !== "undefined" && !!camp && !!camp.days && camp.won && camp.wonBy === "days"],
+  ["campvac", "Чистый город", "Выиграть кампанию вакциной и зачисткой", () => typeof camp !== "undefined" && !!camp && !!camp.days && camp.won && camp.wonBy === "vac"],
 ];
 let achDone = {}, achT = 0, achNew = [];
 try { if (typeof localStorage !== "undefined") achDone = JSON.parse(localStorage.getItem("vspyshka-ach") || "{}"); } catch (e) {}
@@ -5223,6 +5244,7 @@ function fateLine(a) {
 function chronicle() {
   const c = counts(), out = [];
   out.push({ h: "Итог", lines: [`${(LAYOUTS[layoutKey] || {}).n || "Город"}, ${mmss(simT)} игры. Укусов ${bites}, погибших ${deaths}, спасено ${saved}, уничтожено зомби ${zkills}, вылечено ${cured}.`, firsts.fall ? "Город пал." : firsts.end ? "Вспышка подавлена." : `Сейчас в городе ${c.Z} зомби и ${c.H + c.I} живых.`] });
+  if (typeof campaignChronicle === "function" && camp && camp.days) out.push(campaignChronicle());
   const z = agents.find(a => a.zero); if (z) out.push({ h: "Нулевой пациент", lines: [fateLine(z)] });
   if (heroes.length) out.push({ h: "Герои", lines: heroes.map(h => `${HERO_KINDS[h.hero].n[0].toUpperCase() + HERO_KINDS[h.hero].n.slice(1)} ${fateLine(h)}`) });
   const shooters = agents.filter(a => (a.kills || 0) > 0 && !a.hero).sort((p, q) => q.kills - p.kills).slice(0, 4);
@@ -6017,7 +6039,6 @@ function resolveCarOverlaps(dt) {
     if (c.gone || c.z > 0 || c.towedBy || !(c.moving || c.stopped || c.tank)) continue;
     nearCars(c.x, c.y, 36, o => {
       if (o === c || o._i <= c._i || o.gone || o.z > 0 || o.towedBy || !(o.moving || o.stopped || o.tank)) return;
-      if (c.player || o.player) return; // машина игрока расталкивает соседей сама (drive.js)
       const cm = c.moving && !c.tank, om = o.moving && !o.tank;
       if (!cm && !om) return;
       const h = obbOverlap(c, o); if (!h) return;
@@ -6485,7 +6506,7 @@ function resetThreats() {
   threat = { noise: 0, hordeT: rnd(600, 840), hordes: [], hordeN: 0, refT: rnd(300, 480), cols: [], fed: null, lines: [] };
 }
 function cityNoise(v) { if (threat) threat.noise = Math.min(400, threat.noise + v); }
-const threatsOn = () => settings.threats !== false && (!scenKey || scenKey === "sandbox") && entries.length > 0;
+const threatsOn = () => settings.threats !== false && (!scenKey || scenKey === "sandbox" || scenKey === "campaign") && entries.length > 0;
 // стороны света: север — вверх карты
 function compass(dx, dy) { const a = Math.atan2(-dy, dx), k = Math.round(a / (Math.PI / 4)); return ["с востока", "с северо-востока", "с севера", "с северо-запада", "с запада", "с юго-запада", "с юга", "с юго-востока", "с востока"][((k % 8) + 8) % 8]; }
 const entryEdge = en => RE.find(e => e.id === en.e) || null;
@@ -6758,6 +6779,227 @@ function threatLabel() {
   if (threat.fed && threat.fed.phase === "cordon") { const left = Math.max(0, threat.fed.deadline - simT); s += ` · УЛЬТИМАТУМ ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")} · известно заражённых ${hq.known || 0}/${threat.fed.target}`; }
   const h = threat.hordes.find(h => !h.done); if (h) s += ` · орда ${compass(entries[h.en].x - W / 2, entries[h.en].y - H / 2)}: ${simT < h.emergeT ? "на подходе, около " + Math.round(h.n / 10) * 10 : h.left > 0 ? "выходит в поля" : "у города, " + (h.alive || 0)}`;
   return s;
+}
+
+/* ---------- кампания: город живёт несколько дней подряд ----------
+   Один город на всю кампанию. День идёт с восьми утра до шести утра следующего дня (сутки — 12 минут игры), в шесть —
+   экран итогов. «Ночь» проматывается: тела вывозят, пожары тушат, часть завалов разбирают и часть домов чинят,
+   жители расходятся по домам, беженцы в большинстве остаются жить, укушенных без вакцины уже не спасти.
+   Утром штаб выдаёт бюджет на день (лимиты инструментов) по доверию и по тому, что осталось со вчера, и присылает
+   событие дня — с каждым днём тяжелее. Цель — продержаться CAMP_DAYS дней или получить вакцину и зачистить город;
+   поражение — живых меньше CAMP_MIN_POP или доверие штаба (звёзды) упало до нуля.
+   Штамм вируса, вакцина, карантины, посты, лагеря и доверие штаба между днями не сбрасываются */
+const CAMP_DAYS = 7, CAMP_MIN_POP = 150, CAMP_HOUR0 = 8, CAMP_REP0 = 3;
+const CAMP_BASE = { police: 6, army: 4, tank: 1, strike: 2, evac: 2, supply: 3, nuke: 0 };
+const CAMP_TOOL_N = { police: "полиция", army: "военные", tank: "танки", strike: "авиаудары", evac: "вертолёты", supply: "припасы", nuke: "ядерный удар" };
+// события по дням (индекс — день минус один; дальше последнего — последнее): орда идёт через внешние угрозы (sim19.js),
+// очаг — зомби и укушенные в случайном квартале, ультиматум — внешнее оцепление федерального центра
+const CAMP_EVENTS = [null, ["refugees"], ["horde"], ["outbreak"], ["horde", "refugees"], ["outbreak", "ultimatum"], ["horde", "outbreak"]];
+const CAMP_EVENT_N = { refugees: "беженцы на въездах", horde: "орда с окраин", outbreak: "новый очаг в районе", ultimatum: "ультиматум федерального центра" };
+let camp = null;
+function campStars() { return clamp(Math.round(hq.rep), 0, 5); }
+function campStarsText(rep) { const s = clamp(Math.round(rep === undefined ? hq.rep : rep), 0, 5); return "★".repeat(s) + "☆".repeat(5 - s); }
+function campRuined() { let n = 0; for (const b of buildings) if (b.state !== "ok" || b.gutted) n++; return n; }
+function campSnap() { const c = counts(); return { deaths, saved, zkills, bites, cured, alive: c.H + c.I, ruined: campRuined() }; }
+// бюджет дня: база × доверие (от 0,6 при нуле звёзд до 1,6 при пяти) × рост по дням; половина неизрасходованного переносится;
+// ядерный удар штаб доверяет с пятого дня и только при пяти звёздах
+function campBudget(day, left) {
+  const k = (.6 + .2 * campStars()) * (1 + .08 * (day - 1)), b = {};
+  for (const t in CAMP_BASE) b[t] = Math.round(CAMP_BASE[t] * k) + Math.floor(((left && left[t]) || 0) * .5);
+  b.nuke = day >= 5 && campStars() >= 5 ? 1 : 0;
+  return b;
+}
+function campBudgetText(b) { return Object.keys(b).filter(t => b[t] > 0).map(t => `${CAMP_TOOL_N[t]} ${b[t]}`).join(", ") || "ничего"; }
+function startCampaign() {
+  camp = { day: 0, days: [], budget: {}, event: "", kinds: null, over: false, won: false, pending: false, dayT0: 0, start: null, night: null, next: null, chkT: 0 };
+  hq.rep = CAMP_REP0; // аванс доверия: три звезды
+  world.cycle = true; world.rate = 24 / 720;
+  if (threat) threat.hordeT = Math.max(threat.hordeT, 900); // первый день без орды: вспышка только начинается
+  campNewDay();
+  logE(`Кампания: продержаться ${CAMP_DAYS} дней или получить вакцину и зачистить город. Живых должно оставаться не меньше ${CAMP_MIN_POP}`, "good");
+  radio("Штаб: вы назначены руководить обороной города. Отчёт каждое утро в шесть, бюджет на день — по результатам", 2);
+}
+// утро: новый день, бюджет, событие
+function campNewDay() {
+  camp.day++; dayN = camp.day; camp.pending = false;
+  const nx = camp.next || campPlanNext(camp.day); camp.next = null;
+  camp.budget = nx.budget; camp.kinds = nx.kinds; scen.limits = { ...camp.budget }; uses = {};
+  camp.dayT0 = simT; camp.chkT = 0; camp.start = campSnap();
+  world.hour = world.target = CAMP_HOUR0; world.cycle = true; if (!world.rate) world.rate = 24 / 720;
+  camp.event = nx.kinds ? campEvent(nx.kinds) : "";
+  if (threat && !(nx.kinds || []).includes("horde")) threat.hordeT = Math.max(threat.hordeT, 420); // без события — орда не с самого утра
+  logE(`День ${camp.day} из ${CAMP_DAYS}. Бюджет штаба: ${campBudgetText(camp.budget)}${camp.event ? ". " + camp.event[0].toUpperCase() + camp.event.slice(1) : ""}`, "good");
+  if (camp.day > 1) { radio(`Штаб: доброе утро, день ${camp.day}. Доверие ${campStarsText()}. ${camp.event ? "Разведка: " + camp.event : "Разведка: окраины спокойны"}`, 1); if (typeof onBanner === "function") onBanner(`День ${camp.day}`); }
+  if (typeof renderTools === "function") renderTools();
+}
+// что ждёт завтра: бюджет с учётом остатка и событие — считается на экране итогов, применяется утром
+function campPlanNext(day) {
+  const left = {};
+  if (scen && scen.limits) for (const t in scen.limits) left[t] = Math.max(0, limitLeft(t));
+  const kinds = CAMP_EVENTS[Math.min(day - 1, CAMP_EVENTS.length - 1)];
+  return { budget: campBudget(day, day > 1 ? left : null), kinds: kinds ? kinds.slice() : null };
+}
+function campEvent(kinds) {
+  const names = [], canThreat = typeof threatsOn === "function" && threatsOn() && threat;
+  for (let k of kinds) {
+    if ((k === "horde" || k === "refugees") && !canThreat) k = "outbreak"; // угрозы выключены или въездов нет — очаг в городе
+    if (k === "horde") { threat.hordeT = rnd(20, 60); }
+    else if (k === "refugees") { threat.refT = rnd(20, 60); }
+    else if (k === "outbreak") campOutbreak();
+    else if (k === "ultimatum") {
+      // внешнее оцепление ставится по числу известных штабу зомби (stepFederal): подаём ему повод
+      if (canThreat) { threat.fed = null; threat.fedDone = false; hq.known = Math.max(hq.known || 0, 150); }
+      else campOutbreak();
+    }
+    if (!names.includes(CAMP_EVENT_N[k])) names.push(CAMP_EVENT_N[k]);
+  }
+  return names.join(", ");
+}
+// новый очаг: зомби и несколько укушенных в случайном городском квартале подальше от центра
+function campOutbreak() {
+  const cand = blocks.filter(b => !b.rural && b.kind !== "plaza" && b.kind !== "lot" && cityK(b.cx, b.cy) > .45);
+  const b = cand.length ? pick(cand) : { cx: W / 2 + rnd(-300, 300), cy: H / 2 + rnd(-200, 200) };
+  const n = 6 + camp.day * 4;
+  for (let i = 0; i < n; i++) spawnZombieAt(b.cx + rnd(-40, 40), b.cy + rnd(-40, 40));
+  for (let i = 0; i < 4; i++) { const [x, y] = freeNear(b.cx, b.cy, 60); const a = newAgent("civ", x, y); nameFor(a); a.local = true; a.bitten = true; a.incT = rnd(20, 90); }
+  const where = typeof placeName === "function" ? placeName(b.cx, b.cy) : "в городе";
+  logE(`Новый очаг ${where}: около ${n} зомби`, "bad"); radio(`Диспетчер: нападения ${where}, звонят со всего квартала. Это новый очаг`, 3); interest(b.cx, b.cy, 8);
+}
+function stepCampaign(dt) {
+  if (!camp || camp.over || camp.pending) return;
+  dayN = camp.day; world.cycle = true; // в кампании время идёт само
+  camp.chkT -= dt; if (camp.chkT > 0) return; camp.chkT = 1;
+  const c = counts();
+  if (c.H + c.I < CAMP_MIN_POP) return campOver(false, `Город потерян: живых осталось меньше ${CAMP_MIN_POP}`);
+  if (hq.rep <= 0) return campOver(false, "Штаб отстранил вас от руководства: доверие упало до нуля");
+  if (vaccineReady && c.Z === 0 && c.I === 0 && !agents.some(a => a.state === "dead" && a.reanimate && !a.burnt)) return campOver(true, "Вакцина получена, город зачищен", "vac");
+  // утро: день кончается в шесть (не раньше чем через две минуты после начала — часы могли стоять на утре)
+  if (world.hour >= 6 && world.hour < CAMP_HOUR0 && simT - camp.dayT0 > 120) campEndDay(false);
+}
+function campOver(win, text, by) { camp.over = true; camp.won = win; camp.wonBy = win ? by || "days" : ""; dayN = camp.day; endScenario(win, text); }
+// «Закончить день» раньше утра: только когда зомби в городе не осталось
+function campEndEarly() {
+  if (!camp || camp.over || camp.pending || scenDone) return false;
+  if (counts().Z > 0) return false;
+  campEndDay(true); return true;
+}
+// шесть утра: итоги дня, оценка штаба, ночь и план на завтра; дальше — экран итогов, утро начинается по «Следующий день»
+function campEndDay(early) {
+  const c = counts(), s = camp.start, spent = {}; for (const t in scen.limits) spent[t] = uses[t] || 0;
+  const ruined = campRuined();
+  const sum = { day: camp.day, event: camp.event, early: !!early, alive: c.H + c.I, dead: deaths - s.deaths, saved: saved - s.saved, zkills: zkills - s.zkills, bites: bites - s.bites, cured: cured - s.cured, Z: c.Z, ruined, ruinedNew: Math.max(0, ruined - s.ruined), spent, trust0: hq.rep };
+  // оценка штаба: спокойный день — звезда; много погибших или к утру полно зомби — минус звезда
+  const pop = Math.max(1, s.alive); let d = 0, why = "";
+  if (sum.dead <= pop * .03 && c.Z < 10) { d = 1; why = "спокойный день: мало погибших, зомби почти нет"; }
+  else if (sum.dead > pop * .15 || c.Z > 60) { d = -1; why = sum.dead > pop * .15 ? "за день погибло слишком много людей" : "к утру в городе слишком много зомби"; }
+  if (d) { hq.rep = clamp(hq.rep + d, -5, 5); logE(`Доверие штаба ${d > 0 ? "выросло" : "упало"}: ${why}. Сейчас ${campStarsText()}`, d > 0 ? "good" : "bad"); }
+  sum.trust = hq.rep; sum.trustD = d; sum.why = why;
+  camp.days.push(sum); camp.pending = true;
+  logE(`Итоги дня ${camp.day}: живых ${sum.alive}, погибло ${sum.dead}, спасено ${sum.saved}, зомби уничтожено ${sum.zkills}, разрушено домов ${sum.ruinedNew}, доверие ${campStarsText()}`, "good");
+  if (hq.rep <= 0) return campOver(false, "Штаб отстранил вас от руководства: доверие упало до нуля");
+  if (camp.day >= CAMP_DAYS) return campOver(true, `Город выстоял ${CAMP_DAYS} дней`);
+  camp.night = campNight(); camp.next = campPlanNext(camp.day + 1);
+  if (typeof onDayEnd === "function") onDayEnd(sum);
+  return sum;
+}
+function campNextDay() { if (!camp || camp.over || !camp.pending) return false; campNewDay(); return true; }
+// ночь: город приходит в себя. Возвращает отчёт для экрана итогов
+function campNight() {
+  const R = { bodies: 0, cars: 0, rubble: 0, repaired: 0, home: 0, refStay: 0, refLeft: 0, turned: 0, cured: 0, forces: 0 };
+  // пожары потушены, тела вывезены
+  fires = []; for (const b of buildings) b.fire = 0; for (const c of cars) { c.burnT = 0; c.boomT = 0; }
+  for (const a of agents) if (a.state === "dead") { collectBody(a, null); R.bodies++; }
+  // укушенные: с вакциной — вылечены, без неё — обратились за ночь
+  for (const a of agents) {
+    if (a.state !== "alive" || a.role === "zombie" || !a.bitten || a.post) continue;
+    if (vaccineReady) { a.bitten = false; a.immune = true; a.incT = 0; cured++; R.cured++; continue; }
+    if (a.hideB) campLeave(a); if (a.detained) { a.detained.detained = Math.max(0, (a.detained.detained || 1) - 1); a.detained = null; } a.hidden = false; a.onBus = null;
+    deaths++; turn(a); a.riseT = 0; R.turned++;
+  }
+  // завалы: разобрана половина руин, треть из них отстроена; половина выгоревших остовов отремонтирована; стройки завершены
+  const ruins = buildings.filter(b => b.state === "ruin" || b.state === "collapsing").sort(() => Math.random() - .5);
+  ruins.slice(0, Math.ceil(ruins.length / 2)).forEach(b => { campClearRuin(b); R.rubble++; if (Math.random() < .35) { campRestore(b); R.repaired++; } });
+  for (const b of buildings) if (b.state === "construct") { campRestore(b); R.repaired++; }
+  for (const b of buildings) if (b.gutted && b.state === "ok" && Math.random() < .5) { campRestore(b); R.repaired++; }
+  for (const b of buildings) if (b.state === "ok" && b.hp < b.maxHp) b.hp = Math.min(b.maxHp, b.hp + (b.maxHp - b.hp) * .4);
+  // еда и боеприпасы подвезены
+  for (const b of buildings) if (b.cap) { b.food = b.cap * 1.2; b.hungryT = 0; }
+  for (const c of camps) { c.food = Math.max(c.food, 240); c.hungryT = 0; }
+  for (const d of depots) d.ammo = d.max; for (const g of gens) g.fuel = g.max;
+  // люди: по домам, паника прошла; беженцы (без семьи в городе) в большинстве остаются и получают жильё
+  const homes = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && b.state === "ok" && !b.gutted && (b.kind === "apt" || b.kind === "house"));
+  for (const a of agents) {
+    if (a.state !== "alive" || a.role === "zombie") continue;
+    if (a.role === "civ") {
+      if (a.hideB) campLeave(a); if (a.onBus) a.onBus = null; if (!a.detained) a.hidden = false;
+      a.panic = 0; a.alert = false; a.homeGoal = false; a.dest = null; a.hideGoal = null; a.campGoal = null; a.forage = null; a.busGoal = null; a.grabT = 0; a.refCol = 0; a.hp = Math.min(100, a.hp + 40);
+      if (!a.fam && !a.local && !a.zero) {
+        if (Math.random() < .7 && homes.length) { a.local = true; a.home = pick(homes)[1]; R.refStay++; }
+        else { a.state = "saved"; a.leftCity = true; R.refLeft++; continue; }
+      }
+      const hb = a.home >= 0 ? buildings[a.home] : null;
+      if (hb && hb.door && hb.state === "ok" && !hb.gutted && !a.detained && Math.random() < .8) { const [x, y] = freeNear(hb.door[0], hb.door[1], 20); a.x = x; a.y = y; R.home++; }
+      continue;
+    }
+    // силовики и службы на базы; остаются посты, вышки, КПП, палатки, герои и федеральные войска
+    if (a.hero || a.post || a.cp || a.tent || a.fed || a.detained || a.player) continue;
+    if (["army", "police", "medic", "fire", "worker", "builder", "sanitar"].includes(a.role) && !camps.some(c => Math.abs(c.x - a.x) < c.r + 30 && Math.abs(c.y - a.y) < c.r + 30)) { if (a.hideB) campLeave(a); a.state = "saved"; a.leftCity = true; a.hidden = false; a.unit = null; a.withdraw = false; R.forces++; }
+  }
+  // служебные машины уехали, брошенные и разбитые увезены, техника вывезена
+  for (const c of cars) {
+    if (c.gone) continue;
+    if (c.service) { for (const a of c.crew || []) if (a.unit === c && a.state === "alive") { a.state = "saved"; a.leftCity = true; a.unit = null; } c.crew = []; c.gone = true; c.moving = false; continue; }
+    if (c.wreck || c.stopped || c.towedBy) { clearCarCells(c); c.gone = true; c.moving = false; R.cars++; }
+  }
+  for (const m of machines) m.gone = true; machines = [];
+  evac = null; strikes = []; resetSquads();
+  // штаб: тревога снята, директив нет, внешнее оцепление и шум города — тоже
+  resetResponse(); alertT = simT; hq.known = 0; hq.withdrawnT = 0; challenge = null; chT = 60;
+  if (threat) { threat.noise = 0; if (threat.fed) { threat.fed.phase = "lifting"; threat.fed.liftT = simT; } }
+  fieldT = 0; barrDirty = true; gridDirty = true;
+  logE(`Ночь: тела вывезены (${R.bodies}), машины убраны (${R.cars}), завалы разобраны у ${R.rubble} домов, отремонтировано ${R.repaired}, жители вернулись домой (${R.home}), беженцев осталось ${R.refStay}, уехало ${R.refLeft}${R.turned ? ", обратились за ночь " + R.turned : ""}${R.cured ? ", вылечено " + R.cured : ""}`, "good");
+  return R;
+}
+function campLeave(a) { const b = a.hideB; if (b && b.door) leaveShelter(a, false); else { if (b) b.occ = (b.occ || []).filter(o => o !== a); a.hideB = null; a.hidden = false; a.onRoof = false; } }
+// завал вокруг руины вывезен: площадка готова под стройку
+function campClearRuin(b) {
+  const [x0, y0, x1, y1] = rubbleBounds(null, b);
+  for (let y = y0; y < y1; y += CS) for (let x = x0; x < x1; x += CS) if (cellAt(x, y) === 8) clearRubbleAt(b, x, y);
+  b.state = "ruin"; b.cT = 0; b.clearAssigned = false; b.rubble0 = undefined; b.clearedT = simT;
+  if (typeof onSiteCleared === "function") onSiteCleared(b);
+}
+// дом снова цел: как в конце стройки (sim7.js)
+function campRestore(b) {
+  if (b.state !== "ok") campClearRuin(b);
+  unfenceSite(b);
+  b.state = "ok"; b.hp = b.maxHp; b.scorch = 0; b.fire = 0; b.prog = 1; b.rebuilt = true; b.clearAssigned = false; b.fireAssigned = false; b.gutted = false; b.gutT = 0; b.cT = 0; b.ruinH = 0; b.topple = false; b.impacted = false; b.nest = 0; b.nestT = 0; b.doorHp = b.doorMax || b.doorHp; b.occ = b.occ || [];
+  footCells(b, i => { grid[i] = 3; underRubble[i] = 0; });
+  if (b.gutDoor || !b.door) { b.gutDoor = false; const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; for (const [x, y] of b.rot !== undefined ? (b.doorPref ? [b.doorPref] : []) : [[cx, b.y1 + 5], [cx, b.y0 - 5], [b.x0 - 5, cy], [b.x1 + 5, cy]]) { const c = cellAt(x, y); if (c === 0 || c === 1 || c === 2 || c === 7) { b.door = [x, y]; break; } } }
+  for (const a of agents) if (a.buildB === b) { a.buildB = null; a.done = true; }
+}
+// строка цели в кампании
+function campaignHud() {
+  if (!camp) return "";
+  const c = lastCounts || counts(), h = world.hour, left = h >= CAMP_HOUR0 ? 30 - h : Math.max(0, 6 - h);
+  let s = `День ${camp.day} из ${CAMP_DAYS} · ${hourLabel()} · до утра ${Math.ceil(left)} ч · живых ${c.H + c.I} (не меньше ${CAMP_MIN_POP}) · зомби ${c.Z} · доверие ${campStarsText()}`;
+  if (camp.event) s += ` · ${camp.event}`;
+  if (c.Z === 0 && !camp.pending && !camp.over) s += " · зомби нет: можно закончить день";
+  if (challenge) s += ` · ${challengeText()}`;
+  return s;
+}
+// хроника: итоги по дням
+function campaignChronicle() {
+  const lines = camp.days.map(d => `День ${d.day}${d.event ? " (" + d.event + ")" : ""}: живых ${d.alive}, погибло ${d.dead}, спасено ${d.saved}, зомби уничтожено ${d.zkills}, разрушено домов ${d.ruinedNew}, доверие ${campStarsText(d.trust)}${d.trustD ? " (" + d.why + ")" : ""}`);
+  if (!camp.over && !camp.pending) lines.push(`День ${camp.day} идёт: ${camp.event || "спокойное утро"}, бюджет ${campBudgetText(camp.budget)}`);
+  if (camp.over) lines.push(camp.won ? (camp.wonBy === "vac" ? "Кампания выиграна: вакцина получена, город зачищен" : `Кампания выиграна: город выстоял ${CAMP_DAYS} дней`) : "Кампания проиграна");
+  return { h: "Дни кампании", lines };
+}
+// состояние кампании из сохранения (save.js): лимиты дня — из бюджета
+function loadCampaignState(S) {
+  camp = S.camp || null;
+  if (!camp) return;
+  if (scen) scen.limits = { ...camp.budget };
+  dayN = camp.day; world.cycle = true; world.rate = 24 / 720;
 }
 
 /* ---------- 3D-сцена: город ---------- */
@@ -11213,30 +11455,22 @@ const senseMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THR
 senseMesh.count = 0; senseMesh.frustumCulled = false; senseMesh.renderOrder = 9; scene.add(senseMesh);
 
 function startFps(mode) {
-  let a = null, car = null;
+  let a = null;
   const near0 = (pred) => { let best = null, bd = 1e9; for (const b of agents) { if (!pred(b)) continue; const d = Math.hypot(X(b.x) - camC.tx, Z(b.y) - camC.tz); if (d < bd) { bd = d; best = b; } } return best; };
   if (mode === "human") { a = near0(b => b.state === "alive" && b.role === "civ" && !b.bitten); if (!a) return; if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; }
-  else if (mode === "drive") {
-    // за руль ближайшей к камере машины садится ближайший житель (drive.js)
-    car = nearestDriveCar(camC.tx + W / 2, camC.tz + H / 2); a = near0(b => b.state === "alive" && b.role === "civ" && !b.bitten && !b.hidden);
-    if (!car || !a) { warn("Рядом нет машины, в которую можно сесть"); return; }
-    if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; const [dx, dy] = carDoor(car, 1); a.x = dx; a.y = dy;
-  }
   else { a = near0(b => b.state === "alive" && b.role === "zombie") || near0(b => b.state === "alive" && b.role === "civ"); if (!a) return; if (a.role !== "zombie") turn(a); a.riseT = 0; a.zhp = 8; }
   fps.on = true; fps.mode = mode; fps.a = a; a.player = true; fps.yaw = a.dir; fps.pitch = 0; fps.score = 0; fps.lastHp = a.hp; fps.startT = simT;
   followA = null; cine = false; thirdPerson = false; tool = "watch"; renderTools();
   camera.fov = 72; camera.updateProjectionMatrix();
   $("fpsHud").hidden = false; $("fpsHelp").hidden = false; $("fpsPause").hidden = true; document.body.classList.add("fps");
-  if (car) enterCar(a, car);
-  fpsMsg(mode === "human" ? "Ты выживший. Найди патроны у погибших полицейских и солдат, держись подальше от толп." : mode === "drive" ? "Ты за рулём. W — газ, S — тормоз, Пробел — ручник, H — сигнал, V — вид из кабины, E — выйти." : "Ты зомби. Догоняй людей и кусай. Красным светятся живые сквозь стены.");
+  fpsMsg(mode === "human" ? "Ты выживший. Найди патроны у погибших полицейских и солдат, держись подальше от толп." : "Ты зомби. Догоняй людей и кусай. Красным светятся живые сквозь стены.");
   lockPointer();
 }
 function stopFps() {
-  if (fps.mode === "drive" && drive.car) exitCar();
   if (fps.a) fps.a.player = false;
   fps.on = false; fps.a = null; vm.visible = false; flashlight.intensity = 0; senseMesh.count = 0;
   camera.fov = 42; camera.updateProjectionMatrix();
-  $("fpsHud").hidden = true; $("fpsHelp").hidden = true; $("fpsPause").hidden = true; document.body.classList.remove("fps"); document.body.classList.remove("drive"); $("cv").style.filter = "";
+  $("fpsHud").hidden = true; $("fpsHelp").hidden = true; $("fpsPause").hidden = true; document.body.classList.remove("fps"); $("cv").style.filter = "";
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function lockPointer() { try { const p = cv.requestPointerLock && cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
@@ -11255,10 +11489,8 @@ window.addEventListener("keyup", e => { fps.keys[e.code] = false; });
 function reloadPlayer() { const a = fps.a; if (a.reload <= 0 && a.mag < a.magMax && a.ammo > 0) { a.reload = 1.8; sfx.radio && play("thud", a.x, a.y, .3); } }
 function useNearby() {
   const a = fps.a; if (!a) return;
-  if (fps.mode === "drive") { exitCar(); return; }
   if (fps.mode === "human") {
-    // сесть в стоящую рядом машину (drive.js); иначе подобрать патроны и оружие у погибших
-    const c = carNearAgent(a); if (c) { enterCar(a, c); fpsMsg("Ты за рулём. W — газ, S — тормоз, Пробел — ручник, H — сигнал, V — вид из кабины, E — выйти."); return; }
+    // подобрать патроны и оружие у погибших
     let got = 0; near(a.x, a.y, 10, b => { if (b !== a && b.state === "dead" && b.armed && (b.mag + b.ammo) > 0) { got += b.mag + b.ammo; if (b.role === "army" && a.magMax < 30) { a.magMax = 30; fpsMsg("Подобран автомат"); } b.mag = 0; b.ammo = 0; } });
     if (got) { a.ammo += got; fpsMsg(`Подобрано патронов: ${got}`); } else fpsMsg("Рядом нечего взять");
   }
@@ -11274,7 +11506,6 @@ function playerMove(a, dt) {
 function fpsStep(dt) {
   const a = fps.a;
   if (!a) return;
-  if (fps.mode === "drive") return driveStep(dt);
   // игрок погиб или обратился
   if (fps.mode === "human" && a.role === "zombie") { fps.mode = "zombie"; a.zhp = 8; fpsMsg("Ты обратился. Теперь ты один из них — кусай живых."); }
   if (a.state === "dead") {
@@ -11318,7 +11549,6 @@ function playerShoot(a) {
 // камера в глазах персонажа
 function fpsCamera(dt) {
   const a = fps.a; if (!a) return;
-  if (fps.mode === "drive" && drive.car) return driveCamera(dt);
   const moving = Math.hypot(a.vx, a.vy) > 2; fps.bob += dt * Math.hypot(a.vx, a.vy) * .7;
   const lying = a.state === "dead";
   const h = lying ? 1.2 : (fps.mode === "zombie" ? 6.1 : 6.6) * a.size + (moving ? Math.sin(fps.bob) * .18 : 0);
@@ -11361,284 +11591,6 @@ $("playSelf").addEventListener("click", () => { $("fpsChoose").hidden = false; }
 $("fpsChooseClose").addEventListener("click", () => { $("fpsChoose").hidden = true; });
 $("fpsAsHuman").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("human"); });
 $("fpsAsZombie").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("zombie"); });
-
-/* ---------- за рулём: игрок ведёт машину ----------
-   Третий вариант режима от первого лица (fps.mode === "drive"). Машина с c.player снимается с полосы (c.lane = null) и едет
-   свободно: газ W, тормоз и задний ход S, руль A/D (на скорости поворачивает слабее), ручник Пробел, сигнал H. Стены, заборы,
-   завалы и вода — по клеткам, как у танка (stepTanks); другие машины — по пересечению кузовов (obbOverlap); наезды — carHitPeople.
-   Остальной поток видит машину игрока как обычную: scanAhead, зебры и vehicleAt смотрят только c.x, c.y, c.ang, c.v, c.moving.
-   Физика живёт в stepPlayerCar и не трогает DOM, поэтому её можно гонять без браузера (tests/drive.test.js) */
-const drive = { car: null, cabin: false, in: { gas: false, brake: false, steer: 0, hand: false, horn: false }, mouseT: -1e9, hornCd: 0, crashCd: 0, hits: 0, cam: null, help: "" };
-const DRIVE_REV = 12; // задний ход, ед./с
-const DRIVE_HELP = "W — газ · S — тормоз и задний ход · A / D — руль · Пробел — ручник · H — сигнал · V — вид из кабины · E — выйти · мышь — камера · Esc — пауза";
-// в какую машину можно сесть: не разбитую, не горящую, не службу с экипажем в кабине (высадившую экипаж или брошенную — можно)
-function canDrive(c, needSlow) {
-  if (!c || c.gone || c.wreck || c.crushed || c.towedBy || c.tank || c.z > 0 || c.vz || c.burnT > 0 || c.player) return false;
-  if (c.service && SERVICE[c.service] && SERVICE[c.service].crew && !c.deployed && !c.abandonedSvc) return false;
-  if (c.gas && c.gas.pts && c.gas.phase === "fuel") return false;
-  if (needSlow && Math.abs(c.v) > 6) return false;
-  return true;
-}
-// машина рядом с человеком, в которую он может сесть: стоящая или едущая медленно, в пределах вытянутой руки от кузова
-function carNearAgent(a) {
-  let best = null, bd = 1e9;
-  nearCars(a.x, a.y, 40, c => { if (!canDrive(c, true)) return; const d = Math.hypot(c.x - a.x, c.y - a.y) - 10 * (c.len || 1); if (d < 9 && d < bd) { bd = d; best = c; } });
-  return best;
-}
-// ближайшая к точке машина для старта режима: сначала стоящие на улице, потом едущие, потом припаркованные во дворах
-function nearestDriveCar(x, y) {
-  let best = null, bd = 1e9;
-  for (const c of cars) { if (!canDrive(c)) continue; const d = Math.hypot(c.x - x, c.y - y) + (c.moving && !c.stopped && Math.abs(c.v) > 6 ? 300 : 0) + (c.v === undefined ? 150 : 0); if (d < bd) { bd = d; best = c; } }
-  return best;
-}
-// точка у двери: слева по ходу (водительская), если там стена — справа, иначе где свободно
-function carDoor(c, side = 1) {
-  const [, hw] = carHalf(c), sx = Math.sin(c.ang), cx = Math.cos(c.ang);
-  for (const s of [side, -side]) { const x = c.x + sx * (hw + 3.2) * s, y = c.y - cx * (hw + 3.2) * s; if (!blocked(x, y) && cellAt(x, y) !== 8 && !vehicleAt(x, y)) return [x, y]; }
-  return freeNear(c.x, c.y, 16);
-}
-// люди, оказавшиеся внутри кузова (в стоящую машину можно зайти пешком), выходят к ближнему борту — иначе машина на малом ходу
-// встаёт перед ними, а они не могут выйти из-под неё: тупик
-function evictFromCar(c, skip) {
-  const [hl, hw] = carHalf(c), ca = Math.cos(c.ang), sa = Math.sin(c.ang);
-  near(c.x, c.y, hl + 6, a => {
-    if (a === skip || a.state !== "alive" || a.hidden || a.z > .5) return;
-    const dx = a.x - c.x, dy = a.y - c.y, al = dx * ca + dy * sa, lt = -dx * sa + dy * ca;
-    if (Math.abs(al) > hl + 1 || Math.abs(lt) > hw + 1) return;
-    const side = lt >= 0 ? 1 : -1, x = c.x + ca * al - sa * (hw + 3) * side, y = c.y + sa * al + ca * (hw + 3) * side;
-    if (!blocked(x, y)) { a.x = x; a.y = y; } else { const [fx, fy] = freeNear(c.x, c.y, 18); a.x = fx; a.y = fy; }
-    a.vx = a.vy = 0;
-  });
-}
-function enterCar(a, c) {
-  // припаркованные во дворах и у баз машины (layout.js) — только кузов без полей движения: дополняем до обычной машины
-  if (c.v === undefined || c.spd === undefined) { const D = newCar(); for (const k in D) if (c[k] === undefined) c[k] = D[k]; if (!c.cells) for (const i of rotCells(c.x, c.y, 17 * (c.len || 1), 8, c.ang)) if (grid[i] === 5) { grid[i] = roadMask[i] === 1 ? 0 : 2; fieldT = 0; } }
-  // гражданская машина на ходу: водителя вытаскивают из-за руля, он в панике бежит; полиция обращает внимание
-  if (c.moving && !c.stopped && !c.service && !c.free) {
-    const [x, y] = carDoor(c, 1); const d = newAgent("civ", x, y); d.panic = 1; nameFor(d);
-    logT("carjack", "Угон: водителя вытащили из машины посреди улицы", "bad", 15); reports.push({ x: c.x, y: c.y, t: simT, kind: "carjack" }); interest(c.x, c.y, 2);
-  }
-  if (c.turn) { const i = c.turn.n.occ.indexOf(c); if (i >= 0) c.turn.n.occ.splice(i, 1); }
-  if (c.gas) cancelGas(c);
-  if (c.cells) clearCarCells(c);
-  if (c.service) { if (c.job && c.job.shelter) c.job.shelter.busAssigned = false; c.deployed = false; c.leaving = false; }
-  c.lane = null; c.turn = null; c.next = null; c.park = null; c.trip = null; c.goal = null; c.over = 0; c.latOff = c.latTgt = 0; c.offx = c.offy = 0;
-  c.wait = 0; c.stallT = 0; c.panic = false; c.flee = false; c.yieldTo = null; c.jam = false; c.towAssigned = true; // эвакуатор за ней не едет
-  c.player = true; c.moving = true; c.stopped = false; c.free = false; c.steer = 0; c.slide = 0;
-  if (c.pdmg === undefined) c.pdmg = Math.min(.6, (c.dmg || 0) * .1);
-  if (c.fuel === undefined) c.fuel = 1;
-  a.hidden = true; a.onBus = c; a.hideB = null; a.busGoal = null; a.vx = a.vy = 0; a.x = c.x; a.y = c.y; a.panic = 0;
-  evictFromCar(c, a);
-  drive.car = c; drive.cabin = false; drive.cam = null; drive.hits = 0;
-  fps.mode = "drive"; fps.yaw = c.ang; fps.pitch = 0;
-  if (typeof document !== "undefined") { document.body.classList.add("drive"); drive.help = drive.help || $("fpsHelp").textContent; $("fpsHelp").textContent = DRIVE_HELP; }
-}
-// выйти: машина остаётся стоять, где встала (клетки под ней — как у брошенной, её можно взять снова); пассажиры автобуса или скорой
-// выходят только у лагеря, укрытия или больницы, иначе ждут в салоне
-function exitCar() {
-  const c = drive.car, a = fps.a; if (!c) return;
-  drive.car = null; c.player = false; c.steer = 0; c.slide = 0; c.moving = false; c.stopped = true; c.stopT = simT; c.wait = 0; c.towAssigned = false;
-  c.dir = dirOf(Math.cos(c.ang), Math.sin(c.ang));
-  if (c.wreck || c.z > 0 || c.vz) { c.v = 0; }
-  else { c.v = 0; c.free = true; markCarCells(c); evictRect(c.x - 13, c.y - 13, c.x + 13, c.y + 13); }
-  if (c.service) { c.abandonedSvc = true; c.deployed = false; releaseJob(c.job); for (const m of c.crew || []) if (m.unit === c) { m.unit = null; m.job = null; m.done = false; } c.crew = []; c.leaving = false; }
-  const out = unloadPassengers(c);
-  if (a) { a.hidden = false; a.onBus = null; const [x, y] = carDoor(c, 1); a.x = x; a.y = y; a.vx = a.vy = 0; a.dir = c.ang; fps.yaw = c.ang; fps.pitch = 0; }
-  fps.mode = "human";
-  if (typeof document !== "undefined") { document.body.classList.remove("drive"); if (drive.help) $("fpsHelp").textContent = drive.help; if (out) fpsMsg(out); else if (c.passengers && c.passengers.length) fpsMsg("Пассажиры ждут в салоне: высади их у лагеря, укрытия или больницы"); }
-}
-function unloadPassengers(c) {
-  const P = c.passengers; if (!P || !P.length) return "";
-  const n = P.length, place = () => { const [x, y] = freeNear(c.x, c.y, 16); return [x, y]; };
-  const hb = typeof hospitalB === "function" ? hospitalB() : null;
-  if (c.service === "ambulance" && hb && Math.hypot(hb.door[0] - c.x, hb.door[1] - c.y) < 70) { hospitalIntake(c); return `Раненых приняли в больнице: ${n}`; }
-  const camp = (camps || []).find(k => Math.hypot(k.gate[0] - c.x, k.gate[1] - c.y) < 90);
-  if (camp) { for (const p of P) { p.hidden = false; p.onBus = null; [p.x, p.y] = place(); p.panic = 0; p.dest = null; p.campGoal = camp; } c.passengers = []; logE(`Автобус привёз ${n} человек в лагерь`, "good"); first("busevac", "Первый автобус довёз людей до лагеря", "good"); return `Пассажиры вышли и идут в лагерь: ${n}`; }
-  const sh = buildings.find(b => b.door && b.state === "ok" && !b.gutted && b.occ && b.kind !== "hospital" && Math.hypot(b.door[0] - c.x, b.door[1] - c.y) < 45 && b.occ.length + n <= (b.cap || 20));
-  if (sh) { for (const p of P) { p.hidden = false; p.onBus = null; p.panic = 0; p.dest = null; enterShelter(p, sh); } c.passengers = []; logE(`Автобус привёз ${n} человек в укрытие`, "good"); return `Пассажиры зашли в укрытие: ${n}`; }
-  return "";
-}
-// машину подорвало, смяло танком, разбило: водителя выбрасывает наружу
-function crashOut(c, hurt, why) {
-  const a = fps.a;
-  if (c.wreck && !c.stopped && !(c.z > 0 || c.vz)) abandonCar(c, "crash");
-  exitCar();
-  if (a && a.state === "alive") { a.hp -= hurt; a.panic = 1; a.grabT = 1.2; if (a.hp <= 0) kill(a, false, "car"); }
-  if (typeof document !== "undefined") fpsMsg(why || "Машина разбита. Ты выбрался наружу");
-}
-// ввод игрока: клавиши режима от первого лица
-function driveInput() {
-  const k = fps.keys, I = drive.in;
-  I.gas = !!(k.KeyW || k.ArrowUp); I.brake = !!(k.KeyS || k.ArrowDown); I.steer = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
-  I.hand = !!k.Space; I.horn = !!(k.KeyH || fps.fire);
-}
-// клетка, через которую машине не проехать: дом, забор, баррикада, завал, вода, край карты; возвращает код клетки
-function driveSolid(x, y) {
-  if (x < 6 || y < 6 || x > W - 6 || y > H - 6) return 9;
-  const c = cellAt(x, y); return c === 3 || c === 4 || c === 6 || c === 8 || c === 9 || c === 10 ? c : 0;
-}
-// первая клетка-препятствие под углами и серединами бамперов кузова в заданной позе
-function driveHitCell(c, x, y, ang) {
-  const [hl, hw] = carHalf(c), ca = Math.cos(ang), sa = Math.sin(ang);
-  for (const [u, w] of [[hl, hw], [hl, -hw], [hl, 0], [-hl, hw], [-hl, -hw], [-hl, 0], [0, hw], [0, -hw]]) {
-    const px = x + ca * u - sa * w, py = y + sa * u + ca * w, k = driveSolid(px, py);
-    if (k) return { k, x: px, y: py };
-  }
-  return null;
-}
-function stepPlayerCar(c, dt) {
-  const a = fps.a;
-  if (fps.keys) driveInput();
-  const I = drive.in;
-  drive.hornCd -= dt; drive.crashCd -= dt;
-  // подорвало, смяло танком, разбило при наезде — водителя выбрасывает
-  if (c.crushed) { crashOut(c, 90, "Машину смяло вместе с тобой"); return; }
-  if (c.z > 0 || c.vz) { crashOut(c, 45, "Взрывом машину подбросило. Ты выбрался наружу"); return; }
-  if (c.wreck) { crashOut(c, 25); return; }
-  if (a) { a.x = c.x; a.y = c.y; }
-  const vmax = c.spd * 1.3;
-  let v = c.v;
-  // газ, тормоз, задний ход, ручник; без бензина машина только катится
-  if (I.hand) v -= Math.sign(v) * Math.min(Math.abs(v), 30 * dt);
-  else if (I.gas) { if (v >= -1) { if (c.fuel > 0) v += (c.bus || c.tanker || (c.len || 1) > 1.4 ? 9 : 14) * dt; } else v += 45 * dt; }
-  else if (I.brake) { if (v > 1) v -= 45 * dt; else if (c.fuel > 0) v -= 9 * dt; }
-  // инерция: сопротивление воздуха и качения
-  v -= v * .25 * dt; v -= Math.sign(v) * Math.min(Math.abs(v), 1.5 * dt);
-  v = clamp(v, -DRIVE_REV, vmax);
-  // руль: на скорости поворачивает слабее; с ручником на ходу кузов идёт боком
-  c.steer += (I.steer - c.steer) * Math.min(1, dt * (I.steer ? 5 : 8));
-  const maxA = .5 / (1 + Math.abs(v) / 22), drift = I.hand && Math.abs(v) > 10;
-  const yaw = Math.abs(v) > .3 ? v / 13 * Math.tan(c.steer * maxA) * (drift ? 1.7 : 1) : 0;
-  const ang1 = c.ang + yaw * dt;
-  if (yaw && (!driveHitCell(c, c.x, c.y, ang1) || driveHitCell(c, c.x, c.y, c.ang))) c.ang = ang1;
-  c.ang -= Math.round(c.ang / TAU) * TAU;
-  c.slide = (c.slide || 0) * Math.max(0, 1 - dt * (drift ? 1.5 : 6)) - yaw * Math.abs(v) * dt * (drift ? .6 : .08);
-  // движение с проверкой клеток: сначала целиком, потом по осям; упёрлись на скорости — удар
-  const cx = Math.cos(c.ang), sx = Math.sin(c.ang);
-  const dx = cx * v * dt - sx * c.slide * dt, dy = sx * v * dt + cx * c.slide * dt;
-  let hit = driveHitCell(c, c.x + dx, c.y + dy, c.ang);
-  // баррикаду на скорости машина сносит
-  if (hit && hit.k === 6 && Math.abs(v) > 18) {
-    const gi = Math.floor(hit.y / CS) * GW + Math.floor(hit.x / CS); grid[gi] = 0; bhp[gi] = 0; barrDirty = true; fieldT = 0; fxDebris(hit.x, hit.y); sfx.crash(c);
-    c.pdmg += .08; c.dmg++; v *= .6; hit = driveHitCell(c, c.x + dx, c.y + dy, c.ang);
-  }
-  if (!hit) { c.x += dx; c.y += dy; }
-  else if (!driveHitCell(c, c.x + dx, c.y, c.ang)) { c.x += dx; c.slide *= .5; v *= .85; }
-  else if (!driveHitCell(c, c.x, c.y + dy, c.ang)) { c.y += dy; c.slide *= .5; v *= .85; }
-  else {
-    const s = Math.abs(v);
-    if (s > 8) {
-      c.pdmg += (s - 6) / 90; c.dmg++; sfx.crash(c); fxDebris(hit.x, hit.y); if (typeof shake !== "undefined") shake = Math.max(shake, s * .04);
-      if (s > 20) { logT("playercrash", "Машина на скорости врезалась в стену", "bad", 15); interest(c.x, c.y, 2); }
-      if (hit.k === 3) { const b = buildings.find(b => b.state === "ok" && hit.x >= b.x0 - 1 && hit.x <= b.x1 + 1 && hit.y >= b.y0 - 1 && hit.y <= b.y1 + 1); if (b && b.kind === "house" && s > 30) damageBuilding(b, s * .5, c.x, c.y); }
-    }
-    v = -v * .2; c.slide = 0;
-  }
-  // другие машины: кузова не пересекаются; на скорости — авария, задетая машина отлетает
-  nearCars(c.x, c.y, 44, o => {
-    if (o === c || o.gone || o.towedBy || o.z > 0) return;
-    const h = obbOverlap(c, o); if (!h) return;
-    const om = o.moving && !o.tank && !o.wreck, push = Math.min(h.depth, 3);
-    if (om) { c.x += h.nx * push * .5; c.y += h.ny * push * .5; nudgeBack(o, -h.nx, -h.ny, push * .5); } else { c.x += h.nx * push; c.y += h.ny * push; }
-    const hn = cx * h.nx + sx * h.ny; // куда смотрит нос относительно нормали удара
-    const ov = o.tank ? 0 : (o.v || 0) * (Math.cos(o.ang) * h.nx + Math.sin(o.ang) * h.ny), closing = -(v * hn + c.slide * (-sx * h.nx + cx * h.ny)) + Math.max(0, ov);
-    if (closing > 14 && drive.crashCd <= 0) { drive.crashCd = .6; hitCar(c, o, closing, v); }
-    if (v * hn < 0) v *= Math.max(0, 1 - hn * hn) * .8; // гасим скорость в направлении удара
-    if (closing > 0) c.slide *= .3;
-  });
-  // люди под колёсами: carHitPeople смотрит нос и c.v; на заднем ходу — корма
-  const fwd = v >= 0, d0 = c.dmg; c.v = Math.abs(v); c.jam = false; carHitPeople(c, fwd ? cx : -cx, fwd ? sx : -sx, dt); v = (fwd ? 1 : -1) * c.v;
-  if (c.jam) evictFromCar(c, a); // на малом ходу упёрлись в человека: кто стоит внутри кузова, отходит к борту
-  if (c.dmg > d0) {
-    c.pdmg += .04 * (c.dmg - d0); drive.hits += c.dmg - d0;
-    logT("playerhit", "Водитель сбил человека", "bad", 10); reports.push({ x: c.x, y: c.y, t: simT, kind: "hitrun" }); interest(c.x, c.y, 2);
-    if (typeof document !== "undefined") fpsMsg("Ты сбил человека. Полиция может приехать на место");
-  }
-  // сигнал: слышен патрулям и зомби
-  if (I.horn && drive.hornCd <= 0) { drive.hornCd = .7; sfx.horn(c); noises.push({ x: c.x, y: c.y, t: simT, r: 220 }); }
-  c.v = v; c.dir = dirOf(cx, sx); c.x = clamp(c.x, 6, W - 6); c.y = clamp(c.y, 6, H - 6); c.jam = false;
-  if (Math.abs(v) < 1) c.wait += dt; else c.wait = 0; // стоящую машину игрока поток объезжает так же, как стоящую чужую
-  if (c.fuel !== undefined) c.fuel = Math.max(0, c.fuel - Math.abs(v) * dt / FUEL_RANGE);
-  if (c.pdmg >= 1 && !c.wreck) {
-    c.wreck = true; c.dmg = 9; c.v = 0; abandonCar(c, "crash"); sfx.crash(c); fxDebris(c.x, c.y); if (Math.random() < .3) c.burnT = rnd(20, 50);
-    logE("Машина игрока разбита", "bad"); interest(c.x, c.y, 3); crashOut(c, 30, "Машина разбита вдребезги. Ты выбрался наружу");
-  }
-}
-// авария на скорости: задетая машина отлетает и ложится, где упадёт (stepTraffic ведёт полёт и отмечает клетки при посадке)
-function hitCar(c, o, closing, v) {
-  const hx = Math.cos(c.ang) * Math.sign(v || 1), hy = Math.sin(c.ang) * Math.sign(v || 1);
-  if (!o.tank) {
-    if (o.turn) { const i = o.turn.n.occ.indexOf(o); if (i >= 0) o.turn.n.occ.splice(i, 1); o.turn = null; }
-    if (o.gas) cancelGas(o);
-    if (o.cells) clearCarCells(o);
-    o.vx = (o.vx || 0) + hx * closing * .5; o.vy = (o.vy || 0) + hy * closing * .5; o.vz = closing * .15; o.z = Math.max(o.z || 0, .1); o.sr = rnd(-2, 2); o.sy = rnd(-2, 2); o.roll = o.roll || 0;
-    if (o.moving) { o.moving = false; o.stopped = true; }
-    o.wreck = o.wreck || closing > 30; o.dmg = (o.dmg || 0) + 2; o.v = 0;
-    if (closing > 30 && Math.random() < .2) o.burnT = rnd(20, 60);
-  }
-  c.pdmg += (closing - 8) / (o.tank ? 25 : 70); c.dmg++;
-  sfx.crash(c); fxDebris(c.x, c.y); if (typeof shake !== "undefined") shake = Math.max(shake, closing * .04);
-  for (const k of cars) if (!k.wreck && k !== c && Math.hypot(k.x - c.x, k.y - c.y) < 60) k.alarm = rnd(10, 30);
-  logT("carcrash", "Авария: машины столкнулись", "bad", 12); interest(c.x, c.y, 3); reports.push({ x: c.x, y: c.y, t: simT, kind: "crash" });
-}
-// каждый кадр в режиме за рулём (вместо fpsStep): гибель водителя, обращение, подсказки
-function driveStep(dt) {
-  const a = fps.a, c = drive.car;
-  if (!c || c.player !== true) { fps.mode = "human"; return; }
-  if (a.state === "dead") { $("fpsDead").textContent = `Ты погиб за рулём. Продержался ${mmss(simT - fps.startT)}. Esc — выход`; $("fpsDead").hidden = false; return; }
-  $("fpsDead").hidden = true;
-  if (a.hp < fps.lastHp - .5) fps.hurt = 1; fps.lastHp = a.hp; fps.hurt = Math.max(0, fps.hurt - dt * 1.5);
-  if (a.role === "zombie") { exitCar(); fpsMsg("Ты обратился за рулём и вывалился из машины"); return; }
-  fps.swing = 0;
-}
-// камера: из-за машины или из кабины; мышь крутит обзор, без мыши камера через секунду возвращается за машину
-function driveCamera(dt) {
-  const c = drive.car; if (!c) return;
-  vm.visible = false; flashlight.intensity = 0; senseMesh.count = 0; $("cv").style.filter = "";
-  const px = c.rx !== undefined ? c.rx : c.x, py = c.ry !== undefined ? c.ry : c.y, g = gY(px, py) + (c.z || 0), ang = c.ang;
-  if (performance.now() - drive.mouseT > 1200 && Math.abs(c.v) > 2 && !drive.cabin) { let d = ang - fps.yaw; d -= Math.round(d / TAU) * TAU; fps.yaw += d * Math.min(1, dt * 2.5); fps.pitch += (0 - fps.pitch) * Math.min(1, dt * 2); }
-  const cy = fps.yaw, tx = X(px), tz = Z(py);
-  if (drive.cabin) {
-    // водительское место: слева по ходу, у лобового стекла
-    const sx = Math.sin(ang), cx = Math.cos(ang), eye = c.bus ? 7.6 : (c.len || 1) > 1.3 ? 6.6 : 5.6;
-    camera.position.set(X(px + cx * (c.bus ? 14 : 3.5) + sx * 1.5), g + eye, Z(py + sx * (c.bus ? 14 : 3.5) - cx * 1.5));
-    const cp = Math.cos(fps.pitch);
-    camera.lookAt(camera.position.x + Math.cos(cy) * cp, camera.position.y + Math.sin(fps.pitch), camera.position.z + Math.sin(cy) * cp);
-    drive.cam = null;
-  } else {
-    const dist = (c.bus ? 44 : 30) + Math.abs(c.v) * .25, el = clamp(.3 - fps.pitch, .05, 1.2), ty = g + 4;
-    let camX = tx - Math.cos(cy) * Math.cos(el) * dist, camY = ty + Math.sin(el) * dist, camZ = tz - Math.sin(cy) * Math.cos(el) * dist;
-    const t = cameraClearT(tx, ty, tz, camX, camY, camZ);
-    if (t < 1) { camX = tx + (camX - tx) * t; camY = ty + (camY - ty) * t; camZ = tz + (camZ - tz) * t; }
-    camY = Math.max(camY, gY(camX + W / 2, camZ + H / 2) + 2.5);
-    if (!drive.cam) drive.cam = new THREE.Vector3(camX, camY, camZ);
-    const k = Math.min(1, dt * 9); drive.cam.x += (camX - drive.cam.x) * k; drive.cam.y += (camY - drive.cam.y) * k; drive.cam.z += (camZ - drive.cam.z) * k;
-    camera.position.copy(drive.cam);
-    camera.lookAt(tx + Math.cos(cy) * 6, ty, tz + Math.sin(cy) * 6);
-  }
-  camC.tx = tx; camC.tz = tz; camC.dist = drive.cabin ? 40 : 60;
-  scene.fog.near = 60; scene.fog.far = settings.night ? 420 : 1600;
-  // интерфейс: состояние машины, бензин, скорость, пассажиры
-  const n = c.passengers ? c.passengers.length : 0;
-  $("fpsHp").style.width = clamp((1 - c.pdmg) * 100, 0, 100) + "%"; $("fpsSt").style.width = clamp((c.fuel ?? 1) * 100, 0, 100) + "%";
-  $("fpsAmmo").textContent = `${Math.round(Math.abs(c.v) * .9)} км/ч` + (c.v < -.5 ? " · задний ход" : "");
-  const st = [`Повреждения ${Math.round(clamp(c.pdmg) * 100)}%`];
-  if (n) st.push(`Пассажиров ${n} — высадить у лагеря, укрытия или больницы: E`);
-  if (drive.in.hand) st.push("Ручник"); if (c.fuel <= 0) st.push("Бензин кончился"); else if (c.fuel < .1) st.push("Бензин на исходе");
-  if (drive.hits) st.push(`Сбито людей: ${drive.hits}`);
-  $("fpsStatus").textContent = st.join(" · ");
-  $("fpsVig").style.opacity = Math.max(fps.hurt, c.pdmg > .7 ? .3 : 0); $("fpsVig").className = "vig";
-  fps.msgT -= dt; if (fps.msgT <= 0) $("fpsMsg").hidden = true;
-}
-if (typeof document !== "undefined") {
-  document.addEventListener("mousemove", () => { if (fps.on && fps.mode === "drive") drive.mouseT = performance.now(); });
-  window.addEventListener("keydown", e => {
-    if (!fps.on || fps.mode !== "drive") return;
-    if (e.code === "KeyV") drive.cabin = !drive.cabin;
-    if (e.code === "Space") e.preventDefault();
-  }, true);
-  $("fpsAsDriver").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("drive"); });
-}
 
 /* ---------- редактор города: дороги, дома, парки, снос ---------- */
 let editRoads = [], editMode = false, edDrag = null;
@@ -11722,7 +11674,6 @@ const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length)
 const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown"];
 const A_SKIP = new Set(["busGoal", "onBus", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
 function serializeGame() {
-  if (typeof fps !== "undefined" && fps.on && fps.mode === "drive") exitCar(); // машина игрока сохраняется стоящей, игрок — рядом с ней
   const bi = new Map(buildings.map((b, i) => [b, i]));
   const inCar = new Set(); for (const c of cars) if (c.service && !c.gone) for (const a of c.crew || []) if (a.unit === c) inCar.add(a);
   const agentsS = agents.map(a => {
@@ -11731,7 +11682,7 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park"].includes(k)) o[k] = c[k];
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park", "yieldTo"].includes(k)) o[k] = c[k];
     // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
     if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
@@ -11750,6 +11701,7 @@ function serializeGame() {
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
+    camp, // кампания: день, итоги по дням, бюджет (campaign.js)
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
@@ -11796,6 +11748,7 @@ function loadGame(S) {
   river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || [];
   TH.fill(0); if (T.th) { const u = unb64(T.th, Uint8Array); for (let i = 0; i < TH.length && i < u.length; i++) TH[i] = u[i] * 2 - 10; }
   scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = []; wave = S.wave || 0; waveT = S.waveT ?? 40;
+  loadCampaignState(S);
   patientZero = S.pz != null ? agentById(S.pz) || null : null;
   logE("Партия загружена", "good");
   clearDecals(); clearDebris(); for (const [t, o] of tankObjs) { scene.remove(o); tankObjs.delete(t); }
@@ -12114,6 +12067,7 @@ function renderWizard() {
   document.querySelectorAll("#wizard [data-s]").forEach(el => { if (el.tagName === "SECTION") el.hidden = +el.dataset.s !== wiz.step; else el.setAttribute("aria-current", +el.dataset.s === wiz.step ? "step" : "false"); });
   $("wBack").hidden = wiz.step === 0;
   $("wNext").textContent = wiz.step === 2 ? "Начать" : "Далее";
+  renderCampaignWizard();
 }
 function openWizard() { setPaused(true); wiz.step = 0; renderWizard(); $("wizard").hidden = false; }
 $("wizard").addEventListener("change", e => {
@@ -12143,6 +12097,7 @@ function startGame() {
   world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);
+  if (wiz.scen === "campaign") campaignStarted();
   setPaused(false);
   audio(); maybeTutorial();
 }
@@ -12424,6 +12379,67 @@ function warn(html) { $("toast").innerHTML = `<small>Нельзя</small><b>${ht
 function syncTopH() { const h = document.querySelector(".top").offsetHeight || 42; document.documentElement.style.setProperty("--topH", h + "px"); }
 window.addEventListener("resize", syncTopH); setTimeout(syncTopH, 0); setInterval(syncTopH, 1500);
 
+/* ---------- кампания в интерфейсе: кнопка в мастере, экран итогов дня, «Закончить день», слот сохранения ---------- */
+const CAMP_KEY = "vspyshka-campaign";
+const campRound = (k, v) => typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 100) / 100 : v;
+function campMeta() { try { const m = localStorage.getItem(CAMP_KEY + "-meta"); return m ? JSON.parse(m) : null; } catch (e) { return null; } }
+// один слот: город утром текущего дня; пишется в начале каждого дня
+async function saveCampaign() {
+  if (!camp || camp.over) return false;
+  try {
+    const S = serializeGame(), data = await packSave(JSON.stringify(S, campRound));
+    localStorage.removeItem(CAMP_KEY); localStorage.setItem(CAMP_KEY, data);
+    localStorage.setItem(CAMP_KEY + "-meta", JSON.stringify({ day: camp.day, layoutKey, alive: S.agents.filter(a => a.state === "alive" && a.role !== "zombie").length, date: Date.now() }));
+    logT("campsave", `Кампания сохранена: утро дня ${camp.day}`, "good", 5); return true;
+  } catch (e) { warn("<b>Не удалось сохранить кампанию:</b> в браузере не хватает места или хранилище отключено."); return false; }
+}
+async function loadCampaign() {
+  let raw = null; try { raw = localStorage.getItem(CAMP_KEY); } catch (e) {}
+  if (!raw) { warn("<b>Сохранённой кампании нет.</b>"); return false; }
+  try {
+    const S = JSON.parse(await unpackSave(raw));
+    if (fps.on) stopFps();
+    $("wizard").hidden = true; $("result").hidden = true; $("dayEnd").hidden = true;
+    if (loadGame(S) === false || !camp) { warn("<b>Не удалось загрузить кампанию.</b>"); return false; }
+    $("cycle").checked = true; syncDayButton(); setPaused(false); audio(); return true;
+  } catch (e) { warn("<b>Не удалось загрузить кампанию.</b>"); return false; }
+}
+// мастер: кнопка «Кампания» ведёт сразу к выбору города; «Продолжить» — если есть сохранение
+function renderCampaignWizard() {
+  const m = campMeta();
+  $("wResume").hidden = !m; if (m) $("wResume").textContent = `Продолжить кампанию: день ${m.day}, ${(LAYOUTS[m.layoutKey] || {}).n || "город"}, живых ${m.alive}`;
+  $("wTitle").textContent = wiz.scen === "campaign" ? "Кампания" : "Новая игра";
+  if (wiz.scen === "campaign" && wiz.step === 2) $("wNext").textContent = "Начать кампанию";
+}
+$("wCampaign").addEventListener("click", () => { wiz.scen = "campaign"; wiz.step = 1; renderWizard(); });
+$("wResume").addEventListener("click", () => loadCampaign());
+$("wBack").addEventListener("click", () => { if (wiz.step === 0 && wiz.scen === "campaign") { wiz.scen = "sandbox"; renderWizard(); } });
+// кампания началась (startGame в ui3.js): часы идут, первое утро сохранено
+function campaignStarted() { $("cycle").checked = true; syncDayButton(); $("dayEnd").hidden = true; saveCampaign(); }
+// шесть утра: экран итогов. Ночь уже прошла — сцена перестраивается по новому состоянию города
+function onDayEnd(sum) {
+  setPaused(true); setTimeout(campRefreshScene, 0);
+  const N = camp.night || {}, nx = camp.next || {}, kinds = nx.kinds || [];
+  $("deTitle").textContent = `День ${sum.day}: итоги`;
+  $("deText").textContent = `${sum.early ? "Зомби в городе не осталось, день закончен досрочно. " : "Шесть утра. "}${sum.trustD > 0 ? "Штаб доволен: " + sum.why + "." : sum.trustD < 0 ? "Штаб недоволен: " + sum.why + "." : "Штаб оценил день как обычный."} Доверие ${campStarsText()}.`;
+  const spent = Object.keys(sum.spent).filter(t => sum.spent[t] > 0).map(t => `${CAMP_TOOL_N[t]} ${sum.spent[t]}`).join(", ") || "ничего";
+  $("deStats").innerHTML = [["Живых", sum.alive], ["Погибло за день", sum.dead], ["Спасено", sum.saved], ["Уничтожено зомби", sum.zkills], ["Разрушено домов", sum.ruinedNew], ["Зомби к утру", sum.Z], ["Укусов", sum.bites], ["Вылечено", sum.cured], ["Доверие", campStarsText()]].map(([k, v]) => `<div><small>${k}</small><b>${v}</b></div>`).join("");
+  $("deSpent").textContent = `Потрачено за день: ${spent}.`;
+  $("deNight").textContent = `Тела вывезены (${N.bodies || 0}), брошенные машины убраны (${N.cars || 0}), завалы разобраны у ${N.rubble || 0} домов, отремонтировано ${N.repaired || 0}. Жители вернулись домой (${N.home || 0}), беженцев осталось жить ${N.refStay || 0}, уехало ${N.refLeft || 0}. Силовики вернулись на базы (${N.forces || 0}).${N.turned ? ` Укушенные без вакцины обратились за ночь: ${N.turned}.` : ""}${N.cured ? ` Вакцина спасла укушенных: ${N.cured}.` : ""}`;
+  $("deNext").textContent = `День ${sum.day + 1} из ${CAMP_DAYS}. Бюджет штаба: ${campBudgetText(nx.budget || {})}. ${kinds.length ? "Разведка: " + kinds.map(k => CAMP_EVENT_N[k]).join(", ") + "." : "Разведка: окраины спокойны."}`;
+  $("dayEnd").hidden = false; sfx.radio();
+}
+function campRefreshScene() { clearDebris(); buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; renderTools(); }
+$("deNextBtn").addEventListener("click", () => { $("dayEnd").hidden = true; if (campNextDay()) { $("cycle").checked = true; syncDayButton(); renderTools(); saveCampaign(); } setPaused(false); });
+$("deChron").addEventListener("click", () => { $("dayEnd").hidden = true; openChronicle(); });
+$("chronClose").addEventListener("click", () => { if (camp && camp.pending && !camp.over && scenKey === "campaign") $("dayEnd").hidden = false; });
+// «Закончить день» в верхней полосе: виден в кампании, доступен, когда зомби нет
+function updateCampaignUI() {
+  const on = !!camp && scenKey === "campaign" && !camp.over && !camp.pending && !scenDone;
+  $("endDay").hidden = !on; if (on) $("endDay").disabled = !(lastCounts && lastCounts.Z === 0);
+}
+$("endDay").addEventListener("click", () => { if (!campEndEarly()) warn("<b>День нельзя закончить:</b> в городе ещё есть зомби."); });
+
 /* ---------- камера: орбита вокруг точки на земле ---------- */
 const camS = { tx: 0, tz: 60, dist: 1700, yaw: -1.05, pitch: .9 }, camC = { ...camS };
 const camDist = () => camC.dist;
@@ -12583,7 +12599,7 @@ function paintBarricade(x, y, erase, wall) {
 }
 const BARR_KIND = { barricade: 0, wall: 1, efence: 2 };
 function useTool(e, x, y) {
-  if (["army", "tank", "strike", "evac", "nuke"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } if (tool === "evac" && blocked(x, y)) { warn("<b>Здесь вертолёту не сесть.</b>"); return; } spendLimit(tool); setTimeout(renderTools, 0); }
+  if (["army", "tank", "strike", "evac", "nuke", "police", "supply"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } if (tool === "evac" && blocked(x, y)) { warn("<b>Здесь вертолёту не сесть.</b>"); return; } spendLimit(tool); setTimeout(renderTools, 0); }
   if (tool === "watch") { const a = agentAt(e); if (a) { followA = a; camS.dist = Math.min(camS.dist, 160); camS.pitch = Math.min(camS.pitch, .55); } return; }
   if (tool === "infect") { const a = agentAt(e, a => a.state === "alive" && a.role !== "zombie" && !a.bitten); if (a) { a.bitten = true; a.incT = settings.inc * rnd(.7, 1.3); bites++; logE("Заражён ещё один человек", "bad"); } return; }
   if (tool === "zombie") { if (!blocked(x, y)) { const a = newAgent("zombie", x, y); turn(a); a.riseT = 0; } return; }
@@ -12789,7 +12805,7 @@ function updateUI() {
   $("vacBar").style.width = Math.floor(research * 100) + "%"; $("vacO").textContent = vaccineReady ? "готова" : Math.floor(research * 100) + "%";
   const hungry = hungryCount();
   $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
-  renderHeroes(); squadHud(); renderFactions();
+  renderHeroes(); squadHud(); renderFactions(); updateCampaignUI();
   if (logDirty) { logDirty = false; $("log").innerHTML = events.slice(0, 40).map(e => `<li class="${e.cls || ""}"><time>${mmss(e.t)}</time>${e.text}</li>`).join(""); updateNews(); }
   drawChart();
 }
@@ -12876,7 +12892,7 @@ setupPost(); upgradeFacades(); loadRealTextures(); initRealPeople(); renderTools
 $("loading").hidden = true;
 requestAnimationFrame(frame);
 
-window.__v = { camS, camC, camera, R3, scene, settings, world, get agents() { return agents; }, get cars() { return cars; }, get props() { return props; }, get threat() { return threat; }, get entries() { return entries; }, get special() { return special; }, get buildings() { return buildings; }, get blocks() { return blocks; }, gY, waterD, waterAt, riverD, TH, grid, get RN() { return RN; }, get RE() { return RE; }, get RL() { return RL; }, get rounds() { return rounds; }, get bridges() { return bridges; }, get hasHills() { return hasHills; }, perfStats, get camps() { return camps; }, get towers() { return towers; }, get selected() { return selected; }, get tanks() { return tanks; }, get waters() { return waters; }, get research() { return research; }, stepN: n => { for (let i = 0; i < n; i++) step(.05); }, useToolAt: (k, x, y) => { tool = k; useTool({}, x, y); }, get traps() { return traps; }, get gens() { return gens; }, get cps() { return cps; }, get factions() { return factions; }, get hq() { return hq; }, paintBarricade, addWire, elecMask, addTank, spawnService, deliverMachine, collapse, damageBuilding, launchNuke, planQuarantine, serializeGame, loadGame, layout: () => layoutKey, get paused() { return paused; }, get speed() { return speed; }, get slowMoT() { return slowMoT; }, get simT() { return simT; }, get alert() { return alert; }, get wallJobs() { return wallJobs; }, get machines() { return machines; }, get squads() { return squads; }, setPaused, standDown, frame, newCity, get fps() { return fps; }, get drive() { return drive; }, stepN2: n => { for (let i = 0; i < n; i++) step(.05); }, RT, DET, groundDet, REAL };
+window.__v = { camS, camC, camera, R3, scene, settings, world, get agents() { return agents; }, get cars() { return cars; }, get props() { return props; }, get threat() { return threat; }, get entries() { return entries; }, get special() { return special; }, get buildings() { return buildings; }, get blocks() { return blocks; }, gY, waterD, waterAt, riverD, TH, grid, get RN() { return RN; }, get RE() { return RE; }, get RL() { return RL; }, get rounds() { return rounds; }, get bridges() { return bridges; }, get hasHills() { return hasHills; }, perfStats, get camps() { return camps; }, get towers() { return towers; }, get selected() { return selected; }, get tanks() { return tanks; }, get waters() { return waters; }, get research() { return research; }, stepN: n => { for (let i = 0; i < n; i++) step(.05); }, useToolAt: (k, x, y) => { tool = k; useTool({}, x, y); }, get traps() { return traps; }, get gens() { return gens; }, get cps() { return cps; }, get factions() { return factions; }, get hq() { return hq; }, paintBarricade, addWire, elecMask, addTank, spawnService, deliverMachine, collapse, damageBuilding, launchNuke, planQuarantine, serializeGame, loadGame, layout: () => layoutKey, get paused() { return paused; }, get speed() { return speed; }, get slowMoT() { return slowMoT; }, get simT() { return simT; }, get alert() { return alert; }, get wallJobs() { return wallJobs; }, get machines() { return machines; }, get squads() { return squads; }, setPaused, standDown, frame, newCity, get camp() { return camp; }, campNextDay, campEndEarly, stepN2: n => { for (let i = 0; i < n; i++) step(.05); }, RT, DET, groundDet, REAL };
 })();
 </script>
 </html>
