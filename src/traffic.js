@@ -1,11 +1,12 @@
 /* ---------- машины на дорогах: полоса вдоль ребра, дуга поворота через перекрёсток ---------- */
-// настройки потока: tripShare — доля машин, которые едут по делам (остальные катаются); при 1 на планировках с кольцом и с частыми
-// перекрёстками («Живой город», «Пригород») поток за несколько минут запирается сам собой, при .3 ожидания как в случайной езде
-const TRAFFIC_TUNE = { bonus: true, park0: 12, park1: 30, park: true, exitShare: .12, localShare: .5, density: 1, tripShare: .3 };
+// настройки потока: tripShare — доля машин, которые едут по делам (остальные катаются). Замер tests/traffic.test.js, доля стоящих
+// машин в четвёртой минуте по 16 городам: «Пригород» .23 при .3, .27 при .6, .32 при 1; «Живой город» .28 / .29 / .34; у кода до
+// переходов и поездок было .31 / .32. Взято .6: поездок вдвое больше, а стоят меньше, чем раньше
+const TRAFFIC_TUNE = { bonus: true, park0: 12, park1: 30, park: true, exitShare: .12, localShare: .5, density: 1, tripShare: .6 };
 // c.lane — полоса, c.s — пройдено от её начала; у стоп-линии машина решает, куда дальше, и едет по кривой Безье на следующую полосу
 function dirOf(tx, ty) { return Math.abs(tx) > Math.abs(ty) ? (tx > 0 ? 0 : 2) : (ty > 0 ? 1 : 3); }
 function placeOnLane(c, l, s) {
-  c.lane = l; c.s = clamp(s, 0, l.e.len); c.turn = null; c.next = null; c.latOff = 0; c.latTgt = 0; c.over = 0; c.atLine = false;
+  c.lane = l; c.s = clamp(s, 0, l.e.len); c.turn = null; c.next = null; c.next2 = null; c.squeeze = false; c.latOff = 0; c.latTgt = 0; c.over = 0; c.atLine = false;
   const p = lanePos(l, c.s); c.x = p.x; c.y = p.y; c.ang = Math.atan2(p.ty, p.tx); c.dir = dirOf(p.tx, p.ty);
 }
 // занята ли полоса возле точки s
@@ -39,8 +40,8 @@ function turnAngle(l, m) {
 }
 function exitsOf(l) { const n = l.to, out = []; for (const e of n.ed) { const m = laneFrom(e, n); if (m && m.e !== l.e) out.push(m); } return out; }
 // куда ехать с перекрёстка: службам — по кратчайшему пути, бегущим — к краю карты, остальным — как придётся, чаще прямо
-function chooseNext(c) {
-  const l = c.lane, n = l.to;
+function chooseNext(c, l = c.lane) {
+  const n = l.to;
   if (n.exit) return null;
   if (c.trip && (c.flee || c.panic)) { c.trip = null; c.goal = null; } // бегущему не до дел
   const opts = exitsOf(l);
@@ -64,12 +65,21 @@ function chooseNext(c) {
 }
 // старшинство на нерегулируемом перекрёстке: кольцо, проспект, улица, переулок
 function rankAt(e) { return e.kind === "ring" ? 3 : e.hw >= 22 ? 2 : e.hw >= 15 ? 1 : 0; }
+// полоса между двумя близкими перекрёстками, на которой машина не помещается целиком (l.short, roads.js): стоять на ней — значит
+// стоять в коробке; длинной машине коротка и полоса подлиннее
+function shortLane(c, m) { return m.short || (!m.to.exit && laneEnd(m) - laneStart(m) < 10 * (c.len || 1) + 8); }
 // можно ли въезжать на перекрёсток
-function canEnter(c, l, m) {
+function canEnter(c, l, m, deep) {
   const n = l.to, sig = n.sig && !settings.dark; // без света светофоры гаснут — едут по старшинству
   // долго ждёт у «уступи дорогу» — проезжает, но не на красный, не через завал и не туда, где за перекрёстком нет места
   const force = c.wait > 40 || (c.stallT || 0) > 40;
-  if (sig && !c.panic && !(c.service && c.siren)) {
+  // за перекрёстком короткая полоса до следующего: въезжаем, только если проедем и его (иначе встанем поперёк этого)
+  if (!deep && !force && shortLane(c, m)) {
+    if (!c.next2 || c.next2.from !== m.to) c.next2 = chooseNext(c, m);
+    if (c.next2 && !canEnter(c, m, c.next2, true)) return false;
+  }
+  // (на второй светофор короткого отрезка не смотрим: поворачивающим своего зелёного там не дождаться, а едущим прямо он согласован)
+  if (sig && !deep && !c.panic && !(c.service && c.siren)) {
     const st = lightFor(n, l.e);
     if (st === "r" || (st === "y" && c.v < 6)) return false;
   }
@@ -89,7 +99,8 @@ function canEnter(c, l, m) {
   // налево (и на разворот) — пропустив встречных, которые подъезжают к перекрёстку, ещё у стоп-линии, а не стоя посреди коробки
   if (!force && n.ed.length >= 3 && turnAngle(l, m) < -.45 && oncomingNear(c, l)) return false;
   // на перекрёстке уже кто-то едет и наши пути пересекаются — пропускаем
-  if (!force && n.occ.length) { const mine = makeTurn(l, m); for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false; }
+  const mine = makeTurn(l, m);
+  if (!force && n.occ.length) for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false;
   // на следующей полосе нет завала
   for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6) return false; }
   // за перекрёстком есть место для всего кузова: очередь на следующей полосе не доходит до её начала
@@ -242,7 +253,8 @@ function startTurn(c, m) {
 }
 function endTurn(c, extra) {
   const T = c.turn, i = T.n.occ.indexOf(c); if (i >= 0) T.n.occ.splice(i, 1); c.yieldTo = null;
-  const v = c.v, ox = c.x, oy = c.y, ang = c.ang, keep = c.keepLat || 0; placeOnLane(c, T.to, laneStart(T.to) + Math.max(0, extra || 0)); c.v = v; c.ang = ang;
+  const v = c.v, ox = c.x, oy = c.y, ang = c.ang, keep = c.keepLat || 0, n2 = c.next2; placeOnLane(c, T.to, laneStart(T.to) + Math.max(0, extra || 0)); c.v = v; c.ang = ang;
+  if (n2 && n2.from === T.to.to) c.next = n2; // с короткой полосы едем туда, куда уже решили у прошлой стоп-линии
   if (keep) { c.latOff = c.latTgt = keep; c.over = 3; c.overT = 0; c.keepLat = 0; const q = lanePos(c.lane, c.s); c.x = q.x + q.ty * keep; c.y = q.y - q.tx * keep; }
   c.offx = (c.offx || 0) + ox - c.x; c.offy = (c.offy || 0) + oy - c.y; if (Math.hypot(c.offx, c.offy) > 6) c.offx = c.offy = 0;
 }
@@ -407,13 +419,16 @@ function stepTurnCar(c, dt) {
   if (A.ahead && A.ahead.turn && (c.stallT || 0) > 4 && (A.ahead.stallT || 0) > 4 && (A.ahead.turn.n === T.n ? turnProg(c) > turnProg(A.ahead) : c._i < A.ahead._i)) A = scanAhead(c, c.x, c.y, p.tx, p.ty, null, A.ahead);
   if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.trip = null; c.goal = null; }
   // место за перекрёстком считается по очереди на следующей полосе: машина не влезает в чужой кузов и не прыгает
-  let clear = Math.min(A.clear, nextLaneGap(c, m, laneStart(m) - (T.len - T.u)));
+  const gap = nextLaneGap(c, m, laneStart(m) - (T.len - T.u));
+  let clear = Math.min(A.clear, gap);
   // людей на дуге и на переходе ждём, но не вечно: после 5 с водитель подаётся вперёд, и дальше его держит только проверка перед носом
   if ((c.stallT || 0) < 5) clear = zebraStopTurn(c, Math.min(clear, peopleOnArc(c)));
   if (c.yieldTo && simT < c.yieldT && !c.yieldTo.gone) clear = 0; // уступаем тому, с кем упёрлись
-  // совсем застряли посреди перекрёстка (очередь за ним не двигается, потому что ждёт нас же) — медленно протискиваемся к выезду,
-  // смотря только на тех, кто прямо перед носом; раньше здесь машину телепортировало на выезд
-  if ((c.stallT || 0) > 12) { clear = Math.max(clear, Math.min(20, peopleOnArc(c))); c.ghostT = simT + 1; } // ползком к выезду сквозь упор, людей всё же пропуская
+  // совсем застряли посреди перекрёстка (очередь за ним не двигается, потому что ждёт нас же) — медленно протискиваемся к выезду
+  // до самого конца дуги (решение не отменяется: иначе машина ползёт секунду из двенадцати), людей всё же пропуская и не въезжая
+  // в хвост очереди на выезде; раньше здесь машину телепортировало на выезд
+  if ((c.stallT || 0) > 12) c.squeeze = true;
+  if (c.squeeze) { clear = Math.max(clear, Math.min(20, peopleOnArc(c), gap)); c.ghostT = simT + 1; }
   carTarget(c, clear, T.sharp ? 12 : 0);
   carHitPeople(c, p.tx, p.ty, dt);
   if (!c.moving) return;
@@ -575,7 +590,7 @@ function gasTick(dt) {
    вечером домой. Маршрут считает routeTo (как у служб); у нужной улицы машина встаёт у бордюра на полминуты, если ширина
    позволяет разойтись с проезжающими, и выбирает новую цель. Недостижимая или слишком долгая цель меняется */
 let tripPools = null, tripPoolT = -1e9;
-const TRIP_HOME = new Set(["house", "apt", "oldhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral"]);
+const TRIP_HOME = new Set(["house", "apt", "oldhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral", "church"]);
 function tripPool() {
   if (tripPools && simT - tripPoolT < 30) return tripPools;
   const P = { home: [], work: [], shop: [] };
@@ -590,6 +605,10 @@ function pickTrip(c) {
     : h >= 16 && h < 21 ? (r < .55 ? P.home : r < .8 ? P.shop : P.work)
     : h >= 21 || h < 6 ? (r < .7 ? P.home : P.shop)
     : r < .4 ? P.shop : r < .7 ? P.work : P.home;
+  // мест работы и магазинов в городе может быть считаные единицы (в пригороде пять контор и один торговый центр): если бы туда
+  // ехали две трети машин, весь поток сошёлся бы на пяти улицах; поэтому маленький список получает поездок по своему размеру,
+  // остальные едут в гости и домой
+  if (pool !== P.home && pool.length < 12 && Math.random() > pool.length / 12) pool = P.home;
   if (!pool.length) pool = P.home.length ? P.home : P.work.length ? P.work : P.shop;
   // примерно каждая восьмая поездка — за город; там машина уезжает с карты, а на другом въезде появляется новая
   if ((Math.random() < TRAFFIC_TUNE.exitShare || !pool.length) && entryLanes().length) { c.trip = { exit: true, t0: simT }; return; }

@@ -196,11 +196,12 @@ function wander(a, dt) {
   // спокойный пешеход не сходит с тротуара на проезжую часть (кроме зебры): перед кромкой дороги поворачивает
   const calm = a.panic < .3 && a.role !== "zombie", onRoad = (x, y) => { const i = clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1); return grid[i] === 0 && roadMask[i] === 1 && !crossMask[i]; };
   const hi = clamp(Math.floor(a.y / CS), 0, GH - 1) * GW + clamp(Math.floor(a.x / CS), 0, GW - 1), here = calm && grid[hi] === 0 && roadMask[hi] === 1;
-  const ahead = blocked(a.x + a.wx * 9, a.y + a.wy * 9) || (calm && !here && onRoad(a.x + a.wx * 9, a.y + a.wy * 9));
+  // препятствие смотрим и вплотную (5), и впереди (9): дерево в одну клетку между ними пешеход иначе не видит и упирается в него вечно
+  const ahead = blocked(a.x + a.wx * 5, a.y + a.wy * 5) || blocked(a.x + a.wx * 9, a.y + a.wy * 9) || (calm && !here && onRoad(a.x + a.wx * 9, a.y + a.wy * 9));
   if (a.idleT > 0) { a.idleT -= dt; if (here) a.idleT = 0; else return [0, 0, 0]; }
   if (a.wanderT <= 0 || ahead || (a.wx === 0 && a.wy === 0)) {
     if (!ahead && !here && a.wanderT <= 0 && Math.random() < .18 && a.role === "civ") { a.idleT = rnd(2, 7); a.wanderT = rnd(3, 8); return [0, 0, 0]; }
-    let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9 && !vehicleAt(a.x + dx * 8, a.y + dy * 8));
+    let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 5, a.y + dy * 5) && !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9 && !vehicleAt(a.x + dx * 8, a.y + dy * 8));
     // мирные не лезут на завалы и пепелища, если стоят не на них
     if (a.role === "civ" && cellAt(a.x, a.y) !== 8) { const safe = opts.filter(([dx, dy]) => cellAt(a.x + dx * 12, a.y + dy * 12) !== 8 && cellAt(a.x + dx * 24, a.y + dy * 24) !== 8); if (safe.length) opts = safe; }
     // спокойный пешеход идёт по тротуару и редко переходит дорогу

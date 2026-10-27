@@ -291,6 +291,8 @@ function prepareGraph() {
       if (e.a === n) { e.ra = r; e.fa = fs; } if (e.b === n) { e.rb = r; e.fb = fs; }
     }
   }
+  // короткая полоса между близкими перекрёстками: от стоп-линии до стоп-линии не помещается машина (traffic.js, shortLane)
+  for (const l of RL) l.short = !l.to.exit && laneEnd(l) - laneStart(l) < 26;
 }
 function buildCrossMask() {
   crossMask.fill(0);
