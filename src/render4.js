@@ -118,7 +118,7 @@ function updateTanks() {
   for (const t of tanks) {
     let o = tankObjs.get(t);
     if (!o) { o = buildTank(); scene.add(o); tankObjs.set(t, o); }
-    o.position.set(X(t.x), hasHills ? gY(t.x, t.y) : 0, Z(t.y)); o.rotation.y = -t.ang;
+    o.position.set(X(t.x), hasHills ? gY(t.x, t.y) : 0, Z(t.y)); carTilt(t, 26, 6); o.rotation.set(t.tR, -t.ang, t.tP, "YXZ");
     o.userData.turret.rotation.y = -(t.turret - t.ang);
     o.userData.barrel.position.x = 13 - t.recoil * 2.5;
     t.muzzle = [X(t.x) + Math.cos(t.turret) * 6, 9.5, Z(t.y) + Math.sin(t.turret) * 6];

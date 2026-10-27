@@ -254,6 +254,23 @@ scene.add(outskirts);
 // ближние окрестности: сетка с высотами, цвет по высоте и уклону — трава, скалы, снег
 const terrTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#d0d0d0"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#bcbcbc", "#e0e0e0", "#c8c8c8", "#ececec", "#b0b0b0"], 2); }, false);
 terrTex.wrapS = terrTex.wrapT = THREE.RepeatWrapping; terrTex.repeat.set(160, 140);
+// маска гор для шейдера земли: по клетке — скалы (крутизна и клетка 10), снег (выше линии), альпийский луг (под линией), осыпь (крутые склоны)
+let mtnMaskTex = null;
+function buildMountainMask() {
+  const data = new Uint8Array(GW * GH * 4), sm = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+  if (hasHills) for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+    const i = gy * GW + gx, h = TH[i]; if (h <= WATER_Y + .5 || roadMask[i] || grid[i] === 9 || grid[i] === 3) continue;
+    const sx = (TH[gy * GW + Math.min(GW - 1, gx + 1)] - TH[gy * GW + Math.max(0, gx - 1)]) / (2 * CS), sy = (TH[Math.min(GH - 1, gy + 1) * GW + gx] - TH[Math.max(0, gy - 1) * GW + gx]) / (2 * CS), s = Math.hypot(sx, sy);
+    const nz = ((i * 7919) % 97) / 97 - .5;
+    const snow = sm(SNOW_H - 30, SNOW_H + 15, h + nz * 40), rock = grid[i] === 10 ? 1 : sm(.75, 1.05, s), scree = sm(.4, .7, s) * (1 - rock) * sm(40, 90, h);
+    const alpine = sm(SNOW_H - 130, SNOW_H - 50, h + nz * 30) * (1 - rock) * (1 - scree) * (grid[i] === 2 || grid[i] === 4 ? 1 : 0);
+    const k = ((GH - 1 - gy) * GW + gx) * 4; // строки снизу вверх, как uv плоскости
+    data[k] = rock * (1 - snow * .6) * 255; data[k + 1] = snow * 255; data[k + 2] = alpine * (1 - snow) * 255; data[k + 3] = scree * (1 - snow * .5) * 255;
+  }
+  if (mtnMaskTex) mtnMaskTex.dispose();
+  mtnMaskTex = new THREE.DataTexture(data, GW, GH, THREE.RGBAFormat); mtnMaskTex.magFilter = mtnMaskTex.minFilter = THREE.LinearFilter; mtnMaskTex.needsUpdate = true;
+  groundDet.gMask.value = mtnMaskTex;
+}
 const TEXT = 2300, TSEG = 24;
 let terrainMesh = null;
 function buildTerrainMesh() {
@@ -443,7 +460,7 @@ function buildCity() {
   for (const b of buildings) { if (b.scaf) { scene.remove(b.scaf); cityGroup.remove(b.scaf); } b.scaf = null; b.mound = null; b.sign = null; b.hid = b.ruinDone = b.detached = b.moundDone = b.broke = b.scorched = false; b.scorchK = 0; b.lastStep = -1; }
   for (const t of trees) t.shownBurnt = false;
   dirtyChunks.clear();
-  paintGround(groundCv.getContext("2d")); groundTex.needsUpdate = true;
+  paintGround(groundCv.getContext("2d")); groundTex.needsUpdate = true; buildMountainMask();
   buildTerrainMesh(); buildRocks();
   instBoxes.length = 0;
   for (const b of buildings) {

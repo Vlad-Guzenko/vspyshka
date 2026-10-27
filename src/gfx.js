@@ -234,7 +234,18 @@ function applyRealTextures() {
     realBrick = true;
     STYLES.forEach((st, i) => { if (!isBrick(st)) return; const m = facadeMats[i], t = facadeTex(st, false); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (m.map) m.map.dispose(); m.map = t; });
   }
-  groundDet.gOn.value = ["asphalt", "pavement", "grass"].every(n => RT[n] && RT[n].ok) ? 1 : 0;
+  // фактуры земли склеиваются в атласы: у шейдера земли всего 16 текстурных блоков. Цвет 4×2 (асфальт, плитка, газон, скалы;
+  // осыпь, альпийский луг, снег), нормали 2×2 (асфальт, плитка, газон)
+  const atlas = (tiles, size, cols, srgb) => { const c = document.createElement("canvas"); c.width = size * cols; c.height = size * Math.ceil(tiles.length / cols); const g = c.getContext("2d");
+    tiles.forEach((img, i) => g.drawImage(img, (i % cols) * size, Math.floor(i / cols) * size, size, size));
+    const t = new THREE.CanvasTexture(c); if (srgb) t.encoding = THREE.sRGBEncoding; t.generateMipmaps = false; t.minFilter = t.magFilter = THREE.LinearFilter; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.anisotropy = Math.min(8, R3.capabilities.getMaxAnisotropy()); return t; };
+  const base = ["asphalt", "pavement", "grass"], mtn = ["rock", "scree", "alpine", "snow"];
+  if (base.every(n => RT[n] && RT[n].ok)) {
+    const hasMtn = mtn.every(n => RT[n] && RT[n].ok), names = hasMtn ? base.concat(mtn) : base;
+    groundDet.gDA.value = atlas(names.map(n => RT[n].diff.value.image), 1024, 4, true);
+    groundDet.gNA.value = atlas(base.map(n => RT[n].nor.value.image), 1024, 2, false);
+    groundDet.gOn.value = 1; groundDet.gMtn.value = hasMtn ? 1 : 0;
+  }
   const tl = RT.rooftiles;
   if (tl && tl.ok) {
     // ряды черепицы идут вдоль ската: у двускатной крыши u — поперёк конька, поэтому фактура повёрнута
@@ -323,14 +334,28 @@ const detailTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.
 detailTex.wrapS = detailTex.wrapT = THREE.RepeatWrapping;
 // настоящие фактуры земли: асфальт, плитка тротуаров и площадей, газон. Какая поверхность под пикселем — по цвету
 // нарисованной карты земли (тёмный серый — асфальт, светлый серый — плитка, зелёный — трава); завалы и прочее не трогаем
-const groundDet = { gOn: { value: 0 } };
-for (const [k, n] of [["gA", "asphalt"], ["gP", "pavement"], ["gG", "grass"]]) { const s = rtSlot(n); groundDet[k + "D"] = s.diff; groundDet[k + "N"] = s.nor; groundDet[k + "M"] = s.mean; }
+const groundDet = { gOn: { value: 0 }, gMtn: { value: 0 }, gMask: { value: new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1) }, gDA: { value: RT_GREY }, gNA: { value: RT_FLAT } };
+groundDet.gMask.value.needsUpdate = true;
+for (const [k, n] of [["gA", "asphalt"], ["gP", "pavement"], ["gG", "grass"], ["gR", "rock"], ["gS", "scree"], ["gL", "alpine"], ["gW", "snow"]]) groundDet[k + "M"] = rtSlot(n).mean;
 ground.material.extensions = { derivatives: true };
 ground.material.onBeforeCompile = sh => {
   sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = groundWorldSize; Object.assign(sh.uniforms, groundDet);
   sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
     vec3 bc0 = diffuseColor.rgb; vec2 gWP = vUv * worldSize; vec3 gK = vec3(0.);
     diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28 * (1. - .6 * gOn));
+    // горы: маска по высоте и крутизне (r скалы, g снег, b альпийский луг, a осыпь) накладывает настоящие фактуры поверх цвета клетки
+    vec4 mk = texture2D(gMask, vUv) * gMtn;
+    if (mk.r + mk.g + mk.b + mk.a > .01) {
+      float mfar = 1. - smoothstep(1400., 3200., length(vViewPosition));
+      vec3 rk = (atlD(gWP / 18., vec2(.75, .5)) + atlD(mat2(.8, -.6, .6, .8) * gWP / 43. + .2, vec2(.75, .5))) * .5 / gRM;
+      vec3 sc = (atlD(gWP / 14., vec2(0., 0.)) + atlD(mat2(.8, .6, -.6, .8) * gWP / 33. + .6, vec2(0., 0.))) * .5 / gSM;
+      vec3 al = atlD(gWP / 12., vec2(.25, 0.)) / gLM;
+      vec3 sn = atlD(gWP / 16., vec2(.5, 0.)) / gWM;
+      diffuseColor.rgb *= mix(vec3(1.), rk, .95 * mk.r * mfar);
+      diffuseColor.rgb *= mix(vec3(1.), sc, .9 * mk.a * mfar);
+      diffuseColor.rgb *= mix(vec3(1.), al, .8 * mk.b * mfar);
+      diffuseColor.rgb *= mix(vec3(1.), sn, .7 * mk.g * mfar);
+    }
     {
       // сетка тонких трещин: гребни шума с искажением; видна только на тёмном сером асфальте и вблизи
       vec3 bc = bc0; float mx = max(bc.r, max(bc.g, bc.b)), mn = min(bc.r, min(bc.g, bc.b));
@@ -344,11 +369,11 @@ ground.material.onBeforeCompile = sh => {
         float far = 1. - smoothstep(1100., 2200., length(vViewPosition)), L = 0.;
         if (asph > .01) {
           // асфальт: две выборки разного масштаба и поворота, чтобы плитка текстуры не повторялась рисунком
-          vec3 a = (texture2D(gAD, gWP / 16.).rgb + texture2D(gAD, mat2(.8, -.6, .6, .8) * gWP / 37. + .31).rgb) * .5 / gAM;
+          vec3 a = (atlD(gWP / 16., vec2(0., .5)) + atlD(mat2(.8, -.6, .6, .8) * gWP / 37. + .31, vec2(0., .5))) * .5 / gAM;
           diffuseColor.rgb *= mix(1., dot(a, vec3(.3, .59, .11)), .95 * asph * far);
         }
-        if (pave > .01) { vec3 p = texture2D(gPD, gWP / 12.).rgb / gPM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(p, vec3(.3, .59, .11))), p, .3), .75 * pave * far); }
-        if (grassM > .01) { vec3 g = texture2D(gGD, gWP / 10.).rgb / gGM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(g, vec3(.3, .59, .11))), g, .45), .85 * grassM * far); }
+        if (pave > .01) { vec3 p = atlD(gWP / 12., vec2(.25, .5)) / gPM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(p, vec3(.3, .59, .11))), p, .3), .75 * pave * far); }
+        if (grassM > .01) { vec3 g = atlD(gWP / 10., vec2(.5, .5)) / gGM; diffuseColor.rgb *= mix(vec3(1.), mix(vec3(dot(g, vec3(.3, .59, .11))), g, .45), .85 * grassM * far); }
         gK = vec3(asph, pave, grassM);
       } else if (grassM * near > .01) diffuseColor.rgb *= mix(1., .78 + .4 * wn(gWP * 1.3) * wn(gWP * .37 + 3.1) + .12 * wn(gWP * 4.1), grassM * near);
       if (asph * near > .01) {
@@ -362,9 +387,12 @@ ground.material.onBeforeCompile = sh => {
     }`).replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
     if (gK.x + gK.y + gK.z > .01) {
       float nb = 1. - smoothstep(100., 380., length(vViewPosition));
-      vec3 mN = (texture2D(gAN, gWP / 16.).xyz * 2. - 1.) * gK.x + (texture2D(gPN, gWP / 12.).xyz * 2. - 1.) * gK.y + (texture2D(gGN, gWP / 10.).xyz * 2. - 1.) * gK.z;
+      vec3 mN = (atlN(gWP / 16., vec2(0., .5)) * 2. - 1.) * gK.x + (atlN(gWP / 12., vec2(.5, .5)) * 2. - 1.) * gK.y + (atlN(gWP / 10., vec2(0., 0.)) * 2. - 1.) * gK.z;
       if (nb > .001) normal = detPerturb(-vViewPosition, normal, gWP, normalize(vec3(mN.xy * nb * 1.1, 1.)));
-    }`).replace("void main() {", `uniform sampler2D detailMap, gAD, gAN, gPD, gPN, gGD, gGN; uniform vec2 worldSize; uniform vec3 gAM, gPM, gGM; uniform float gOn;
+    }`).replace("void main() {", `uniform sampler2D detailMap, gDA, gNA, gMask; uniform vec2 worldSize; uniform vec3 gAM, gPM, gGM, gRM, gSM, gLM, gWM; uniform float gOn, gMtn;
+// плитка из клетки атласа (канвас перевёрнут: первый ряд картинок — верхняя половина uv); без мипмап, поэтому фактуры гаснут вдали
+vec3 atlD(vec2 p, vec2 q) { return texture2D(gDA, q + vec2(.001, .002) + fract(p) * vec2(.248, .496)).rgb; }
+vec3 atlN(vec2 p, vec2 q) { return texture2D(gNA, q + .002 + fract(p) * .496).xyz; }
 ${WEATHER_NOISE}${DET_FN}
 void main() {`);
 };

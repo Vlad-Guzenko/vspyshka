@@ -49,7 +49,7 @@ function updateMachines() {
       scene.add(o); carExtras.set(c, o);
     }
     o.visible = !c.gone;
-    o.position.set(X(c.x), gY(c.x, c.y), Z(c.y)); o.rotation.y = -c.ang;
+    o.position.set(X(c.x), gY(c.x, c.y), Z(c.y)); o.rotation.set(c.tR || 0, -c.ang, c.tP || 0, "YXZ"); // наклон уже посчитан в updateCars
     if (o.userData.drum) { o.userData.drum.rotation.x += .05; o.userData.stripe.rotation.x = o.userData.drum.rotation.x; }
     if (o.userData.heap) { const k = Math.min(1, (c.load || 0) / DUMP_CAP); o.userData.heap.visible = k > 0; o.userData.heap.scale.y = Math.max(.25, k); o.userData.heap.position.y = 1.4 + 1.6 * k; }
     if (o.userData.ladder) { const up = c.deployed && c.job && c.job.b && c.job.b.fire > 0 && c.job.b.floors >= 3, L = o.userData.ladder, E = o.userData.ext; L.rotation.z += ((up ? -.95 : 0) - L.rotation.z) * .04; E.scale.x += ((up ? 1 : .3) - E.scale.x) * .04; }

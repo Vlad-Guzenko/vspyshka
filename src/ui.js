@@ -14,7 +14,9 @@ function updateCamera(dt) {
   for (const key in camS) camC[key] += (camS[key] - camC[key]) * k;
   const cp = Math.cos(camC.pitch), sx = shake > 0 ? rnd(-shake, shake) : 0, sy = shake > 0 ? rnd(-shake, shake) : 0;
   camera.position.set(camC.tx + camC.dist * cp * Math.cos(camC.yaw) + sx, camC.dist * Math.sin(camC.pitch) + sy, camC.tz + camC.dist * cp * Math.sin(camC.yaw));
-  const gT = Math.max(WATER_Y, gY(camC.tx + W / 2, camC.tz + H / 2)), lookY = (followA ? (thirdPerson ? 6 : 4) : 0) + gT;
+  // высота земли под точкой взгляда сглаживается: над горами камера плывёт, а не подпрыгивает на каждом гребне
+  const gRaw = Math.max(WATER_Y, gY(camC.tx + W / 2, camC.tz + H / 2)); camC.gy = camC.gy === undefined ? gRaw : camC.gy + (gRaw - camC.gy) * Math.min(1, dt * 4);
+  const gT = camC.gy, lookY = (followA ? (thirdPerson ? 6 : 4) : 0) + gT;
   camera.position.y += gT;
   if (followA) {
     // при слежении камера придвигается к человеку, если между ними стена, а не перепрыгивает через дом
@@ -27,7 +29,7 @@ function updateCamera(dt) {
     // и не смотрит сквозь стену: если между точкой взгляда и камерой дом, камера придвигается
     if (camC.dist < 420 && cellAt(camC.tx + W / 2, camC.tz + H / 2) !== 3) { const t = cameraClearT(camC.tx, lookY + 3, camC.tz, camera.position.x, camera.position.y, camera.position.z); if (t < 1 && t > .72) camera.position.set(camC.tx + (camera.position.x - camC.tx) * t, lookY + 3 + (camera.position.y - lookY - 3) * t, camC.tz + (camera.position.z - camC.tz) * t); }
   }
-  camera.position.y = Math.max(camera.position.y, gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3));
+  { const fl = gY(camera.position.x + W / 2, camera.position.z + H / 2) + (followA ? 2 : 3); camC.fl = camC.fl === undefined ? fl : camC.fl + (fl - camC.fl) * Math.min(1, dt * (fl > camC.fl ? 10 : 3)); camera.position.y = Math.max(camera.position.y, camC.fl); } // пол под камерой тоже плавный
   camera.lookAt(camC.tx, lookY, camC.tz);
   shake = Math.max(0, shake - dt * 14);
   scene.fog.near = camC.dist * .5 + 200; scene.fog.far = camC.dist * 3.4 + 2400; // воздушная перспектива: даль бледнеет

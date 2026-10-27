@@ -346,6 +346,14 @@ function makeCarMeshes(cap) {
 }
 const _cm = new THREE.Matrix4(), _cw = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _ce = new THREE.Euler(), _cv = new THREE.Vector3(), _cs = new THREE.Vector3(), _cc = new THREE.Color();
 const SERVICE_CAB = { army: "#3d4529", fire: "#8e1c14" };
+// наклон техники по склону: тангаж по высоте земли перед и за машиной, крен по высоте слева и справа; сглаживается, чтобы не дрожать
+function carTilt(c, len, track) {
+  if (!hasHills) { c.tP = c.tR = 0; return; }
+  const cs = Math.cos(c.ang), sn = Math.sin(c.ang), f = len / 2, t = track;
+  const hF = gY(c.x + cs * f, c.y + sn * f), hB = gY(c.x - cs * f, c.y - sn * f), hP = gY(c.x - sn * t, c.y + cs * t), hN = gY(c.x + sn * t, c.y - cs * t);
+  const pitch = Math.atan2(hF - hB, len), roll = Math.atan2(hN - hP, 2 * t), k = c.tP === undefined ? 1 : .25;
+  c.tP = (c.tP || 0) + (pitch - (c.tP || 0)) * k; c.tR = (c.tR || 0) + (roll - (c.tR || 0)) * k;
+}
 function updateCars() {
   const list = cars.filter(c => !c.gone);
   if (list.length > carCap) makeCarMeshes(list.length + 200);
@@ -354,7 +362,7 @@ function updateCars() {
   let wi = 0, li = 0, bi = 0, bar = 0;
   for (const c of list) {
     const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.vlen || c.len || 1) * 18 / M.L, dead = c.wreck && c.boomT <= 0;
-    _ce.set(c.roll || 0, -c.ang, 0, "YXZ"); _cq.setFromEuler(_ce);
+    carTilt(c, Math.max(12, M.L * sx), Math.max(3, M.track)); _ce.set((c.roll || 0) + c.tR, -c.ang, c.tP, "YXZ"); _cq.setFromEuler(_ce);
     _cs.set(sx, c.crushed ? .35 : 1, 1);
     if (c.rx === undefined || Math.hypot(c.rx - c.x, c.ry - c.y) > 40) { c.rx = c.x; c.ry = c.y; } const rk = c.turnT > 0 ? .12 : .25; c.rx += (c.x - c.rx) * rk; c.ry += (c.y - c.ry) * rk;
     _cm.compose(_cv.set(X(c.rx), (c.z || 0) + (c.roll ? Math.abs(Math.sin(c.roll)) * 3.6 : 0) + gY(c.rx, c.ry), Z(c.ry)), _cq, _cs);
