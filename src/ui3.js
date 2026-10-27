@@ -6,7 +6,7 @@ const LAYOUT_INFO = {
   park: "огромный парк с озером в середине", mega: "плотная сетка, бродвей и центральный парк", suburb: "петли улиц, тупики-разъезды, частные дома",
   industry: "склады и стоянки на полгорода", river: "река и мосты", port: "море вдоль края", mountain: "горы", valley: "долина",
 };
-const wiz = { step: 0, scen: "sandbox", layout: "random", map: "normal", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true, threats: true };
+const wiz = { step: 0, scen: "sandbox", layout: "random", map: "normal", relief: "mountains", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true, threats: true };
 function cardHTML(name, value, title, sub, checked) {
   return `<label class="card"><input type="radio" name="${name}" value="${value}"${checked ? " checked" : ""}><b>${title}</b><small>${sub}</small></label>`;
 }
@@ -26,6 +26,7 @@ $("wizard").addEventListener("change", e => {
   if (t.name === "wScen") { wiz.scen = t.value; renderWizard(); }
   if (t.name === "wLayout") wiz.layout = t.value;
   if (t.name === "wMap") wiz.map = t.value;
+  if (t.name === "wRelief") wiz.relief = t.value;
   if (t.id === "wPop") { wiz.pop = +t.value; $("wPopO").textContent = t.value; }
   if (t.name === "wZ") wiz.fast = t.value === "fast";
   if (t.id === "wInc") { wiz.inc = +t.value; $("wIncO").textContent = t.value + " с"; }
@@ -46,7 +47,7 @@ function startGame() {
   $("fast").checked = wiz.fast; $("inc").value = wiz.inc; $("incO").textContent = wiz.inc + " с"; $("arm").value = wiz.armed; $("armO").textContent = wiz.armed + "%"; $("services").checked = wiz.services; $("threats").checked = wiz.threats;
   $("pop").value = wiz.pop; $("popO").textContent = wiz.pop;
   $("layout").value = SCENARIOS[wiz.scen].layout || wiz.layout;
-  mapSize = wiz.map;
+  mapSize = wiz.map; relief = wiz.relief;
   world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);

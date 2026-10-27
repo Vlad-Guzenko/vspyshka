@@ -105,7 +105,7 @@ function gSplit(e, t) {
   const p = edgePos(e, t), n = rnNew(p.x, p.y), first = plCut(e.pts, e.cum, 0, t), second = plCut(e.pts, e.cum, t, e.len), b = e.b;
   b.ed.splice(b.ed.indexOf(e), 1);
   e.b = n; e.pts = first; e.pts[e.pts.length - 1] = [n.x, n.y]; reCum(e); n.ed.push(e);
-  reNew(n, b, second, e.hw, e.kind, e.oneway, { rural: e.rural, boulevard: e.boulevard, tag: e.tag, sw: e.sw });
+  reNew(n, b, second, e.hw, e.kind, e.oneway, { rural: e.rural, boulevard: e.boulevard, tag: e.tag, sw: e.sw, mountain: e.mountain });
   return n;
 }
 function gNodeNear(x, y, r, skip) { let best = null, bd = r; for (const n of RN) { if (n.dead || n === skip) continue; const d = Math.hypot(n.x - x, n.y - y); if (d < bd) { bd = d; best = n; } } return best; }
@@ -217,14 +217,14 @@ function finishGraph() {
     merged = false;
     for (const n of RN) {
       if (n.dead || n.exit || n.round || n.keep || n.ed.length !== 2) continue;
-      const [e1, e2] = n.ed; if (e1 === e2 || e1.hw !== e2.hw || e1.kind !== e2.kind || e1.oneway !== e2.oneway || e1.rural !== e2.rural || e1.sw !== e2.sw) continue;
+      const [e1, e2] = n.ed; if (e1 === e2 || e1.hw !== e2.hw || e1.kind !== e2.kind || e1.oneway !== e2.oneway || e1.rural !== e2.rural || e1.sw !== e2.sw || !!e1.mountain !== !!e2.mountain) continue;
       const o1 = e1.a === n ? e1.b : e1.a, o2 = e2.a === n ? e2.b : e2.a; if (o1 === o2 || o1 === n || o2 === n) continue;
       if (e1.oneway && !(e1.b === n && e2.a === n)) continue;
       const p1 = e1.b === n ? e1.pts : e1.pts.slice().reverse(), p2 = e2.a === n ? e2.pts : e2.pts.slice().reverse();
       // острый излом не сглаживаем: там остаётся перекрёсток-поворот
       const d1 = edgeDirFrom(e1, n), d2 = edgeDirFrom(e2, n); if (d1[0] * d2[0] + d1[1] * d2[1] > -.35) continue;
       reKill(e1); reKill(e2);
-      reNew(o1, o2, p1.concat(p2.slice(1)), e1.hw, e1.kind, e1.oneway, { rural: e1.rural, boulevard: e1.boulevard || e2.boulevard, tag: e1.tag || e2.tag, sw: e1.sw });
+      reNew(o1, o2, p1.concat(p2.slice(1)), e1.hw, e1.kind, e1.oneway, { rural: e1.rural, boulevard: e1.boulevard || e2.boulevard, tag: e1.tag || e2.tag, sw: e1.sw, mountain: e1.mountain });
       n.dead = true; n.ed = []; merged = true;
     }
   }

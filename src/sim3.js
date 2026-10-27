@@ -1,6 +1,6 @@
 /* ---------- уличное движение ---------- */
 const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
-const CH = 48, CHW = Math.ceil(W / CH), CHH = Math.ceil(H / CH);
+const CH = 48, CHW = Math.ceil(MAX_W / CH), CHH = Math.ceil(MAX_H / CH);
 const carHash = Array.from({ length: CHW * CHH }, () => []);
 function rebuildCarHash() {
   for (const c of carHash) c.length = 0;

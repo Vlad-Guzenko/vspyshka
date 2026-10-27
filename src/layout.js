@@ -718,7 +718,7 @@ function fillCity() {
   buildFrontage();
   placeLandmarks(false);
   if (oldTown) { addRotBuilding(oldTown.x, oldTown.y - 6, 44, 70, rnd(-.3, .3), { kind: "cathedral", floors: 4, style: 21 }); const fx = oldTown.x, fy = oldTown.y + 52; fountains.push({ x: fx, y: fy, r: 9 }); fillDisc(fx, fy, 7, 7, 3); }
-  furnishLakes(); fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts();
+  furnishLakes(); fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts(); buildMountainVillage();
 }
 // достопримечательности: храм, вокзал, школа, заправки, водонапорная башня — у улиц со своим участком;
 // телебашня, стадион, колесо обозрения и стела с вечным огнём — внутри кварталов; каждой по одной, если нашлось место

@@ -1,7 +1,8 @@
 /* ---------- мир: рельеф, извилистая река, изрезанный берег, озёра, пятно города ---------- */
 // высота в единицах мира (1 ед. = 25 см). Город стоит на пологих холмах, за ним хребты со снегом.
 // Вода — ямы в рельефе под общей водной гладью. Клетка 10 — скала, по ней не пройти.
-let terrainSeed = 1, hasHills = true, ridgeSides = [], rocks = [], river = null, shore = null, lakes = [], cityBlob = null;
+let massif = null; // горная страна: сторона, ширина, центр плато по краю, озеро на полке
+let terrainSeed = 1, hasHills = true, ridgeSides = [], ridgeFront = [330, 330, 330, 330], rocks = [], river = null, shore = null, lakes = [], cityBlob = null;
 const TH = new Float32Array(GMAX); // высота по клеткам города
 const MOUNT = { front: 320, span: 1000, hmax: 420 }, WATER_Y = -1.5, BED = -5.5, BANK = 10; // рельефа нет: земля ровная, у воды короткий откос
 function tHash(ix, iy) { let n = (ix * 374761393 + iy * 668265263 + terrainSeed * 1442695041) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967295; }
@@ -39,11 +40,14 @@ function shoreD(x, y) {
   const limit = shore.base + (fbm(along / 520 + 2.1, s * 3.7) - .5) * 2 * shore.amp + (fbm(along / 140 + 9, 4.4) - .5) * 50;
   return coord - limit; // < 0 — море
 }
-function lakeD(x, y) {
-  let best = 1e9;
-  for (const l of lakes) { const dx = (x - l.x) / l.rx, dy = (y - l.y) / l.ry, r = Math.hypot(dx, dy) + (fbm(x / 120 + l.x, y / 120) - .5) * .5; best = Math.min(best, (r - 1) * Math.min(l.rx, l.ry)); }
-  return best;
+function lakeNear(x, y) {
+  let best = 1e9, bl = null;
+  for (const l of lakes) { const dx = (x - l.x) / l.rx, dy = (y - l.y) / l.ry, r = Math.hypot(dx, dy) + (fbm(x / 120 + l.x, y / 120) - .5) * .5, d = (r - 1) * Math.min(l.rx, l.ry); if (d < best) { best = d; bl = l; } }
+  return { d: best, l: bl };
 }
+function lakeD(x, y) { return lakeNear(x, y).d; }
+// уровень воды: у горного озера свой, у остальных общий
+function lakeLevel(l) { return l && l.level != null ? l.level : WATER_Y; }
 function waterD(x, y) { return Math.min(riverD(x, y), shoreD(x, y), lakeD(x, y)); }
 function waterAt(x, y) { return waterD(x, y) < 0; }
 // пятно города: не прямоугольник, а живой контур; за ним поля и леса
@@ -52,42 +56,78 @@ function cityK(x, y) {
   const r = Math.hypot((x - cityBlob.x) / cityBlob.rx, (y - cityBlob.y) / cityBlob.ry) + (fbm(x / 640 + 2.3, y / 640 + 9.1) - .5) * .55 + (fbm(x / 210 + 4, y / 210 + 1) - .5) * .18;
   return 1 - smooth(.86, 1.08, r);
 }
-// вода и горы выключены по просьбе: функции остаются, но мир ровный и сухой
-const WORLD_WATER = false, WORLD_MOUNTAINS = false;
+// реки и море выключены (функции остаются); горы — по выбору в диалоге новой игры (relief), озёра ставит layout2.js
+const WORLD_WATER = false;
+let relief = "mountains"; // "plain" — равнина, "mountains" — хребет с предгорьями за городом с одной-двух сторон, серпантин к перевалу
 function worldFlat() { return !river && !shore && !lakes.length && !ridgeSides.length; }
 function prepareWater() {
-  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = [];
-  ridgeSides = !WORLD_MOUNTAINS || L.ridges === 0 ? [] : L.ridges === "long" ? [0, 1] : L.ridges === 2 ? pick([[0, 2], [0, 3], [1, 2], [1, 3]]) : [pick([0, 1, 2, 3])];
+  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = [];
+  const mountains = relief === "mountains" && L.ridges !== 0;
+  // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире); на полке — озеро и место для села
+  massif = null; ridgeSides = [];
+  if (mountains) {
+    const side = pick([2, 3]), a0 = H / 2 + rnd(-150, 150), lx = side === 3 ? W - MOUNT_W + 1080 : MOUNT_W - 1080;
+    massif = { side, w: MOUNT_W, a0, pw: 600, lake: { x: side === 3 ? W - MOUNT_W + 1095 : MOUNT_W - 1095, y: a0 + rnd(-40, 40), rx: 100, ry: 80, level: 146 } };
+    ridgeSides = [side];
+  }
   if (WORLD_WATER && L.sea) { makeShore(); ridgeSides = ridgeSides.filter(s => s !== shore.side); }
   ridgeSides.intrude = !!L.hills;
   if (WORLD_WATER && L.river) makeRiver(Math.random() < .5);
-  cityBlob = { x: W / 2 + rnd(-120, 120), y: H / 2 + rnd(-80, 80), rx: CITY_W * (L.compact ? .38 : .48), ry: CITY_H * (L.compact ? .42 : .5) };
+  const cx0 = !massif ? W / 2 : massif.side === 3 ? (W - MOUNT_W) / 2 : MOUNT_W + (W - MOUNT_W) / 2;
+  cityBlob = { x: cx0 + rnd(-120, 120), y: H / 2 + rnd(-80, 80), rx: CITY_W * (L.compact ? .38 : .48), ry: CITY_H * (L.compact ? .42 : .5) };
   if (WORLD_WATER) for (let k = 0; k < 2; k++) if (Math.random() < .6) { const x = rnd(60, W - 60), y = rnd(60, H - 60); if (cityK(x, y) < .2 && riverD(x, y) > 200 && shoreD(x, y) > 200) lakes.push({ x, y, rx: rnd(60, 130), ry: rnd(50, 100) }); }
 }
 
 /* ---------- высоты ---------- */
-// пологие холмы под городом и вокруг
-// земля ровная: холмы убраны по просьбе, остались только горы на горизонте у горных планировок
-function baseH(x, y) { return 0; }
-// берега: к воде земля плавно опускается, дно уходит вглубь постепенно
-function withWater(h, x, y) {
-  const d = waterD(x, y);
-  if (d < 0) return WATER_Y - .4 + (BED - WATER_Y + .4) * smooth(0, 36, -d);
-  if (d < BANK) return WATER_Y + .9 + (h - WATER_Y - .9) * smooth(0, BANK, d);
+// Город ровный. За его пятном — пологие холмы, у горных сторон холмы переходят в предгорья и хребет, который продолжается за
+// край карты. Хребет — гребневый шум по искажённым координатам (складки, а не круглые бугры); подъём начинается за 300 ед.
+// до края и к краю даёт 40–60 м, дальше растёт до MOUNT.hmax. Всё умножено на (1 − cityK), чтобы город остался ровным
+// Горная страна: от внутренней границы полосы предгорья за 500 ед. набирают 70, дальше склон. В полосе плато (по краю
+// ±pw от a0) склон выходит на полку высотой ~150 шириной 350 ед., за ней второй склон к хребту; вне полосы — сплошной склон.
+// Складки гребневого шума сильнее на склонах и почти пропадают на полке; в полке — чаша озера
+function massifH(x, y) {
+  const M = massif, ds = M.w + sideDs(M.side, x, y), along = sideAlong(M.side, x, y);
+  const d = ds + (fbm(along / 1100 + 5, 3.3) - .5) * 160;
+  if (d < -100) return 0;
+  const wx = x + (fbm(x / 900 + 3, y / 900 + 1) - .5) * 260, wy = y + (fbm(x / 900 - 2, y / 900 + 5) - .5) * 260;
+  const ridge = ridged(wx / 330, wy / 330) * .62 + fbm(wx / 140, wy / 140) * .26 + fbm(x / 48, y / 48) * .08;
+  const foot = 70 * smooth(-100, 520, d), pk = smooth(M.pw + 250, M.pw, Math.abs(along - M.a0));
+  const slope = 260 * smooth(520, 1720, d), shelf = 80 * smooth(520, 900, d) + 180 * smooth(1250, 1720, d);
+  let h = foot + slope + (shelf - slope) * pk + 140 * smooth(1700, 2200, d);
+  const flat = pk * smooth(760, 900, d) * (1 - smooth(1250, 1400, d)); // 1 на полке
+  h += (ridge - .5) * (6 + 54 * smooth(700, 1700, d)) * (1 - flat * .85); // складки: на предгорьях едва, на верхних склонах сильно
+  const Lk = M.lake, dl = Math.hypot((x - Lk.x) / Lk.rx, (y - Lk.y) / Lk.ry);
+  h -= 9 * smooth(1.9, 1, dl) * flat; // чаша озера
+  return Math.max(0, h);
+}
+function mountainH(x, y) {
+  if (massif) return massifH(x, y);
+  if (!ridgeSides.length) return 0;
+  const wx = x + (fbm(x / 900 + 3, y / 900 + 1) - .5) * 260, wy = y + (fbm(x / 900 - 2, y / 900 + 5) - .5) * 260;
+  let h = 0;
+  for (const side of ridgeSides) {
+    const ds = sideDs(side, x, y), along = sideAlong(side, x, y);
+    const u = smooth(-ridgeFront[side], 330, ds + (fbm(along / 1500 + side * 7, 2.2) - .5) * 200); // предгорья начинаются за ridgeFront до края
+    if (u <= 0) continue;
+    const ridge = ridged(wx / 330 + side, wy / 330) * .62 + fbm(wx / 140, wy / 140) * .26 + fbm(x / 48, y / 48) * .08;
+    h = Math.max(h, MOUNT.hmax * Math.pow(u, 1.45) * (.4 + ridge * .85) + u * 40);
+  }
   return h;
 }
-// за городом: холмы, хребты по выбранным сторонам, снег на вершинах
-function wildH(x, y) {
-  let h = baseH(x, y);
-  for (const side of (L.hills ? ridgeSides : [])) {
-    const ds = side === 0 ? -y : side === 1 ? y - H : side === 2 ? -x : x - W, along = side < 2 ? x : y;
-    const front = ridgeSides.intrude ? 40 : MOUNT.front;
-    const k = smooth(front, front + MOUNT.span, ds + (fbm(along / 600, side * 9.1) - .5) * 300);
-    const n = .45 + fbm(x / 260 + side, y / 260) * .7 + ridged(x / 140, y / 140) * .55 * k + fbm(x / 55, y / 55) * .18;
-    h = Math.max(h, MOUNT.hmax * k * k * n * smooth(0, 120, ds) + k * 40 + (fbm(x / 90, y / 90) - .5) * 24 * smooth(0, 80, ds));
-  }
-  return withWater(h, x, y);
+// холмы за городом: мягкие, без ям
+function hillsH(x, y) { return 10 + (fbm(x / 560 + 1, y / 560 + 4) - .5) * 40 + (fbm(x / 170 + 8, y / 170) - .5) * 9; }
+// суша без воды: ровный город, холмы и горы вокруг
+function landH(x, y) { const k = 1 - cityK(x, y); if (k <= 0) return 0; return (hillsH(x, y) + mountainH(x, y)) * k * k; }
+function baseH(x, y) { return landH(x, y); }
+// берега: к воде земля плавно опускается, дно уходит вглубь постепенно
+function withWater(h, x, y) {
+  const q = lakeNear(x, y), d = Math.min(riverD(x, y), shoreD(x, y), q.d), Lv = d === q.d ? lakeLevel(q.l) : WATER_Y;
+  if (d < 0) return Lv - .4 + (BED - WATER_Y + .4) * smooth(0, 36, -d);
+  if (d < BANK) return Lv + .9 + (h - Lv - .9) * smooth(0, BANK, d);
+  return h;
 }
+// за краем карты та же функция, что и внутри: хребет продолжается без шва
+function wildH(x, y) { return withWater(landH(x, y), x, y); }
 function cityCellH(gx, gy) { return TH[clamp(gy, 0, GH - 1) * GW + clamp(gx, 0, GW - 1)]; }
 function gY(x, y) {
   if (!hasHills) return 0;
@@ -129,10 +169,75 @@ function hillBlock(b) {
     rocks.push({ x, y, s, rot: rnd(0, TAU) }); fillCells(x - s * .7, y - s * .7, x + s * .7, y + s * .7, 10);
   }
 }
+// серпантины врезаны полкой: полотно ровное поперёк, продольный уклон не круче MR.grade,
+// выше дороги — откос выемки 1:0.6, ниже — откос насыпи 1:1.5. Все горные рёбра считаются вместе:
+// общие узлы получают одну высоту, полотно пишет ближайшая ось, выемка/насыпь не трогают чужое полотно
+let benchMask = null; // ячейки полотна серпантинов: сглаживание их не трогает
+let terraces = []; // дворы ферм на склонах: площадка выравнивается, вокруг откос
+function levelTerraces() {
+  if (!hasHills) return;
+  for (const T of terraces) {
+    let s = 0, n = 0; for (const i of T.cells) if (TH[i] > WATER_Y && grid[i] !== 9) { s += TH[i]; n++; } if (!n) continue;
+    const h0 = s / n, inside = new Set(T.cells);
+    for (const i of T.cells) if (TH[i] > WATER_Y) TH[i] = h0;
+    for (const i of T.cells) { const gx = i % GW, gy = (i / GW) | 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = gx + dx, y = gy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (inside.has(j) || TH[j] <= WATER_Y) continue; const lim = Math.hypot(dx, dy) * CS * .66; TH[j] = clamp(TH[j], h0 - lim, h0 + lim); } }
+  }
+}
+function benchRoads() {
+  benchMask = null;
+  if (!hasHills) return;
+  const ME = RE.filter(e => e.mountain && !e.dead); if (!ME.length) return;
+  const cellOf = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const prof = new Map();
+  for (const e of ME) {
+    const S = []; for (let t = 0; t <= e.len; t += CS / 2) { const p = edgePos(e, t); S.push({ x: p.x, y: p.y, tx: p.tx, ty: p.ty, h: TH[cellOf(p.x, p.y)] }); }
+    for (let pass = 0; pass < 3; pass++) { const c = S.map(s => s.h); for (let i = 0; i < S.length; i++) { let a = 0, n = 0; for (let k = -5; k <= 5; k++) { const j = i + k; if (j >= 0 && j < S.length) { a += c[j]; n++; } } S[i].h = a / n; } }
+    prof.set(e, S);
+  }
+  // полотно: каждой ячейке — ближайшая ось; где полотна пересекаются (другое ребро или та же дорога через сотню единиц), высоты связываются
+  const cell = new Map(), links = [];
+  for (const e of ME) {
+    const S = prof.get(e), half = e.hw + 3;
+    for (let idx = 0; idx < S.length; idx++) { const s = S[idx]; for (let oy = -half; oy <= half; oy += CS) for (let ox = -half; ox <= half; ox += CS) {
+      const xx = s.x + ox, yy = s.y + oy, gx = Math.floor(xx / CS), gy = Math.floor(yy / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+      const lat = Math.abs(-(xx - s.x) * s.ty + (yy - s.y) * s.tx), lon = Math.abs((xx - s.x) * s.tx + (yy - s.y) * s.ty); if (lat > half || lon > CS) continue;
+      const i = gy * GW + gx, r = cell.get(i);
+      if (r && (r.e !== e || Math.abs(r.idx - idx) > 25)) links.push([r.e, r.idx, e, idx]);
+      if (!r || r.lat > lat) cell.set(i, { lat, e, idx });
+    } }
+  }
+  // продольный уклон: два прохода срезают подъёмы; концы рёбер сходятся к высоте узла, пересечения — к общей высоте (минимум)
+  const dh = MR.grade * (CS / 2), nodeH = new Map();
+  for (let it = 0; it < 4; it++) {
+    for (const [e1, i1, e2, i2] of links) { const A = prof.get(e1)[i1], B = prof.get(e2)[i2], m = Math.min(A.h, B.h); A.h = m; B.h = m; }
+    for (const e of ME) {
+      const S = prof.get(e), n = S.length - 1;
+      if (nodeH.has(e.a)) S[0].h = Math.min(S[0].h, nodeH.get(e.a)); if (nodeH.has(e.b)) S[n].h = Math.min(S[n].h, nodeH.get(e.b));
+      for (let i = 1; i <= n; i++) if (S[i].h > S[i - 1].h + dh) S[i].h = S[i - 1].h + dh;
+      for (let i = n - 1; i >= 0; i--) if (S[i].h > S[i + 1].h + dh) S[i].h = S[i + 1].h + dh;
+      for (const [nd, h] of [[e.a, S[0].h], [e.b, S[n].h]]) nodeH.set(nd, Math.min(nodeH.has(nd) ? nodeH.get(nd) : Infinity, h));
+    }
+  }
+  const roadH = new Map(); for (const [i, r] of cell) roadH.set(i, [r.lat, prof.get(r.e)[r.idx].h - .4]);
+  benchMask = new Uint8Array(GW * GH);
+  for (const [i, r] of roadH) if (TH[i] > WATER_Y) { TH[i] = r[1]; benchMask[i] = 1; }
+  // откосы: выемка над дорогой, насыпь под ней; дальше по склону — пока не встретят рельеф
+  for (const e of ME) {
+    const S = prof.get(e), half = e.hw + 3, R = half + 120;
+    for (const s of S) for (let oy = -R; oy <= R; oy += CS) for (let ox = -R; ox <= R; ox += CS) {
+      const xx = s.x + ox, yy = s.y + oy, gx = Math.floor(xx / CS), gy = Math.floor(yy / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+      const i = gy * GW + gx; if (roadH.has(i) || TH[i] <= WATER_Y || grid[i] === 9) continue;
+      const lat = Math.abs(-(xx - s.x) * s.ty + (yy - s.y) * s.tx), lon = Math.abs((xx - s.x) * s.tx + (yy - s.y) * s.ty); if (lat <= half || lon > CS + lat * .12) continue;
+      const t = lat - half, base = s.h - .4, cutH = base + t * 1.6, fillH = base - t * .66;
+      if (TH[i] > cutH) TH[i] = cutH; else if (TH[i] < fillH) TH[i] = fillH;
+    }
+  }
+}
 // дорога ровная поперёк своей оси; мост лежит на уровне берегов
 function flattenRoads() {
   if (!hasHills) return;
   for (const e of RE) {
+    if (e.mountain) continue; // серпантин уже врезан полкой
     const half = e.hw + 10;
     for (let t = 0; t <= e.len; t += CS) {
       const p = edgePos(e, t), i0 = clamp(Math.floor(p.y / CS), 0, GH - 1) * GW + clamp(Math.floor(p.x / CS), 0, GW - 1), h = TH[i0];
@@ -148,9 +253,10 @@ function flattenRoads() {
   smoothTerrain(2);
 }
 function sinkPonds() {
-  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) if (grid[gy * GW + gx] === 9 && TH[gy * GW + gx] > WATER_Y) {
-    TH[gy * GW + gx] = BED;
-    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = gx + dx, y = gy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (grid[j] === 9) continue; const d = Math.hypot(dx, dy); TH[j] = Math.min(TH[j], WATER_Y + .6 + d * 2.2); }
+  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) if (grid[gy * GW + gx] === 9) {
+    const Lv = lakeLevel(lakeNear(gx * CS + 4, gy * CS + 4).l); if (TH[gy * GW + gx] <= Lv) continue;
+    TH[gy * GW + gx] = Lv + (BED - WATER_Y);
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = gx + dx, y = gy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (grid[j] === 9) continue; const d = Math.hypot(dx, dy); TH[j] = Math.min(TH[j], Lv + .6 + d * 2.2); }
   }
 }
 // сглаживание: убирает ступеньки на перекрёстках и у берегов; вода и дно не трогаются
@@ -159,19 +265,22 @@ function smoothTerrain(passes) {
   for (let p = 0; p < passes; p++) {
     tmp.set(TH);
     for (let gy = 1; gy < GH - 1; gy++) for (let gx = 1; gx < GW - 1; gx++) {
-      const i = gy * GW + gx; if (TH[i] <= WATER_Y) continue;
+      const i = gy * GW + gx; if (TH[i] <= WATER_Y || grid[i] === 9 || (benchMask && benchMask[i])) continue; // вода (и горное озеро) и полотно серпантинов не сглаживаются
       let s = 0, n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const j = i + dy * GW + dx; if (TH[j] > WATER_Y) { s += TH[j]; n++; } }
       tmp[i] = s / n;
     }
     TH.set(tmp);
   }
 }
+const SNOW_H = 270; // выше — снег: без деревьев и построек
 function finishTerrain() {
   for (let gy = 1; gy < GH - 1; gy++) for (let gx = 1; gx < GW - 1; gx++) {
-    const i = gy * GW + gx; if (grid[i] !== 2) continue;
+    const i = gy * GW + gx; if (grid[i] !== 2 && grid[i] !== 4) continue;
     const sx = (TH[i + 1] - TH[i - 1]) / (2 * CS), sy = (TH[i + GW] - TH[i - GW]) / (2 * CS);
     if (Math.hypot(sx, sy) > 1.1 && TH[i] > WATER_Y) grid[i] = 10;
   }
+  // на скалах и выше снеговой линии леса нет
+  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && TH[i] < SNOW_H - 20; });
 }
 function slopeK(x0, y0, x1, y1) {
   const d = Math.hypot(x1 - x0, y1 - y0); if (d < .01) return 1;

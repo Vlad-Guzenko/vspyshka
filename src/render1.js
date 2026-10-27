@@ -46,7 +46,9 @@ function groundColOf(i) {
   const m = roadMask[i], c = grid[i];
   if (c === 8) return RUBBLE_COL[(i * 7919) % 3];
   if (m === 1) return "#3b3e40"; if (m === 2) return "#8f8f8a"; if (m === 3) return "#6d7a4c";
-  if (c === 9) return "#24404f"; if (c === 10) return "#7a7268";
+  if (c === 9) return "#24404f"; if (c === 10) return TH[i] > SNOW_H - 30 ? "#b9bcc0" : "#7a7268";
+  if (hasHills && !m && TH[i] > SNOW_H) return (i * 7919) % 5 ? "#e8ebef" : "#d8dde3"; // снег выше линии
+  if (hasHills && !m && TH[i] > SNOW_H - 30 && (c === 2 || c === 4)) return (i * 7919) % 3 ? "#8d8a78" : "#7f8a66"; // альпийский луг и камень
   const r = regionOf[i], b = r >= 0 ? blocks[r] : null, k = b ? b.kind : null;
   if (b && b.rural && c === 7) return "#9d9a92"; // бетон за городом: плац части, площадки
   if (b && b.rural && c === 0) return "#4c4e50"; // асфальт заправки у трассы
@@ -662,6 +664,11 @@ function buildWater() {
   const sea = !!shore, ext = sea ? 8000 : 0;
   const pl = new THREE.Mesh(new THREE.PlaneGeometry(W + 2 * TEXT + ext, H + 2 * TEXT + ext).rotateX(-Math.PI / 2), makeWaterMat(-1e6, -1e6, 1e6, 1e6));
   pl.position.set(0, WATER_Y, 0); pl.renderOrder = -1; pl.frustumCulled = false; cityGroup.add(pl);
+  // горные озёра лежат выше общей глади: у каждого своя плоскость на своём уровне, в размер чаши
+  for (const l of lakes) if (l.level != null) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(l.rx * 2.8 + 40, l.ry * 2.8 + 40).rotateX(-Math.PI / 2), makeWaterMat(-1e6, -1e6, 1e6, 1e6));
+    m.position.set(X(l.x), l.level, Z(l.y)); m.renderOrder = -1; cityGroup.add(m);
+  }
   outskirts.position.y = sea ? WATER_Y - 6 : WATER_Y - 1.2;
   const rail = new THREE.MeshStandardMaterial({ color: 0x8a8d8f, roughness: .5, metalness: .6 }), conc = new THREE.MeshStandardMaterial({ color: 0x9a978f, roughness: .9 });
   for (const b of bridges) {

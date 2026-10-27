@@ -4,9 +4,11 @@
 // один раз под большую карту (GMAX) и индексируются текущим GW — так их не надо пересоздавать при смене размера
 const CS = 8;
 const MAP_SIZES = { normal: { n: "Обычная", desc: "900 × 600 м", W: 3600, H: 2400, CITY_W: 2640, CITY_H: 1760 }, big: { n: "Большая", desc: "1300 × 900 м, больше районов и ферм", W: 5200, H: 3600, CITY_W: 3800, CITY_H: 2640, traffic: .62 } };
-const GMAX = (MAP_SIZES.big.W / CS) * (MAP_SIZES.big.H / CS);
+const MOUNT_W = 1800; // горная страна: полоса за городом с одной стороны (450 м), карта становится шире
+const MAX_W = MAP_SIZES.big.W + MOUNT_W, MAX_H = MAP_SIZES.big.H; // самая большая карта: под неё заведены все сетки клеток и хэши соседей
+const GMAX = (MAX_W / CS) * (MAX_H / CS);
 let mapSize = "normal", W = 3600, H = 2400, GW = W / CS, GH = H / CS, CITY_W = 2640, CITY_H = 1760;
-function setMapSize(k) { const M = MAP_SIZES[k] || MAP_SIZES.normal; mapSize = MAP_SIZES[k] ? k : "normal"; W = M.W; H = M.H; GW = W / CS; GH = H / CS; CITY_W = M.CITY_W; CITY_H = M.CITY_H; }
+function setMapSize(k) { const M = MAP_SIZES[k] || MAP_SIZES.normal; mapSize = MAP_SIZES[k] ? k : "normal"; W = M.W + (relief === "mountains" ? MOUNT_W : 0); H = M.H; GW = W / CS; GH = H / CS; CITY_W = M.CITY_W; CITY_H = M.CITY_H; }
 const $ = id => document.getElementById(id);
 const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 const rnd = (a = 0, b = 1) => a + Math.random() * (b - a);
@@ -69,11 +71,12 @@ function genCity(layout = "random") {
     prepareWater();
     LAYOUT_GEN[L.gen || layoutKey]();
     placeLakes(); // озёра за городом — после дорог, в стороне от них
+    buildMountainRoads(); // трассы к горным сторонам — серпантином до перевала (mountain.js)
     markRural(); finishGraph();
     rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;
   }
-  fillTerrain(); sinkPonds(); flattenRoads(); finishTerrain();
+  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); finishTerrain();
   lamps = lamps.filter(l => cellAt(l.x, l.y) === 1);
   buildBusLines();
 }

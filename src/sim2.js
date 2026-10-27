@@ -53,10 +53,10 @@ function randomFree() { for (let k = 0; k < 400; k++) { const x = rnd(10, W - 10
 function freeNear(x, y, r = 30) { for (let k = 0; k < 200; k++) { const xx = x + rnd(-r, r), yy = y + rnd(-r, r); if (!blocked(xx, yy) && cellAt(xx, yy) !== 8 && (k > 120 || roadMask[Math.floor(yy / CS) * GW + Math.floor(xx / CS)] !== 1)) return [xx, yy]; } return randomFree(); }
 
 /* ---------- пространственная сетка соседей ---------- */
-const HC = 32, HW = Math.ceil(W / HC), HH = Math.ceil(H / HC);
+const HC = 32, HW = Math.ceil(MAX_W / HC), HH = Math.ceil(MAX_H / HC);
 const hHead = new Int32Array(HW * HH).fill(-1); let hNext = new Int32Array(4096);
 // отдельная крупная сетка только для живых зомби: людям нужно искать лишь их
-const ZC = 64, ZW = Math.ceil(W / ZC), ZH = Math.ceil(H / ZC);
+const ZC = 64, ZW = Math.ceil(MAX_W / ZC), ZH = Math.ceil(MAX_H / ZC);
 const zhash = Array.from({ length: ZW * ZH }, () => []);
 function rebuildHash() {
   hHead.fill(-1);

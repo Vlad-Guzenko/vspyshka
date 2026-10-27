@@ -127,11 +127,12 @@ function cityLake(cx, cy, r0, r1) {
 }
 // озёра за городом: в полях, в стороне от дорог; на большой карте их больше
 function placeLakes() {
+  if (massif) { const Lk = massif.lake, l = addLake(Lk.x, Lk.y, Lk.rx, Lk.ry, false); l.level = Lk.level; l.mountain = true; } // озеро на полке
   if (!L.lakes) return;
   const want = (L.lakes === "rural" ? (Math.random() < .75 ? 1 : 0) : 0) + (mapSize === "big" ? 1 : 0);
   for (let n = 0, k = 0; n < want && k < 200; k++) {
     const x = rnd(120, W - 120), y = rnd(120, H - 120), rx = rnd(80, 140), ry = rx * rnd(.55, .85);
-    if (cityK(x, y) > .25 || !lakeFree(x, y, rx, ry, 40)) continue;
+    if (cityK(x, y) > .25 || landH(x, y) > 30 || !lakeFree(x, y, rx, ry, 40)) continue; // не на склоне: вода лежит на одном уровне
     if (lakes.some(l => Math.hypot(l.x - x, l.y - y) < 500)) continue;
     addLake(x, y, rx, ry, false); n++;
   }
@@ -192,6 +193,7 @@ function buildFarm(s, b, ranch) {
   const ang = Math.atan2(p.ty, p.tx), ca = Math.cos(ang), sa = Math.sin(ang);
   const at = (u, v) => [p.x + ca * u + nx * (e.hw + v), p.y + sa * u + ny * (e.hw + v)]; // u вдоль дороги, v вглубь от обочины
   const [yx, yy] = at(10, 82), cells = rotCells(yx, yy, 150, 104, ang);
+  if (ridgeSides.length && Math.hypot(...mrGrad(yx, yy)) > .18) return false; // на крутом склоне фермы нет; на пологом — двор выравнивается террасой
   if (!cells.length || cells.some(i => roadMask[i] || usedMask[i] || regionOf[i] !== b.id || grid[i] === 3 || grid[i] === 9 || grid[i] === 10 || grid[i] === 5)) return false;
   const t0 = clamp(q.t - 30, 20, Math.max(20, e.len - 90));
   const id = ++farmSeq;
@@ -201,6 +203,7 @@ function buildFarm(s, b, ranch) {
   // двор: деревья вырубаются, клетки заняты под постройки
   const inside = new Set(cells); trees = trees.filter(t => !inside.has(Math.floor(t.y / CS) * GW + Math.floor(t.x / CS)));
   for (const i of cells) { usedMask[i] = 1; if (grid[i] === 4) grid[i] = 2; }
+  if (ridgeSides.length) terraces.push({ cells: cells.slice() });
   const prop = (k, u, v, a = 0, w = 0, d = 0, vv = 0) => { const [x, y] = at(u, v); props.push({ k, x, y, a: ang + a, v: vv }); if (w) for (const i of rotCells(x, y, w, d, ang + a)) if (grid[i] === 2) grid[i] = 4; };
   if (!ranch) {
     prop("silo", -45, 70, 0, 8, 8); prop("silo", -34, 70, 0, 8, 8);

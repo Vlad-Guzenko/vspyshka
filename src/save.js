@@ -21,7 +21,7 @@ function serializeGame() {
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
   });
   return {
-    v: 3, date: Date.now(), layoutKey, mapSize, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
+    v: 3, date: Date.now(), layoutKey, mapSize, relief, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
     wallJobs: wallJobs.map(j => ({ ...j, cp: cps.indexOf(j.cp) })), zones: b64(zoneOf.subarray(0, GW * GH)), zoneSeq,
     grid: b64(grid.subarray(0, GW * GH)), bhp16: b64(Uint16Array.from(bhp.subarray(0, GW * GH), v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask.subarray(0, GW * GH)),
     buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
@@ -42,7 +42,7 @@ function loadGame(S) {
   if (!S.roads) { warn("<b>Сохранение старой версии</b> — карта с прежними улицами больше не загружается."); return false; }
   if (fps.on) stopFps();
   layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
-  mapSize = S.mapSize || "normal"; setMapSize(mapSize);
+  relief = S.relief || "plain"; mapSize = S.mapSize || "normal"; setMapSize(mapSize);
   grid.fill(2); bhp.fill(0); wallMask.fill(0); roadMask.fill(0); regionOf.fill(-1); patchOf.fill(-1);
   grid.set(unb64(S.grid, Uint8Array)); bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
   // сеть дорог: узлы, рёбра, полосы заново из сохранённой геометрии
