@@ -26,22 +26,30 @@ const senseMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THR
 senseMesh.count = 0; senseMesh.frustumCulled = false; senseMesh.renderOrder = 9; scene.add(senseMesh);
 
 function startFps(mode) {
-  let a = null;
+  let a = null, car = null;
   const near0 = (pred) => { let best = null, bd = 1e9; for (const b of agents) { if (!pred(b)) continue; const d = Math.hypot(X(b.x) - camC.tx, Z(b.y) - camC.tz); if (d < bd) { bd = d; best = b; } } return best; };
   if (mode === "human") { a = near0(b => b.state === "alive" && b.role === "civ" && !b.bitten); if (!a) return; if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; }
+  else if (mode === "drive") {
+    // за руль ближайшей к камере машины садится ближайший житель (drive.js)
+    car = nearestDriveCar(camC.tx + W / 2, camC.tz + H / 2); a = near0(b => b.state === "alive" && b.role === "civ" && !b.bitten && !b.hidden);
+    if (!car || !a) { warn("Рядом нет машины, в которую можно сесть"); return; }
+    if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; const [dx, dy] = carDoor(car, 1); a.x = dx; a.y = dy;
+  }
   else { a = near0(b => b.state === "alive" && b.role === "zombie") || near0(b => b.state === "alive" && b.role === "civ"); if (!a) return; if (a.role !== "zombie") turn(a); a.riseT = 0; a.zhp = 8; }
   fps.on = true; fps.mode = mode; fps.a = a; a.player = true; fps.yaw = a.dir; fps.pitch = 0; fps.score = 0; fps.lastHp = a.hp; fps.startT = simT;
   followA = null; cine = false; thirdPerson = false; tool = "watch"; renderTools();
   camera.fov = 72; camera.updateProjectionMatrix();
   $("fpsHud").hidden = false; $("fpsHelp").hidden = false; $("fpsPause").hidden = true; document.body.classList.add("fps");
-  fpsMsg(mode === "human" ? "Ты выживший. Найди патроны у погибших полицейских и солдат, держись подальше от толп." : "Ты зомби. Догоняй людей и кусай. Красным светятся живые сквозь стены.");
+  if (car) enterCar(a, car);
+  fpsMsg(mode === "human" ? "Ты выживший. Найди патроны у погибших полицейских и солдат, держись подальше от толп." : mode === "drive" ? "Ты за рулём. W — газ, S — тормоз, Пробел — ручник, H — сигнал, V — вид из кабины, E — выйти." : "Ты зомби. Догоняй людей и кусай. Красным светятся живые сквозь стены.");
   lockPointer();
 }
 function stopFps() {
+  if (fps.mode === "drive" && drive.car) exitCar();
   if (fps.a) fps.a.player = false;
   fps.on = false; fps.a = null; vm.visible = false; flashlight.intensity = 0; senseMesh.count = 0;
   camera.fov = 42; camera.updateProjectionMatrix();
-  $("fpsHud").hidden = true; $("fpsHelp").hidden = true; $("fpsPause").hidden = true; document.body.classList.remove("fps"); $("cv").style.filter = "";
+  $("fpsHud").hidden = true; $("fpsHelp").hidden = true; $("fpsPause").hidden = true; document.body.classList.remove("fps"); document.body.classList.remove("drive"); $("cv").style.filter = "";
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function lockPointer() { try { const p = cv.requestPointerLock && cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
@@ -60,8 +68,10 @@ window.addEventListener("keyup", e => { fps.keys[e.code] = false; });
 function reloadPlayer() { const a = fps.a; if (a.reload <= 0 && a.mag < a.magMax && a.ammo > 0) { a.reload = 1.8; sfx.radio && play("thud", a.x, a.y, .3); } }
 function useNearby() {
   const a = fps.a; if (!a) return;
+  if (fps.mode === "drive") { exitCar(); return; }
   if (fps.mode === "human") {
-    // подобрать патроны и оружие у погибших
+    // сесть в стоящую рядом машину (drive.js); иначе подобрать патроны и оружие у погибших
+    const c = carNearAgent(a); if (c) { enterCar(a, c); fpsMsg("Ты за рулём. W — газ, S — тормоз, Пробел — ручник, H — сигнал, V — вид из кабины, E — выйти."); return; }
     let got = 0; near(a.x, a.y, 10, b => { if (b !== a && b.state === "dead" && b.armed && (b.mag + b.ammo) > 0) { got += b.mag + b.ammo; if (b.role === "army" && a.magMax < 30) { a.magMax = 30; fpsMsg("Подобран автомат"); } b.mag = 0; b.ammo = 0; } });
     if (got) { a.ammo += got; fpsMsg(`Подобрано патронов: ${got}`); } else fpsMsg("Рядом нечего взять");
   }
@@ -77,6 +87,7 @@ function playerMove(a, dt) {
 function fpsStep(dt) {
   const a = fps.a;
   if (!a) return;
+  if (fps.mode === "drive") return driveStep(dt);
   // игрок погиб или обратился
   if (fps.mode === "human" && a.role === "zombie") { fps.mode = "zombie"; a.zhp = 8; fpsMsg("Ты обратился. Теперь ты один из них — кусай живых."); }
   if (a.state === "dead") {
@@ -120,6 +131,7 @@ function playerShoot(a) {
 // камера в глазах персонажа
 function fpsCamera(dt) {
   const a = fps.a; if (!a) return;
+  if (fps.mode === "drive" && drive.car) return driveCamera(dt);
   const moving = Math.hypot(a.vx, a.vy) > 2; fps.bob += dt * Math.hypot(a.vx, a.vy) * .7;
   const lying = a.state === "dead";
   const h = lying ? 1.2 : (fps.mode === "zombie" ? 6.1 : 6.6) * a.size + (moving ? Math.sin(fps.bob) * .18 : 0);

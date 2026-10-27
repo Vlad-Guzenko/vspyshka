@@ -33,7 +33,7 @@ function stepRoutine(dt) {
     else if (a.hidden && a.homeTrip && Math.random() < act && !outbreak && !settings.curfew) { leaveShelter(a, false); a.homeTrip = false; a.dest = civDestination(a); }
   }
   // машин на улицах столько, сколько нужно в этот час
-  const moving = cars.filter(c => c.moving && !c.service), target = Math.round(trafficN() * act);
+  const moving = cars.filter(c => c.moving && !c.service && !c.player), target = Math.round(trafficN() * act);
   if (moving.length > target + 4) { const c = moving.find(c => !c.gas && (typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500)); if (c) { c.gone = true; c.moving = false; } } // кто едет заправляться, тот доедет
   else if (moving.length < target - 4 && !outbreak) spawnTraffic(2);
 }

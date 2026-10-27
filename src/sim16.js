@@ -47,6 +47,7 @@ function resolveCarOverlaps(dt) {
     if (c.gone || c.z > 0 || c.towedBy || !(c.moving || c.stopped || c.tank)) continue;
     nearCars(c.x, c.y, 36, o => {
       if (o === c || o._i <= c._i || o.gone || o.z > 0 || o.towedBy || !(o.moving || o.stopped || o.tank)) return;
+      if (c.player || o.player) return; // машина игрока расталкивает соседей сама (drive.js)
       const cm = c.moving && !c.tank, om = o.moving && !o.tank;
       if (!cm && !om) return;
       const h = obbOverlap(c, o); if (!h) return;
