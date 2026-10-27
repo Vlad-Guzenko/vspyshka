@@ -1,7 +1,7 @@
 // Проверка режима «За рулём» без браузера: node tests/drive.test.js [планировка]
 // Игрок садится в машину, едет, крутит руль, сигналит, врезается в стену и в машину, выходит и садится снова; ничего не ломается
 const fs = require('fs');
-const src = ['sim1.js', 'roads.js', 'layout.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js', 'sim19.js', 'drive.js'].map(f => fs.readFileSync(require('path').join(__dirname, '..', 'src', f), 'utf8')).join('\n');
+const src = ['sim1.js', 'roads.js', 'layout.js', 'layout2.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js', 'sim19.js', 'sim20.js', 'drive.js'].map(f => fs.readFileSync(require('path').join(__dirname, '..', 'src', f), 'utf8')).join('\n');
 const stub = `let dn=0;function addDecal(){return dn++}function fxBlood(){}function fxHit(){}function fxShot(){}function fxBoom(){}function fxDebris(){}function fxCollapse(){}function fxToppleImpact(){}function fxCannon(){}function onBanner(){} function onResult(){} function onRadio(){} const world={hour:13}; function hourLabel(){return ""} function mmss(t){return t} let lastCounts=null;
 const sfx=new Proxy({},{get:()=>()=>{}}); const fps={on:true,mode:"human",a:null,keys:{},yaw:0,pitch:0,fire:false,startT:0,lastHp:100,hurt:0,msgT:0}; function fpsMsg(){} function playerMove(){return [0,0,0]}`;
 new Function('process', 'assert', stub + src + `

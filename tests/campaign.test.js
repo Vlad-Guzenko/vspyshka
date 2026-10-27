@@ -1,7 +1,7 @@
 // кампания: три дня подряд без ошибок, итоги считаются, лимиты переносятся, сохранение и загрузка между днями работают
 // node tests/campaign.test.js [планировка] [секунд в сутках]
 const fs = require('fs'), path = require('path');
-const src = ['sim1.js', 'roads.js', 'layout.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js', 'sim19.js', 'campaign.js', 'save.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8')).join('\n');
+const src = ['sim1.js', 'roads.js', 'layout.js', 'layout2.js', 'traffic.js', 'terrain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js', 'sim18.js', 'sim19.js', 'sim20.js', 'campaign.js', 'save.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8')).join('\n');
 // заглушки графики и интерфейса; для save.js — страница, сцена и кнопки
 const stub = `let dn=0;function addDecal(){return dn++}function fxBlood(){}function fxHit(){}function fxShot(){}function fxBoom(){}function fxDebris(){}function fxCollapse(){}function fxToppleImpact(){}function fxCannon(){}function fxNuke(){}function onBanner(t){}
 let RES=null;function onResult(w,t){RES=[w,t]} function onRadio(){} const world={hour:13,target:13,cycle:false}; function hourLabel(){return ''} function mmss(t){return t|0} let lastCounts=null; function slowMo(){}
