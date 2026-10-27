@@ -2934,19 +2934,20 @@ function prepareWater() {
     const side = pick([2, 3]), BW = MOUNT_W, AL = H, P = (ds, along) => side === 3 ? [W - BW + ds, along] : [BW - ds, along];
     const spurs = []; for (let k = 0, n = Math.floor(rnd(1, 3)); k < n; k++) spurs.push({ a: rnd(AL * .15, AL * .85), r: rnd(260, 420), push: rnd(160, 300) });
     const peaks = [], np = Math.floor(rnd(4, 9));
-    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .45, BW + 200), h: rnd(170, 430), r: rnd(260, 560), rw: rnd(160, 280) });
+    // холмы (colline), а не пики: невысокие, широкие, с мягкими гребнями
+    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(90, 190), r: rnd(420, 800), rw: rnd(280, 440) });
     peaks.sort((p, q) => p.a - q.a);
-    const vk = Math.floor(rnd(0, peaks.length - 1)), valley = { a0: (peaks[vk].a + peaks[vk + 1].a) / 2 + rnd(-120, 120), w: rnd(150, 240), depth: rnd(40, 90) };
+    const vk = Math.floor(rnd(0, peaks.length - 1)), valley = { a0: (peaks[vk].a + peaks[vk + 1].a) / 2 + rnd(-120, 120), w: rnd(180, 280), depth: rnd(20, 45) };
     massif = { side, w: BW, spurs, peaks, valley, terraces: [], lakes: [] };
     // полки: первая высоко, в настоящих горах, остальные ниже; все на умеренных склонах и не ближе 200 друг к другу
     const raw = (x, y) => hillsH(x, y) + massifRaw(x, y), slope = (x, y) => Math.hypot(raw(x + 12, y) - raw(x - 12, y), raw(x, y + 12) - raw(x, y - 12)) / 24;
     const nt = Math.floor(rnd(2, 4));
     for (let tries = 0; tries < 700 && massif.terraces.length < nt; tries++) {
       const a = rnd(AL * .14, AL * .86), d = rnd(520, BW - 180), [x, y] = P(d, a); if (x < 220 || y < 220 || x > W - 220 || y > H - 220) continue;
-      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 75 : 170; if (h < lo || h > 340 || s < .12 || s > .6) continue;
+      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 45 : 90; if (h < lo || h > 220 || s < .07 || s > .3) continue; // только мягкие склоны
       const r = rnd(190, 270); if (massif.terraces.some(q => Math.hypot(q.x - x, q.y - y) < q.r + r + 200)) continue;
-      const lake = { x: x + rnd(-r * .18, r * .18), y: y + rnd(-r * .18, r * .18), rx: r * rnd(.24, .32), ry: r * rnd(.2, .27), level: h - 6.5 };
-      massif.terraces.push({ x, y, a, d, h: h - 4, r, lake }); massif.lakes.push(lake);
+      const lake = { x: x + rnd(-r * .18, r * .18), y: y + rnd(-r * .18, r * .18), rx: r * rnd(.24, .32), ry: r * rnd(.2, .27), level: h - 4.5 };
+      massif.terraces.push({ x, y, a, d, h: h - 2, r, lake }); massif.lakes.push(lake);
     }
     massif.terraces.sort((p, q) => p.d - q.d);
     ridgeSides = [side];
@@ -2971,7 +2972,7 @@ function massifDepth(x, y) { const M = massif, [a, d] = massifBand(x, y); return
 function segDistT(px, py, ax, ay, bx, by) { const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1, t = clamp(((px - ax) * vx + (py - ay) * vy) / L); return { d: Math.hypot(px - ax - vx * t, py - ay - vy * t), t }; }
 // сырой массив: пики с гауссовыми склонами и гребни между соседями, складки гребневого шума, к краю карты выше; долина к седловине
 function massifRaw(x, y) {
-  const M = massif, dIn = massifDepth(x, y), m = smooth(0, 380, dIn); if (m <= 0) return 0;
+  const M = massif, dIn = massifDepth(x, y), m = smooth(0, 600, dIn); if (m <= 0) return 0;
   const [a, d] = massifBand(x, y), P = M.peaks; let f = 0;
   for (let i = 0; i < P.length; i++) {
     const p = P[i], dd = Math.hypot(a - p.a, (d - p.d) * 1.15) / p.r; f = Math.max(f, p.h * Math.exp(-dd * dd * 1.3));
@@ -2979,7 +2980,7 @@ function massifRaw(x, y) {
   }
   const wx = x + (fbm(x / 800 + 1, y / 800 + 2) - .5) * 240, wy = y + (fbm(x / 800 - 3, y / 800 + 4) - .5) * 240;
   const rg = ridged(wx / 300, wy / 300) * .6 + fbm(wx / 120, wy / 120) * .3 + fbm(x / 40, y / 40) * .1;
-  let h = f * (.72 + rg * .5) + fbm(x / 90, y / 90) * 14 * m + 60 * smooth(0, M.w, d) * m;
+  let h = f * (.86 + rg * .24) + fbm(x / 90, y / 90) * 6 * m + 30 * smooth(0, M.w, d) * m; // складки мягкие: холмы, а не скалы
   const V = M.valley, dv = Math.abs(a - V.a0 + (fbm(d / 500 + 9, 2.2) - .5) * 160); h -= V.depth * Math.exp(-((dv / V.w) ** 2)) * smooth(150, 600, d) * (h / (h + 80));
   return h * m;
 }
@@ -2987,9 +2988,10 @@ function massifRaw(x, y) {
 function massifH(x, y) {
   const M = massif; let h = massifRaw(x, y);
   for (const t of M.terraces) {
-    const dd = Math.hypot(x - t.x, y - t.y) * (1 + (fbm(x / 90 + 7, y / 90) - .5) * .35); if (dd > t.r + 120) continue;
-    const k = smooth(t.r + 110, t.r - 30, dd); h += (t.h - hillsH(x, y) - h) * k;
-    const L = t.lake, dl = Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry); h -= 6 * smooth(1.7, 1, dl) * k;
+    // широкая пологая юбка: полка переходит в склон без обрыва
+    const dd = Math.hypot(x - t.x, y - t.y) * (1 + (fbm(x / 90 + 7, y / 90) - .5) * .3); if (dd > t.r + 300) continue;
+    const k = smooth(t.r + 280, t.r - 20, dd); h += (t.h - hillsH(x, y) - h) * k;
+    const L = t.lake, dl = Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry); h -= 4 * smooth(1.7, 1, dl) * k;
   }
   return Math.max(0, h);
 }
@@ -3121,7 +3123,7 @@ function benchRoads() {
       const xx = s.x + ox, yy = s.y + oy, gx = Math.floor(xx / CS), gy = Math.floor(yy / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
       const i = gy * GW + gx; if (roadH.has(i) || TH[i] <= WATER_Y || grid[i] === 9) continue;
       const lat = Math.abs(-(xx - s.x) * s.ty + (yy - s.y) * s.tx), lon = Math.abs((xx - s.x) * s.tx + (yy - s.y) * s.ty); if (lat <= half || lon > CS + lat * .12) continue;
-      const t = lat - half, base = s.h - .4, cutH = base + t * 1.6, fillH = base - t * .66;
+      const t = lat - half, base = s.h - .4, cutH = base + t * 1.0, fillH = base - t * .5; // откосы мягче: холмы, а не скальная выемка
       if (TH[i] > cutH) TH[i] = cutH; else if (TH[i] < fillH) TH[i] = fillH;
     }
   }
