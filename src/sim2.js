@@ -383,7 +383,9 @@ function thinkHuman(a, dt) {
     else { const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y); if (d < 5) { a.homeGoal = false; a.homeTrip = true; enterShelter(a, b); checkReunion(b); return [0, 0, 0]; } return goTo(a, b.door[0], b.door[1], (a.panic > .3 ? 13 : 7) * hurt); }
   }
   if (a.role === "civ" && a.bcastT > 0 && a.dest) { const d = Math.hypot(a.dest[0] - a.x, a.dest[1] - a.y); if (d < 7) { a.dest = null; a.bcastT = 0; a.idleT = rnd(20, 60); } else return goTo(a, a.dest[0], a.dest[1], 9 * hurt); }
+  if (a.role === "civ" && a.busWait) { const r = busWaitStep(a, dt, zn); if (r) return r; } // ждёт автобус на остановке (sim20.js)
   if (a.role === "civ" && a.panic < .3) {
+    if (!a.dest && a.idleT <= 0 && busLines.length && !settings.curfew && alert < 3 && Math.random() < dt * .003 && busWaitStart(a)) return [0, 0, 0];
     if (!a.dest && a.idleT <= 0 && Math.random() < dt * .02) a.dest = civDestination(a);
     if (a.dest) { const d = Math.hypot(a.dest[0] - a.x, a.dest[1] - a.y); if (d < 7) { a.dest = null; a.idleT = rnd(15, 60); } else return goTo(a, a.dest[0], a.dest[1], 5.5 * hurt); }
   }
@@ -602,11 +604,11 @@ function newCitySim(n) {
   agents = []; stats = []; events = []; firsts = {}; noises = []; simT = 0; bites = 0; deaths = 0; zkills = 0; saved = 0; cured = 0;
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); postMask.fill(0); quarMask.fill(0); zoneOf.fill(0); zoneSeq = 0; wallJobs = []; gangsSpawned = 0; computeDoors();
-  spawnTraffic(trafficN());
+  spawnTraffic(trafficN()); spawnLineBuses();
   for (const k in lastLog) delete lastLog[k];
   resetExtras(); resetBuild(); resetWorld2(); resetThreats(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
-  assignHomes();
+  assignHomes(); seedBusWaiters();
   const p0 = pickPatientZero(); pickHeroes(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
   logE("Нулевой пациент где-то в городе. Он ещё не знает, что заражён", "bad");
   fieldT = 0; record(); logDirty = true;

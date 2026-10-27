@@ -384,15 +384,15 @@ function blockAt(x, y) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS);
 /* ---------- поиск пути по дорогам ---------- */
 // расстояние от каждого узла до цели по направленным полосам (с учётом перекрытых недавно рёбер)
 function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.kind === "ring" ? 2 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0) + (e.quar && e.quarGate !== e.quar ? 3000 : e.quarGate ? 400 : 0) + (e.narrow ? 150 : 0) + (e.jamN || 0) * 110; }
-function dijkstraTo(seeds) {
+function dijkstraTo(seeds, skipL) {
   const dist = new Float64Array(RN.length).fill(1e12), done = new Uint8Array(RN.length);
-  for (const [n, d] of seeds) dist[n.id] = Math.min(dist[n.id], d);
+  const seedN = new Uint8Array(RN.length); for (const [n, d] of seeds) { dist[n.id] = Math.min(dist[n.id], d); seedN[n.id] = 1; }
   for (let k = 0; k < RN.length; k++) {
     let u = -1, bd = 1e12; for (let i = 0; i < RN.length; i++) if (!done[i] && dist[i] < bd) { bd = dist[i]; u = i; }
     if (u < 0) break; done[u] = 1;
-    const n = RN[u];
+    const n = RN[u]; if (n.exit && !seedN[u]) continue; // через выезд за карту не разворачиваются: там машина уезжает насовсем (сам выезд как цель — можно)
     // в узел n можно приехать по полосе, которая ведёт в n
-    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n) continue; const m = l.from, nd = bd + edgeCost(e) + (e.checkCp && typeof postLaneShut === "function" && postLaneShut(e.checkCp, l) ? 6000 : 0); if (nd < dist[m.id]) dist[m.id] = nd; }
+    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n || l === skipL) continue; const m = l.from, nd = bd + edgeCost(e) + (e.checkCp && typeof postLaneShut === "function" && postLaneShut(e.checkCp, l) ? 6000 : 0); if (nd < dist[m.id]) dist[m.id] = nd; }
   }
   return dist;
 }

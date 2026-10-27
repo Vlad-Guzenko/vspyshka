@@ -38,8 +38,9 @@ function abandonCar(c, why) {
     const side = Math.random() < .5 ? 1 : -1, ox = rx * 8 * side, oy = ry * 8 * side;
     const [x, y] = blocked(c.x + ox, c.y + oy) ? freeNear(c.x, c.y, 16) : [c.x + ox, c.y + oy];
     const d = newAgent("civ", x, y); d.panic = 1; nameFor(d);
-    if (c.bus && !c.unloaded) { c.unloaded = true; for (let i = 0; i < 6; i++) { const [px, py] = freeNear(c.x + ox, c.y + oy, 10); const p = newAgent("civ", px, py); p.panic = 1; nameFor(p); } logT("bus", "Пассажиры выбегают из автобуса", "bad", 20); }
-  } else if (c.bus && why === "crash" && !c.unloaded) {
+    if (c.passengers && c.passengers.length) busUnload(c);
+    else if (c.bus && !c.unloaded && !(c.line >= 0)) { c.unloaded = true; for (let i = 0; i < 6; i++) { const [px, py] = freeNear(c.x + ox, c.y + oy, 10); const p = newAgent("civ", px, py); p.panic = 1; nameFor(p); } logT("bus", "Пассажиры выбегают из автобуса", "bad", 20); }
+  } else if (c.bus && why === "crash" && !c.unloaded && !(c.line >= 0)) { // маршрутный автобус: настоящих пассажиров выводит busCrash
     c.unloaded = true; for (let i = 0; i < 5; i++) { const [px, py] = freeNear(c.x, c.y, 12); const p = newAgent("civ", px, py); p.panic = 1; p.hp = rnd(25, 60); p.bleed = 6; nameFor(p); } logT("buscrash", "Автобус разбился: пассажиры ранены", "bad", 20);
   }
   if (why && why !== "crash") logT("abandon", why, "bad", 15);

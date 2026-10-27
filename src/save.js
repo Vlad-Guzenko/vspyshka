@@ -4,7 +4,7 @@ const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOf
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
 const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown"];
-const A_SKIP = new Set(["busGoal", "onBus", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
+const A_SKIP = new Set(["busGoal", "onBus", "busWait", "ride", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
 function serializeGame() {
   if (typeof fps !== "undefined" && fps.on && fps.mode === "drive") exitCar(); // машина игрока сохраняется стоящей, игрок — рядом с ней
   const bi = new Map(buildings.map((b, i) => [b, i]));
@@ -15,7 +15,7 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park", "yieldTo"].includes(k)) o[k] = c[k];
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park", "passengers", "line", "stopI", "stopK", "stopT0", "yieldTo"].includes(k)) // yieldTo — ссылка на машину: при сохранении в момент уступки получался цикл o[k] = c[k];
     // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
     if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
@@ -55,6 +55,7 @@ function loadGame(S) {
   siteMask.fill(0); for (const b of buildings) if (b.siteCells) for (let k = 0; k < b.siteCells.length; k += 2) siteMask[b.siteCells[k]] = 1;
   trees = S.trees; hydrants = S.hydrants || []; lamps = S.lamps; fountains = S.fountains; fences = S.fences; props = S.props || []; entries = S.entries || []; threat = S.threat || null; hordeFields.clear(); waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
   special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));
+  buildBusLines(); // маршруты автобусов — заново из графа и остановок; автобусы возьмут ближайший
   agents = S.agents.filter(o => !o.inCar || ["army", "police", "medic"].includes(o.role)).map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; a.squad = 0; a.unit = null; a.job = null; if (o.inCar) { delete a.inCar; if (a.role !== "army") { a.standDown = true; a.standT = 0; a.order = a.role === "police" ? { x: special.police.x, y: special.police.y } : { x: special.hospital.x, y: special.hospital.y }; } } if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
   cars = S.cars.map(o => { const c = { ...newCar(), ...o, turn: null, next: null }; c.lane = o.lane >= 0 && RL[o.lane] ? RL[o.lane] : null; if (!c.lane) { c.moving = false; if (!c.stopped) c.lane = null; } return c; });
   tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
