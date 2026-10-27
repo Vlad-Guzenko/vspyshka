@@ -131,7 +131,7 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
   if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
   // очередь у светофора не объезжаем; объезжаем стоящее, разбитое, брошенное
   const wide = l.e.hw >= 22 && !l.e.oneway;
-  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine) || wide;
+  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || ahead.park || (ahead.wait > 20 && !ahead.atLine) || wide; // стоящий у бордюра (автобус на остановке) — тоже
   if (!obstacle) return;
   if (!opp) return;
   // широкая улица (две полосы в каждую сторону): объезжаем по своей левой полосе, встречную не трогаем, можно и у перекрёстка

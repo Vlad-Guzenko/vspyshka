@@ -45,17 +45,18 @@ function chooseNext(c) {
   if (c.trip && (c.flee || c.panic)) { c.trip = null; c.goal = null; } // бегущему не до дел
   const opts = exitsOf(l);
   if (!opts.length) return oppLane(l);
-  const R = c.goal ? routeTo(c.goal.x, c.goal.y) : null;
+  // маршрутный автобус едет к остановке по её полосе: встречная полоса той же улицы — только если другого пути нет (sim20.js)
+  const R = c.goal ? (c.line >= 0 && c.bus && !c.service ? busRoute(c) : routeTo(c.goal.x, c.goal.y)) : null;
   if (R || c.flee || c.leaving || (c.trip && c.trip.exit)) {
     const dist = R ? R.dist : exitDist();
     let best = null, bd = 1e18; const ds = [];
-    for (const m of opts) { const d = R && m.e === R.e ? (m.d > 0 ? R.et : m.e.len - R.et) : edgeCost(m.e) + dist[m.to.id]; ds.push(d); if (d < bd) { bd = d; best = m; } }
+    for (const m of opts) { const d = R && m.e === R.e ? (R.lane && m !== R.lane ? 1e9 : m.d > 0 ? R.et : m.e.len - R.et) : edgeCost(m.e) + dist[m.to.id]; ds.push(d); if (d < bd) { bd = d; best = m; } }
     if (best && bd < 1e11) {
       // горожане между почти равными путями выбирают случайно (службы и бегущие — строго кратчайший): поток расходится по параллельным улицам
       if (!c.service && !c.flee && !c.leaving) { let tot = 0; const w = ds.map(d => { const k = d - bd < bd * .2 + 40 ? Math.exp(-(d - bd) / (bd * .08 + 20)) : 0; tot += k; return k; }); let r = Math.random() * tot; for (let i = 0; i < opts.length; i++) { r -= w[i]; if (r <= 0) return opts[i]; } }
       return best;
     }
-    if (c.trip) pickTrip(c); // цель отсюда недостижима — новая
+    if (c.trip) pickTrip(c); else if (c.line >= 0 && c.bus && !c.service) busNextStop(c, "unreach"); // цель отсюда недостижима — новая
   }
   let tot = 0;
   const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
@@ -305,8 +306,10 @@ function stepRoadCar(c, dt) {
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
   if (c.gas) { if (c.panic || c.flee) cancelGas(c); else if (gasArrive(c, l)) return stepGas(c, dt); }
   if (c.pulled && !c.deployed) { c.pulled = false; if (!c.over) c.latTgt = 0; }
+  if (c.park && c.park.stop !== undefined) busStopTick(c, dt);
   if (c.park && stepPark(c, l, dt)) return;
-  if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas) pickTrip(c);
+  if (c.bus && !c.service && busLines.length) busLineStep(c, l);
+  if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas && !(c.bus && c.line >= 0)) pickTrip(c); // маршрутный автобус по делам не ездит
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && !c.leaving && !c.deployed) {
@@ -374,6 +377,7 @@ function stepRoadCar(c, dt) {
   carHitPeople(c, tx, ty, dt);
   if (!c.moving) return;
   if (c.wait > 3 && A.zNear >= 2 && !c.service) { abandonCar(c, "Водитель бросил машину посреди дороги"); return; }
+  if (c.bus && c.line >= 0 && c.wait > 40 && !c.park && c.goal) { l.e.blockT = simT; c.next = null; c.wait = 20; }
   if (c.service && !c.leaving && A.zNear >= 1 && (c.service === "police" || c.service === "army")) { deployCrew(c); return; }
   stepOvertake(c, dt, tx, ty, Math.min(A.clear, cellClear), cellClear < A.clear ? null : A.ahead);
   if (c.lane !== l) return; // развернулся
@@ -442,6 +446,7 @@ function pickCarModel(parked) {
   const pool = parked ? CIV_CARS.filter(m => !m.noPark) : CIV_CARS; let r = Math.random() * pool.reduce((a, m) => a + m.w, 0);
   for (const m of pool) { r -= m.w; if (r <= 0) return m; } return pool[0];
 }
+const BUS_COLS = ["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"];
 function newCar() {
   const M = pickCarModel();
   return { model: M.k, moving: true, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: M.len, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, fuel: rnd(.12, 1), gas: null, gasTry: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
@@ -452,7 +457,7 @@ function spawnTraffic(n) {
     let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= wt(l); if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();
     if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.7; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
-    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.3; c.vlen = 2.45; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
+    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.3; c.vlen = 2.45; c.col = pick(BUS_COLS); c.spd *= .8; }
     const s = rnd(laneStart(lane) + 12, laneEnd(lane) - 12);
     placeOnLane(c, lane, s);
     if (blocked(c.x, c.y) || laneBusy(lane, s, c, 20)) continue;
@@ -609,7 +614,7 @@ function arriveTrip(c, l) {
   const sh = curbShift(l); let taken = !TRAFFIC_TUNE.park;
   nearCars(c.x, c.y, 44, o => { if (!taken && o !== c && !o.gone && o.lane === l && !o.turn && Math.abs(o.s - c.s) < 30) taken = true; }); // рядом кто-то стоит или едет — не встаём
   if (taken) return;
-  if (-sh >= 9.6 && !l.e.oneway && laneEnd(l) - c.s > 24 && c.s - laneStart(l) > 30 && !c.over && !c.bus && !c.tanker) { c.park = { t: rnd(TRAFFIC_TUNE.park0, TRAFFIC_TUNE.park1) }; c.latTgt = sh; }
+  if (-sh >= 9.6 && !l.e.oneway && laneEnd(l) - c.s > 24 && c.s - laneStart(l) > 30 && !c.over && !c.bus && !c.tanker && !nearBusStop(l, c.s)) { c.park = { t: rnd(TRAFFIC_TUNE.park0, TRAFFIC_TUNE.park1) }; c.latTgt = sh; }
 }
 // стоянка у бордюра: докатываемся, стоим, выезжаем, когда в полосе за спиной свободно
 function stepPark(c, l, dt) {

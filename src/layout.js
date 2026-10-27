@@ -764,10 +764,10 @@ function placeProps() {
   for (const e of RE) {
     if (e.rural || e.kind === "ring") continue;
     const sw = e.sw || SW;
-    if (e.hw >= 15 && e.kind !== "ln") for (let t = (e.ra || 0) + 40 + rnd(0, 60); t < e.len - (e.rb || 0) - 30; t += rnd(240, 320)) {
+    if (e.hw >= 15 && e.kind !== "ln") for (let t = (e.ra || 0) + 40 + rnd(0, 60); t < e.len - (e.rb || 0) - 48; t += rnd(240, 320)) {
       const side = Math.random() < .5 ? 1 : -1, p = edgePos(e, t), nx = -p.ty * side, ny = p.tx * side, off = e.hw + Math.min(sw, 8) * .55, x = p.x + nx * off, y = p.y + ny * off;
       if (cellAt(x, y) !== 1 || !clear(x, y, 9)) continue;
-      props.push({ k: "stop", x, y, a: Math.atan2(-ny, -nx) });
+      props.push({ k: "stop", x, y, a: Math.atan2(-ny, -nx), e: e.id, t, side }); // ребро, положение и сторона — для маршрутов автобусов (sim20.js)
     }
     for (const end of [0, 1]) {
       if (Math.random() > .25) continue;

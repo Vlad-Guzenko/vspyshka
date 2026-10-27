@@ -64,6 +64,7 @@ function genCity(layout = "random") {
   }
   fillTerrain(); sinkPonds(); flattenRoads(); finishTerrain();
   lamps = lamps.filter(l => cellAt(l.x, l.y) === 1);
+  buildBusLines();
 }
 const blocked = (x, y) => x < 1 || y < 1 || x >= W - 1 || y >= H - 1 || BLOCK(cellAt(x, y));
 function los(x0, y0, x1, y1) {
