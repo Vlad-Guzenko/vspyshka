@@ -535,6 +535,7 @@ function suburbLot(e, t, side, lot, hb) {
 function addTree(x, y, r, h, extra) {
   const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 1 || gy < 1 || gx >= GW - 1 || gy >= GH - 1) return false;
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (grid[(gy + dy) * GW + gx + dx] === 3) return false;
+  if (grid[gy * GW + gx] === 9 || (lakes.length && waterD(x, y) < 6)) return false; // в воде и у самого уреза деревья не растут, и клетка воды не становится лесом
   trees.push({ x, y, r, h, ...(extra || {}) }); fillCells(x - 2, y - 2, x + 2, y + 2, 4); return true;
 }
 // случайная клетка квартала
@@ -650,7 +651,7 @@ function buildRural() {
   for (const b of blocks) {
     if (!b.rural) continue;
     const cells = blockCells(b), n = Math.max(1, Math.round(cells.length * CS * CS / (170 * 170))), seeds = [];
-    for (let k = 0; k < n; k++) { const c = cells[Math.floor(Math.random() * cells.length)]; const r = Math.random(), far = 1 - b.city; seeds.push({ x: (c % GW) * CS, y: Math.floor(c / GW) * CS, id: patches.length, kind: r < .25 + far * .25 ? "forest" : r < .62 ? "field" : r < .74 ? "orchard" : "meadow", crop: Math.floor(Math.random() * 4), ang: nearestEdgeAng((c % GW) * CS, Math.floor(c / GW) * CS) + (Math.random() < .5 ? 0 : Math.PI / 2) }); patches.push(seeds[seeds.length - 1]); }
+    for (let k = 0; k < n; k++) { const c = cells[Math.floor(Math.random() * cells.length)]; const r = Math.random(), far = 1 - b.city; seeds.push({ x: (c % GW) * CS, y: Math.floor(c / GW) * CS, id: patches.length, kind: onTerrace((c % GW) * CS, Math.floor(c / GW) * CS, 40) ? (r < .3 ? "forest" : "meadow") : r < .25 + far * .25 ? "forest" : r < .62 ? "field" : r < .74 ? "orchard" : "meadow", crop: Math.floor(Math.random() * 4), ang: nearestEdgeAng((c % GW) * CS, Math.floor(c / GW) * CS) + (Math.random() < .5 ? 0 : Math.PI / 2) }); patches.push(seeds[seeds.length - 1]); }
     for (const c of cells) { const x = (c % GW) * CS, y = Math.floor(c / GW) * CS; let best = seeds[0], bd = 1e18; for (const s of seeds) { const d = (s.x - x) ** 2 + (s.y - y) ** 2; if (d < bd) { bd = d; best = s; } } patchOf[c] = best.id; }
     for (const c of cells) {
       const s = patches[patchOf[c]], x = (c % GW) * CS + rnd(1, 7), y = Math.floor(c / GW) * CS + rnd(1, 7);
@@ -835,13 +836,13 @@ function buildOutskirts() {
     const cx = en.x + nx * (en.hw + 5) + en.tx * 14, cy = en.y + ny * (en.hw + 5) + en.ty * 14;
     if (cellAt(cx, cy) !== 3) cars.push({ x: cx, y: cy, ang: Math.atan2(en.ty, en.tx), model: "police", len: 1, col: "#e9e9ee", dps: true, wreck: false, boomT: 0, burnT: 0 });
   }
-  const ruralEdges = RE.filter(e => e.rural && e.len > 260 && e.kind !== "ring");
+  const ruralEdges = RE.filter(e => e.rural && e.len > 260 && e.kind !== "ring" && !e.mountain && !inMassifArea(edgePos(e, e.len / 2).x, edgePos(e, e.len / 2).y, 80)); // в горах окраинных построек нет
   // воинская часть у одной из трасс недалеко от города: казармы, ангар, штаб, вертолётная площадка, грузовики; армия выезжает отсюда
   for (let k = 0; k < 40 && !special.base; k++) {
     const en = pick(entries); if (!en) break;
     const e = RE.find(x => x.id === en.e); if (!e) continue;
     const dt = rnd(140, 360) * (en.t < e.len / 2 ? 1 : -1), t = clamp(en.t + dt, 40, e.len - 40), p = edgePos(e, t), side = Math.random() < .5 ? 1 : -1, nx = -p.ty * side, ny = p.tx * side;
-    const dist = e.hw + rnd(100, 180), cx = p.x + nx * dist, cy = p.y + ny * dist, b = blockAt(cx, cy); if (!b || !b.rural) continue;
+    const dist = e.hw + rnd(100, 180), cx = p.x + nx * dist, cy = p.y + ny * dist, b = blockAt(cx, cy); if (!b || !b.rural || inMassifArea(cx, cy, 120)) continue;
     const ang = Math.atan2(p.ty, p.tx), cells = rotCells(cx, cy, 250, 180, ang);
     if (!cells.length || cells.some(i => roadMask[i] || usedMask[i] || regionOf[i] !== b.id || grid[i] === 3 || grid[i] === 9 || grid[i] === 10)) continue;
     // деревья на территории части вырубаются

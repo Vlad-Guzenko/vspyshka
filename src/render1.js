@@ -675,7 +675,7 @@ function buildWater() {
   // карта глубины: у берегов вода светлее и с пеной
   const dc = document.createElement("canvas"); dc.width = GW; dc.height = GH; const dg = dc.getContext("2d"), img = dg.createImageData(GW, GH);
   for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) { const d = clamp(-waterD(gx * CS + 4, gy * CS + 4) / 26), i = (gy * GW + gx) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(d * 255); img.data[i + 3] = 255; }
-  dg.putImageData(img, 0, 0); const depthTex = new THREE.CanvasTexture(dc); depthTex.magFilter = THREE.LinearFilter;
+  dg.putImageData(img, 0, 0); const depthTex = new THREE.CanvasTexture(dc); depthTex.magFilter = THREE.LinearFilter; depthTex.flipY = false; // шейдер берёт v = y/H: строка 0 холста — верх мира
   waterU.depthMap.value = depthTex;
   // у моря вода уходит до горизонта, иначе — только под ближними окрестностями; дальняя плоская земля ниже воды только у моря
   const sea = !!shore, ext = sea ? 8000 : 0;
@@ -683,7 +683,7 @@ function buildWater() {
   pl.position.set(0, WATER_Y, 0); pl.renderOrder = -1; pl.frustumCulled = false; cityGroup.add(pl);
   // горные озёра лежат выше общей глади: у каждого своя плоскость на своём уровне, в размер чаши
   for (const l of lakes) if (l.level != null) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(l.rx * 2.8 + 40, l.ry * 2.8 + 40).rotateX(-Math.PI / 2), makeWaterMat(-1e6, -1e6, 1e6, 1e6));
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(l.rx * 2.6 + 24, l.ry * 2.6 + 24).rotateX(-Math.PI / 2), makeWaterMat(-1e6, -1e6, 1e6, 1e6));
     m.position.set(X(l.x), l.level, Z(l.y)); m.renderOrder = -1; cityGroup.add(m);
   }
   outskirts.position.y = sea ? WATER_Y - 6 : WATER_Y - 1.2;

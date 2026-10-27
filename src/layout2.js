@@ -194,7 +194,10 @@ function buildFarm(s, b, ranch) {
   const at = (u, v) => [p.x + ca * u + nx * (e.hw + v), p.y + sa * u + ny * (e.hw + v)]; // u вдоль дороги, v вглубь от обочины
   const [yx, yy] = at(10, 82), cells = rotCells(yx, yy, 150, 104, ang);
   if (ridgeSides.length && Math.hypot(...mrGrad(yx, yy)) > .18) return false; // на крутом склоне фермы нет; на пологом — двор выравнивается террасой
+  if (massif && (onTerrace(yx, yy, 60) || massifDs(yx, yy) > 1100)) return false; // ферма — в предгорьях, не в курортном городке и не высоко в горах
   if (!cells.length || cells.some(i => roadMask[i] || usedMask[i] || regionOf[i] !== b.id || grid[i] === 3 || grid[i] === 9 || grid[i] === 10 || grid[i] === 5)) return false;
+  // ферма может стоять и в лесу: под дом, амбар и двор вырубается поляна
+  { const clear = rotCells(...at(10, 70), 170, 150, ang); for (const i of clear) if (grid[i] === 4) grid[i] = 2; const cs = new Set(clear); trees = trees.filter(t => !cs.has(Math.floor(t.y / CS) * GW + Math.floor(t.x / CS))); }
   const t0 = clamp(q.t - 30, 20, Math.max(20, e.len - 90));
   const id = ++farmSeq;
   const hb = placeAlong(e, t0, side, 22, 16, 16, rnd(10, 16), { kind: "farmhouse", floors: 1, style: 35, ridge: "x", farm: id }, b.id);

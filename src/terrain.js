@@ -42,7 +42,8 @@ function shoreD(x, y) {
 }
 function lakeNear(x, y) {
   let best = 1e9, bl = null;
-  for (const l of lakes) { const dx = (x - l.x) / l.rx, dy = (y - l.y) / l.ry, r = Math.hypot(dx, dy) + (fbm(x / 120 + l.x, y / 120) - .5) * .5, d = (r - 1) * Math.min(l.rx, l.ry); if (d < best) { best = d; bl = l; } }
+  // берег неправильной формы: крупные заливы и мелкие изрезы
+  for (const l of lakes) { const dx = (x - l.x) / l.rx, dy = (y - l.y) / l.ry, r = Math.hypot(dx, dy) + (fbm(x / 120 + l.x, y / 120) - .5) * .5 + (fbm(x / 42 + l.y, y / 42 + 3) - .5) * .22, d = (r - 1) * Math.min(l.rx, l.ry); if (d < best) { best = d; bl = l; } }
   return { d: best, l: bl };
 }
 function lakeD(x, y) { return lakeNear(x, y).d; }
@@ -127,7 +128,7 @@ function massifH(x, y) {
     // широкая пологая юбка: полка переходит в склон без обрыва
     const dd = Math.hypot(x - t.x, y - t.y) * (1 + (fbm(x / 90 + 7, y / 90) - .5) * .3); if (dd > t.r + 300) continue;
     const k = smooth(t.r + 280, t.r - 20, dd); h += (t.h - hillsH(x, y) - h) * k;
-    const L = t.lake, dl = Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry); h -= 4 * smooth(1.7, 1, dl) * k;
+    const L = t.lake, dl = Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry); h -= 4 * smooth(1.0, .5, dl) * k; // чаша только внутри озера: берег остаётся выше воды
   }
   return Math.max(0, h);
 }

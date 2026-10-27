@@ -150,6 +150,9 @@ let mountainRoads = [];
 
 /* ---------- горная страна: село на полке, серпантины из города к селу и от села к перевалу ----------
    Координаты полосы: ds — глубина от внутренней границы массива (0 у подножия, MOUNT_W у края карты), along — вдоль края */
+// где горная страна и где полки с городками: окраинные постройки города (дачи, заправки, воинская часть, деревни) сюда не лезут
+function inMassifArea(x, y, pad = 0) { return !!massif && (mountainH(x, y) > 12 || massif.terraces.some(t => Math.hypot(x - t.x, y - t.y) < t.r + pad)); }
+function onTerrace(x, y, pad = 0) { return !!massif && massif.terraces.some(t => Math.hypot(x - t.x, y - t.y) < t.r + pad); }
 function massifPoint(ds, along) { const M = massif; return M.side === 3 ? [W - M.w + ds, along] : [M.w - ds, along]; }
 function massifDs(x, y) { return massif.w + sideDs(massif.side, x, y); }
 // подножие трассы: от выезда внутрь по цепочке рёбер, пока массив не кончится; хвост за подножием убирается
@@ -244,7 +247,6 @@ function buildTerraceRing(t) {
   t.rr = t.r * .6; const ring = []; for (let k = 0; k <= 30; k++) ring.push(ringPoint(t, k / 30 * TAU));
   // три дуги: две дуги с одними концами граф считает дубликатом и вторую выбрасывает
   for (const [i0, i1] of [[0, 10], [10, 20], [20, 30]]) addRoad(ring.slice(i0, i1 + 1), 9, "st", { extra: { rural: true, sw: 3 } });
-  if (t.r >= 225) { const f = rnd(0, TAU), p0 = ringPoint(t, f), p1 = [t.x + Math.cos(f) * (t.r - 20), t.y + Math.sin(f) * (t.r - 20)]; addRoad([p0, p1], 8, "st", { extra: { rural: true, sw: 3 } }); t.laneF = f; }
 }
 function buildMassifRoads() {
   const M = massif, side = M.side, T = M.terraces;
@@ -262,6 +264,12 @@ function buildMassifRoads() {
       const made = addRoad([[best.x, best.y], mid, foot], 14, "st", { extra: { rural: true, sw: 3 } }); const fn = made && gNodeNear(foot[0], foot[1], 30); if (fn) feet.push(fn); }
   }
   for (const t of T) buildTerraceRing(t);
+  // просёлок вдоль подножия от первого подножия в обе стороны: у него встанут фермы и ранчо на пологих предгорьях
+  if (feet.length) {
+    const f0 = feet[0], fa = sideAlong(side, f0.x, f0.y), fd = massifDs(f0.x, f0.y);
+    for (const sg of [-1, 1]) { const pts = [[f0.x, f0.y]]; for (let k = 1; k <= 9; k++) { const a = fa + sg * k * 60, d = fd + 90 + (fbm(a / 300 + 4, 8.8 + sg) - .5) * 120; if (a < 80 || a > H - 80) break; pts.push(massifPoint(Math.max(20, d), a)); }
+      if (pts.length > 4 && !pts.some(p => waterD(p[0], p[1]) < 20)) addRoad(pts, 9, "st", { extra: { rural: true, sw: 3 } }); }
+  }
   const towards = (t, px, py) => ringPoint(t, Math.atan2(py - t.y, px - t.x));
   if (!T.length) { if (feet.length) { const pass = mrPass(side, sideAlong(side, feet[0].x, feet[0].y)); if (pass) mrRoad(feet[0].x, feet[0].y, pass[0], pass[1], side, 12); } return; }
   // подъём из города к первой полке (до двух дорог), дальше от полки к полке, с последней — на перевал
@@ -270,32 +278,44 @@ function buildMassifRoads() {
   for (let i = 1; i < T.length; i++) { const S0 = towards(prev, T[i].x, T[i].y), E = towards(T[i], prev.x, prev.y); mrRoad(S0[0], S0[1], E[0], E[1], side, 12); prev = T[i]; }
   const pass = mrPass(side, prev.a); if (pass) { const S0 = towards(prev, pass[0], pass[1]); mrRoad(S0[0], S0[1], pass[0], pass[1], side, 12); }
 }
-// курортные городки на полках: вдоль кольца домики-шале с участками, к озеру — гостиницы и церковь, кафе, киоск; у проулка ферма
+// курортные городки на полках, по смыслу: у воды гостиницы, ресторан и церковь, по внешней стороне кольца шале с участками,
+// внутри кольца парк у озера. Ни киосков, ни заправок, ни дач — это не окраина города
 function buildMountainVillage() {
   if (!massif) return;
+  // фермы и ранчо у просёлка вдоль подножия: по две на каждое плечо, по разные стороны
+  for (const e of RE) {
+    if (e.dead || e.mountain || e.hw > 10 || e.len < 150) continue; const pm = edgePos(e, e.len / 2), ds = massifDs(pm.x, pm.y); if (ds < 30 || ds > 340 || onTerrace(pm.x, pm.y, 60)) continue; // просёлок у подножия: узкий, не трасса
+    // полоса вдоль просёлка — луг: лес вырубается под дворы
+    { const band = new Set(); for (let s = 0; s <= e.len; s += 4) { const p = edgePos(e, s); for (let o = -150; o <= 150; o += 4) { const gx = Math.floor((p.x - p.ty * o) / CS), gy = Math.floor((p.y + p.tx * o) / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) band.add(gy * GW + gx); } }
+      for (const i of band) if (grid[i] === 4) grid[i] = 2;
+      trees = trees.filter(q => !band.has(Math.floor(q.y / CS) * GW + Math.floor(q.x / CS))); }
+    for (const [k, sd, ranch] of [[.3, 1, false], [.7, -1, true]]) { const p = edgePos(e, e.len * k), x = p.x - p.ty * sd * 90, y = p.y + p.tx * sd * 90, b = blockAt(x, y); if (b && b.rural) buildFarm({ x, y, kind: ranch ? "meadow" : "field" }, b, ranch); }
+  }
   for (const t of massif.terraces) {
-    const village = RE.filter(e => { if (e.dead || e.mountain || !e.rural) return false; const p = edgePos(e, e.len / 2); return Math.hypot(p.x - t.x, p.y - t.y) < t.r + 40; });
+    const village = RE.filter(e => { if (e.dead || e.mountain || !e.rural) return false; const p = edgePos(e, e.len / 2); return Math.hypot(p.x - t.x, p.y - t.y) < t.rr + 40; });
     if (!village.length) continue;
-    // полоса вдоль улиц расчищается от леса: дома и дворы стоят на лугу
+    // полоса вдоль кольца расчищается от леса: дома и дворы стоят на лугу
     { const band = new Set(); for (const e of village) for (let s = 0; s <= e.len; s += 4) { const p = edgePos(e, s); for (let o = -64; o <= 64; o += 4) { const gx = Math.floor((p.x - p.ty * o) / CS), gy = Math.floor((p.y + p.tx * o) / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) band.add(gy * GW + gx); } }
       for (const i of band) if (grid[i] === 4) grid[i] = 2;
       trees = trees.filter(q => !band.has(Math.floor(q.y / CS) * GW + Math.floor(q.x / CS))); }
-    const isLane = e => { const p = edgePos(e, e.len / 2); return Math.hypot(p.x - t.x, p.y - t.y) > t.rr + 30; };
-    for (const e of village) if (isLane(e)) for (const [s, sd, ranch] of [[e.len * .5, 1, false], [e.len * .5, -1, true]]) { const p = edgePos(e, s), x = p.x - p.ty * sd * 80, y = p.y + p.tx * sd * 80, b = blockAt(x, y); if (b && b.rural) buildFarm({ x, y, kind: ranch ? "meadow" : "field" }, b, ranch); }
-    let houses = 0, church = false, hotels = 0, cafes = 0;
-    for (const e of village) {
-      if (isLane(e)) continue;
-      for (let s = 36; s < e.len - 30; s += rnd(40, 54)) for (const sd of [-1, 1]) {
-        if (Math.random() < .2) continue; const w = rnd(15, 21), p = edgePos(e, s), inner = ((t.x - p.x) * -p.ty + (t.y - p.y) * p.tx) * sd > 0; // сторона к озеру
-        const kind = inner && hotels < 2 && Math.random() < .3 ? "hotel" : inner && !church && Math.random() < .25 ? "church" : cafes < 2 && Math.random() < .1 ? "cafe" : "house";
-        const b = kind === "hotel" ? placeAlong(e, s, sd, rnd(30, 40), 16, 22, rnd(6, 10), { kind: "manor", floors: 3, style: 35, ridge: "x", village: true, hotel: true })
-          : kind === "church" ? placeAlong(e, s, sd, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 31, ridge: "x", village: true })
-          : kind === "cafe" ? placeAlong(e, s, sd, 18, 12, 14, rnd(6, 9), { kind: "cafe", floors: 1, style: 12, village: true })
-          : placeAlong(e, s, sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
-        if (!b) continue;
-        if (kind === "hotel") hotels++; else if (kind === "church") church = true; else if (kind === "cafe") cafes++; else { houses++; suburbLot(e, s - 10, sd, w + 20, b); }
-      }
+    // церковь — на самом видном месте: со стороны озера, дальше всего от въезда (от самой низкой точки кольца)
+    let church = false, hotels = 0, cafes = 0, houses = 0;
+    const slots = [];
+    for (const e of village) for (let s = 36; s < e.len - 30; s += rnd(40, 54)) for (const sd of [-1, 1]) { const p = edgePos(e, s), inner = ((t.x - p.x) * -p.ty + (t.y - p.y) * p.tx) * sd > 0; slots.push({ e, s, sd, inner, h: landH(p.x, p.y), lakeD: Math.hypot((p.x - t.lake.x) / t.lake.rx, (p.y - t.lake.y) / t.lake.ry) }); }
+    // внутренняя сторона: ближе всего к воде — гостиницы, самое высокое место — церковь, рядом ресторан
+    const innerSlots = slots.filter(q => q.inner).sort((a, b) => a.lakeD - b.lakeD);
+    for (const q of innerSlots) {
+      let b = null;
+      if (hotels < 2 && q.lakeD < 3.2) { b = placeAlong(q.e, q.s, q.sd, rnd(26, 34), 12, 18, rnd(5, 8), { kind: "manor", floors: 3, style: 35, ridge: "x", village: true, hotel: true }); if (b) { hotels++; q.used = true; continue; } }
+      if (cafes < 1 && q.lakeD < 3.6) { b = placeAlong(q.e, q.s, q.sd, 18, 10, 13, rnd(5, 8), { kind: "cafe", floors: 1, style: 12, village: true }); if (b) { cafes++; q.used = true; continue; } }
     }
-    if (houses >= 4) { const e = village[0], p = edgePos(e, e.len * .5); props.push({ k: "kiosk", x: p.x + (-p.ty) * (e.hw + 9), y: p.y + p.tx * (e.hw + 9), a: Math.atan2(-p.tx, p.ty), v: 0 }); }
+    const high = innerSlots.filter(q => !q.used).sort((a, b) => b.h - a.h);
+    for (const q of high) { if (church) break; const b = placeAlong(q.e, q.s, q.sd, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 31, ridge: "x", village: true }); if (b) { church = true; q.used = true; } }
+    // шале: внешняя сторона кольца целиком и свободные места внутренней
+    for (const q of slots) {
+      if (q.used || Math.random() < .15) continue; const w = rnd(15, 21);
+      const b = placeAlong(q.e, q.s, q.sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
+      if (b) { houses++; suburbLot(q.e, q.s - 10, q.sd, w + 20, b); }
+    }
   }
 }
