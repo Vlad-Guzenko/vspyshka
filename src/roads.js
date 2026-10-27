@@ -4,8 +4,8 @@
 // полосы: по одной в каждую сторону со смещением вправо по ходу движения; у кольца одна полоса по оси
 let RN = [], RE = [], RL = [], rounds = [];
 const SW = 8; // ширина тротуара
-const roadMask = new Uint8Array(GW * GH); // 1 проезжая часть, 2 тротуар, 3 обочина за городом
-const regionOf = new Int32Array(GW * GH);  // номер квартала клетки, −1 — дорога
+const roadMask = new Uint8Array(GMAX); // 1 проезжая часть, 2 тротуар, 3 обочина за городом
+const regionOf = new Int32Array(GMAX);  // номер квартала клетки, −1 — дорога
 
 /* ---------- ломаные ---------- */
 function plCum(pts) { const c = [0]; for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return c; }

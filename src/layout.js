@@ -164,9 +164,9 @@ function subdivide(o) {
     for (const F of graphFaces()) {
       if (!o.inside(F.cx, F.cy) || F.area < o.area(F.cx, F.cy)) continue;
       const ax = polyAxis(F); if (ax.major < o.minW * 2) continue;
-      for (let tr = 0; tr < 6; tr++) {
-        // поперёк длинной оси, чуть в сторону от середины и чуть наискосок
-        const shift = rnd(-.14, .14) * ax.major + (ax.u0 + ax.u1) / 2, ang = rnd(-o.jit, o.jit);
+      for (let tr = 0; tr < (o.avoid ? 16 : 6); tr++) {
+        // поперёк длинной оси, чуть в сторону от середины и чуть наискосок; если середину занимает озеро — пробуем и дальше от неё
+        const shift = rnd(-1, 1) * (o.avoid && tr >= 6 ? .4 : .14) * ax.major + (ax.u0 + ax.u1) / 2, ang = rnd(-o.jit, o.jit);
         const px = F.cx + ax.ux * shift, py = F.cy + ax.uy * shift; if (!inPoly(F.poly, px, py)) continue;
         const dx = -ax.uy * Math.cos(ang) + ax.ux * Math.sin(ang), dy = ax.ux * Math.cos(ang) + ax.uy * Math.sin(ang);
         const ch = chordThrough(F.poly, px, py, dx, dy); if (!ch) continue;
@@ -177,6 +177,7 @@ function subdivide(o) {
         let pts = [a, b];
         if (o.curve) { const m = rnd(-o.curve, o.curve) * L; pts = spline([a, [(a[0] + b[0]) / 2 - dy * m, (a[1] + b[1]) / 2 + dx * m], b], 10); }
         if (!pts.every(p => o.inside(p[0], p[1]) || Math.hypot(p[0] - a[0], p[1] - a[1]) < 6 || Math.hypot(p[0] - b[0], p[1] - b[1]) < 6)) continue;
+        if (o.avoid && pts.some(p => o.avoid(p[0], p[1]))) continue; // через озеро улицу не режем
         // с углом к краю не острее 35°
         if (!cutAngleOk(pts)) continue;
         const kind = typeof o.kind === "function" ? o.kind(L, F) : o.kind;
@@ -271,8 +272,9 @@ const LAYOUT_GEN = {
     const n = 5 + Math.floor(Math.random() * 2), a0 = rnd(0, TAU);
     for (let i = 0; i < n; i++) { const a = a0 + i / n * TAU + rnd(-.2, .2); rayRoad(cx, cy, a, R0, toEdgeR(cx, cy, a), "av", 50); }
     loopRoad(circlePts(cx, cy, rnd(250, 290), 16, .12, rnd(0, TAU), 1, rnd(210, 240)), "av", { extra: { boulevard: true } });
+    if (L.lakes === "city") cityLake(cx, cy, 330, Math.min(560, CITY_W * .22)); // озеро-парк в стороне от центра; улицы ниже его обходят
     const inCity = cityEdgeLoop(cx, cy);
-    subdivide({ inside: inCity, area: (x, y) => [36000, 34000, 44000][districtOf(x, y)], minW: 118, jit: .2, curve: .07, kind: cutKind });
+    subdivide({ inside: inCity, avoid: (x, y) => lakes.length > 0 && lakeD(x, y) < 26, area: (x, y) => [36000, 34000, 44000][districtOf(x, y)], minW: 118, jit: .2, curve: .07, kind: cutKind });
   },
   // кольцевой город: паутина из колец и лучей вокруг развязки
   ring() {
@@ -389,6 +391,7 @@ const LAYOUT_GEN = {
   // город-парк: большой парк с озером в середине, кольцо вокруг, лучи наружу, улицы растут между ними
   park() {
     const cx = cityBlob.x, cy = cityBlob.y, rx = rnd(300, 340), ry = rnd(190, 220);
+    if (L.lakes === "park") addLake(cx, cy, rx * rnd(.34, .44), ry * rnd(.36, .46), true); // настоящее озеро посреди парка
     loopRoad(circlePts(cx, cy, rx + 26, 16, .03, rnd(0, TAU), 1, ry + 26), "av", { extra: { boulevard: true } });
     for (let i = 0; i < 7; i++) { const a = i / 7 * TAU + rnd(-.15, .15), r0 = Math.hypot(Math.cos(a) * (rx + 26), Math.sin(a) * (ry + 26)); rayRoad(cx, cy, Math.atan2(Math.sin(a) * (ry + 26), Math.cos(a) * (rx + 26)), r0 - 2, toEdgeR(cx, cy, a), "av", 30); }
     const inCity = cityEdgeLoop(cx, cy), outP = (x, y) => Math.hypot((x - cx) / (rx + 60), (y - cy) / (ry + 60)) > 1 && inCity(x, y);
@@ -401,7 +404,7 @@ const LAYOUT_GEN = {
 };
 
 /* ---------- застройка ---------- */
-const distRoad = new Uint8Array(GW * GH), usedMask = new Uint8Array(GW * GH), laneMask = new Uint8Array(GW * GH);
+const distRoad = new Uint8Array(GMAX), usedMask = new Uint8Array(GMAX), laneMask = new Uint8Array(GMAX);
 function computeDistRoad() {
   distRoad.fill(255); const q = []; for (let i = 0; i < GW * GH; i++) if (roadMask[i]) { distRoad[i] = 0; q.push(i); }
   for (let h = 0; h < q.length; h++) { const i = q[h], d = distRoad[i]; if (d >= 12) continue; const x = i % GW; for (const j of [x > 0 ? i - 1 : -1, x < GW - 1 ? i + 1 : -1, i - GW, i + GW]) if (j >= 0 && j < GW * GH && distRoad[j] > d + 1) { distRoad[j] = d + 1; q.push(j); } }
@@ -473,7 +476,7 @@ function placeSpecial(kind) {
     const e = pick(cand), side = Math.random() < .5 ? 1 : -1, t = rnd(e.ra + 20, Math.max(e.ra + 21, e.len - e.rb - S.w - 20));
     const p = edgePos(e, t + S.w / 2), nx = -p.ty * side, ny = p.tx * side, probe = [p.x + nx * (e.hw + SW + 6), p.y + ny * (e.hw + SW + 6)];
     const b = blockAt(probe[0], probe[1]); if (!b || b.rural) continue;
-    const kk = kindAt(probe[0], probe[1]); if (!S.ok(kk) || b.d > S.d0 + (k > 250 ? 1 : 0)) continue;
+    const kk = kindAt(probe[0], probe[1]); if (!S.ok(kk, b) || b.d > S.d0 + (k > 250 ? 1 : 0)) continue;
     const lw = S.lot ? S.lot[0] : S.w, ld = S.lot ? S.lot[1] : S.d;
     // участок целиком, потом здание в его глубине
     const lot = placeAlong(e, t, side, lw, ld, ld, S.lot ? 2 : S.set, { kind: "_probe", floors: 1, style: 0 }, b.id);
@@ -499,19 +502,19 @@ function buildFrontage() {
       let t = (e.fa || 0) + rnd(0, 4), lastKind = null;
       const tEnd = e.len - (e.fb || 0);
       while (t < tEnd - 10) {
-        const p = edgePos(e, t + 6), nx = -p.ty * side, ny = p.tx * side, k = kindAt(p.x + nx * (e.hw + e.sw + 5), p.y + ny * (e.hw + e.sw + 5));
+        const p = edgePos(e, t + 6), nx = -p.ty * side, ny = p.tx * side, qx = p.x + nx * (e.hw + e.sw + 5), qy = p.y + ny * (e.hw + e.sw + 5), k = kindAt(qx, qy);
         const S = SPEC[k === "towers" && Math.random() < .3 ? "mid" : k];
         if (!S) { t += 8; continue; }
-        const s = S(p.x, p.y);
+        const s = S(qx, qy); // точка внутри квартала: по ней SPEC узнаёт характер района
         if (k === "suburb") {
           const lot = Math.min(s.lot, tEnd - t); if (lot < s.w + 8) break;
-          const hb = placeAlong(e, t + (lot - s.w) / 2 + rnd(-2, 2), side, s.w, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge });
+          const hb = placeAlong(e, t + (lot - s.w) / 2 + rnd(-2, 2), side, s.w, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge, shape: s.shape });
           if (hb) suburbLot(e, t, side, lot, hb);
           t += lot; continue;
         }
         const minW = k === "old" ? 10 : k === "towers" ? 24 : 16, w = Math.min(s.w, tEnd - t); if (w < minW) break;
         // не влезает — пробуем уже, у острых углов квартала часто помещается только узкий дом
-        let b = null; for (let ww = w; ww >= minW && !b; ww -= 6) b = placeAlong(e, t, side, ww, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge });
+        let b = null; for (let ww = w; ww >= minW && !b; ww -= 6) b = placeAlong(e, t, side, ww, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge, shape: s.shape });
         if (b) { t += b.w + s.gap; lastKind = k; } else t += 4;
       }
     }
@@ -555,8 +558,8 @@ function fillInteriors() {
       if (k !== "square" && blockAt(x, y) === b && cells.length > 20) { const r = k === "island" ? Math.min(14, Math.sqrt(cells.length) * 2.2) : Math.min(13, Math.sqrt(cells.length) * 1.6); if (footFree(x, y, r * 2, r * 2, 0, b.id, g => g === 7 || g === 1 || g === 2)) { fountains.push({ x, y, r }); fillDisc(x, y, r - 2, r - 2, 3); } }
       if (k === "island") fillDisc(x, y, 26, 26, 2, g => g === 3);
       for (let i = 0; i < cells.length / 30; i++) { const c = randCell(c => distRoad[c] === 1); if (c < 0) break; const [tx, ty] = cxy(c); addTree(tx, ty, rnd(5, 8), rnd(14, 20)); }
-    } else if (k === "park" || k === "bigpark" || k === "green" || k === "glacis") {
-      if ((k === "park" || k === "bigpark") && cells.length > 300) parkPond(b);
+    } else if (k === "park" || k === "bigpark" || k === "green" || k === "glacis" || k === "lake") {
+      if ((k === "park" || k === "bigpark") && cells.length > 300 && !b.lake) parkPond(b);
       if (k === "park" || k === "bigpark") parkPaths(b);
       const n = cells.length * CS * CS / (k === "green" ? 1500 : k === "glacis" ? 900 : 1000);
       for (let i = 0; i < n; i++) { const c = randCell(c => grid[c] === 2 && (k === "glacis" || distRoad[c] >= 1)); if (c < 0) break; const [x, y] = cxy(c); addTree(x, y, rnd(7, 13), rnd(16, 32)); }
@@ -593,7 +596,7 @@ function parkPaths(b) {
     const ax = (a % GW) * CS + 4, ay = Math.floor(a / GW) * CS + 4, cx2 = (c % GW) * CS + 4, cy2 = Math.floor(c / GW) * CS + 4;
     if (Math.hypot(ax - cx2, ay - cy2) < 80) continue;
     const m = b.pond ? [b.pond.x + rnd(-1, 1) * (b.pond.rx + 30), b.pond.y + rnd(-1, 1) * (b.pond.ry + 30)] : [b.cx + rnd(-40, 40), b.cy + rnd(-40, 40)];
-    const pts = []; for (let t = 0; t <= 1.001; t += .025) { const u = 1 - t, x = u * u * ax + 2 * u * t * m[0] + t * t * cx2, y = u * u * ay + 2 * u * t * m[1] + t * t * cy2; if (b.pond && Math.hypot((x - b.pond.x) / (b.pond.rx + 7), (y - b.pond.y) / (b.pond.ry + 7)) < 1) { if (pts.length > 1) b.paths.push(pts.splice(0)); else pts.length = 0; continue; } pts.push([x, y]); }
+    const pts = []; for (let t = 0; t <= 1.001; t += .025) { const u = 1 - t, x = u * u * ax + 2 * u * t * m[0] + t * t * cx2, y = u * u * ay + 2 * u * t * m[1] + t * t * cy2; if ((b.pond && Math.hypot((x - b.pond.x) / (b.pond.rx + 7), (y - b.pond.y) / (b.pond.ry + 7)) < 1) || (b.lake && lakeD(x, y) < 12)) { if (pts.length > 1) b.paths.push(pts.splice(0)); else pts.length = 0; continue; } pts.push([x, y]); }
     if (pts.length > 1) b.paths.push(pts);
   }
   for (const path of b.paths) for (const [x, y] of path) fillDisc(x, y, 4, 4, 7, g => g === 9 || g === 3 || g === 4);
@@ -641,26 +644,24 @@ function streetFurniture() {
 }
 // загород: поля полосами, луга, перелески; изредка ферма у дороги
 let patches = [];
-const patchOf = new Int16Array(GW * GH);
+const patchOf = new Int16Array(GMAX);
 function buildRural() {
   patches = []; patchOf.fill(-1);
   for (const b of blocks) {
     if (!b.rural) continue;
     const cells = blockCells(b), n = Math.max(1, Math.round(cells.length * CS * CS / (170 * 170))), seeds = [];
-    for (let k = 0; k < n; k++) { const c = cells[Math.floor(Math.random() * cells.length)]; const r = Math.random(), far = 1 - b.city; seeds.push({ x: (c % GW) * CS, y: Math.floor(c / GW) * CS, id: patches.length, kind: r < .25 + far * .25 ? "forest" : r < .7 ? "field" : "meadow", crop: Math.floor(Math.random() * 4), ang: nearestEdgeAng((c % GW) * CS, Math.floor(c / GW) * CS) + (Math.random() < .5 ? 0 : Math.PI / 2) }); patches.push(seeds[seeds.length - 1]); }
+    for (let k = 0; k < n; k++) { const c = cells[Math.floor(Math.random() * cells.length)]; const r = Math.random(), far = 1 - b.city; seeds.push({ x: (c % GW) * CS, y: Math.floor(c / GW) * CS, id: patches.length, kind: r < .25 + far * .25 ? "forest" : r < .62 ? "field" : r < .74 ? "orchard" : "meadow", crop: Math.floor(Math.random() * 4), ang: nearestEdgeAng((c % GW) * CS, Math.floor(c / GW) * CS) + (Math.random() < .5 ? 0 : Math.PI / 2) }); patches.push(seeds[seeds.length - 1]); }
     for (const c of cells) { const x = (c % GW) * CS, y = Math.floor(c / GW) * CS; let best = seeds[0], bd = 1e18; for (const s of seeds) { const d = (s.x - x) ** 2 + (s.y - y) ** 2; if (d < bd) { bd = d; best = s; } } patchOf[c] = best.id; }
     for (const c of cells) {
       const s = patches[patchOf[c]], x = (c % GW) * CS + rnd(1, 7), y = Math.floor(c / GW) * CS + rnd(1, 7);
       if (s.kind === "forest" && Math.random() < .17 && distRoad[c] >= 1) addTree(x, y, rnd(7, 13), rnd(18, 32));
       else if (s.kind === "meadow" && Math.random() < .012 && distRoad[c] >= 1) addTree(x, y, rnd(6, 12), rnd(16, 28));
+      else if (s.kind === "orchard" && (c % GW) % 3 === 1 && Math.floor(c / GW) % 3 === 1 && distRoad[c] >= 2) addTree((c % GW) * CS + 4, Math.floor(c / GW) * CS + 4, rnd(4.5, 6.5), rnd(9, 14)); // сад: деревья рядами
     }
-    // ферма у дороги в поле
+    // ферма у дороги в поле, ранчо у луга (buildFarm в layout2.js)
     for (const s of seeds) {
-      if (s.kind !== "field" || Math.random() > .4) continue;
-      const q = gEdgeNear(s.x, s.y, 260); if (!q) continue;
-      const p = edgePos(q.e, q.t), side = ((s.x - p.x) * -p.ty + (s.y - p.y) * p.tx) > 0 ? 1 : -1;
-      const hb = placeAlong(q.e, q.t, side, 20, 16, 16, rnd(10, 18), { kind: "house", floors: 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x" }, b.id);
-      if (hb) { placeAlong(q.e, q.t + 28, side, 22, 16, 16, rnd(12, 20), { kind: "barn", floors: 1, style: 26, ridge: "x" }, b.id); for (let k = 0; k < 3; k++) addTree(hb.cx + rnd(-26, 26), hb.cy + rnd(-26, 26), rnd(6, 9), rnd(14, 22)); }
+      if (s.kind === "field" && Math.random() < .45) buildFarm(s, b, false);
+      else if (s.kind === "meadow" && Math.random() < .45) buildFarm(s, b, true);
     }
   }
 }
@@ -696,13 +697,15 @@ function classifyBlocks() {
       : b.d === 1 ? (r < ind ? "industry" : r < ind + .09 && mid ? "park" : r < ind + .13 && small ? "lot" : r < ind + .16 && small ? "plaza" : "apt")
         : (r < .1 && mid ? "park" : r < .1 + ind * .5 ? "industry" : "suburb");
   }
-  // клетки: тротуарная плитка у фасадов, газоны во дворах, асфальт стоянок
+  assignDistricts();
+  // клетки: тротуарная плитка у фасадов, газоны во дворах, асфальт стоянок и гаражей
   for (let i = 0; i < GW * GH; i++) {
     const r = regionOf[i]; if (r < 0) continue;
     const b = blocks[r], x = (i % GW) * CS + 4, y = Math.floor(i / GW) * CS + 4, k = b.rural ? "rural" : zoneAt(x, y) || b.kind;
-    grid[i] = k === "towers" || k === "plaza" || k === "island" || k === "square" || k === "old" ? 7 : k === "apt" ? (distRoad[i] <= 2 ? 1 : 2) : k === "industry" || k === "lot" ? 0 : 2;
-    if (k === "industry" || k === "lot") b.lot = true;
+    grid[i] = k === "towers" || k === "plaza" || k === "island" || k === "square" || k === "old" ? 7 : k === "apt" ? (distRoad[i] <= 2 ? 1 : 2) : k === "industry" || k === "lot" || k === "garages" ? 0 : 2;
+    if (k === "industry" || k === "lot" || k === "garages") b.lot = true;
   }
+  markWater();
 }
 // всё вместе: сеть уже построена
 function fillCity() {
@@ -711,10 +714,11 @@ function fillCity() {
   buildWalls();
   for (const k of ["hospital", "police", "mall", "fire", "power", "water", "radio"]) if (!placeSpecial(k)) placeSpecialFallback(k);
   placeLandmarks(true);
+  placeDistrictBuildings();
   buildFrontage();
   placeLandmarks(false);
   if (oldTown) { addRotBuilding(oldTown.x, oldTown.y - 6, 44, 70, rnd(-.3, .3), { kind: "cathedral", floors: 4, style: 21 }); const fx = oldTown.x, fy = oldTown.y + 52; fountains.push({ x: fx, y: fy, r: 9 }); fillDisc(fx, fy, 7, 7, 3); }
-  fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts();
+  furnishLakes(); fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts();
 }
 // достопримечательности: храм, вокзал, школа, заправки, водонапорная башня — у улиц со своим участком;
 // телебашня, стадион, колесо обозрения и стела с вечным огнём — внутри кварталов; каждой по одной, если нашлось место
@@ -877,7 +881,7 @@ function buildOutskirts() {
     for (let i = -3; i <= 3; i++) for (let j = 0; j < 4; j++) {
       const lx = i * 26, lz = e.hw + 34 + j * 26, x = p.x + ca * lx + nx * lz, y = p.y + sa * lx + ny * lz;
       if (!footFree(x, y, 12, 10, ang, b.id)) continue;
-      addRotBuilding(x, y, rnd(8, 11), rnd(7, 9), ang, { kind: "house", floors: 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", dacha: true });
+      addRotBuilding(x, y, rnd(8, 11), rnd(7, 9), ang, { kind: "dacha", floors: 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x" });
       for (const i2 of rotCells(x, y, 14, 12, ang)) usedMask[i2] = 1;
       const hw2 = 12, c0 = [x - ca * hw2 - nx * hw2, y - sa * hw2 - ny * hw2], c1 = [x + ca * hw2 - nx * hw2, y + sa * hw2 - ny * hw2], c2 = [x + ca * hw2 + nx * hw2, y + sa * hw2 + ny * hw2], c3 = [x - ca * hw2 + nx * hw2, y - sa * hw2 + ny * hw2];
       fences.push([...c1, ...c2], [...c2, ...c3], [...c3, ...c0]);

@@ -249,6 +249,10 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
     <section data-s="1" hidden>
       <div class="cards small" id="layoutCards"></div>
       <p class="note" id="layoutNote" hidden></p>
+      <fieldset><legend>Размер карты</legend>
+        <label class="chk"><input type="radio" name="wMap" value="normal" checked> Обычная: 900 × 600 м</label>
+        <label class="chk"><input type="radio" name="wMap" value="big"> Большая: 1300 × 900 м, больше районов, озёра и фермы на окраинах</label>
+      </fieldset>
       <div class="row"><label for="wPop">Население</label><output id="wPopO">900</output></div>
       <input type="range" id="wPop" min="100" max="2500" step="100" value="900">
     </section>
@@ -483,9 +487,15 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
 <script>
 (() => {
 "use strict";
-/* ---------- масштаб: 1 единица = 25 см; человек 7 ед., этаж 12 ед.; мир 900 × 600 м, город в нём — около 660 × 440 м ---------- */
-// CITY_W, CITY_H — рамка города: по ней строятся планировки и районы; вокруг — пригороды, поля, посёлки, трассы к краям карты
-const W = 3600, H = 2400, CS = 8, GW = W / CS, GH = H / CS, CITY_W = 2640, CITY_H = 1760;
+/* ---------- масштаб: 1 единица = 25 см; человек 7 ед., этаж 12 ед.; мир 900 × 600 м (большая карта — 1300 × 900 м), город в нём — около 660 × 440 м ---------- */
+// CITY_W, CITY_H — рамка города: по ней строятся планировки и районы; вокруг — пригороды, поля, посёлки, трассы к краям карты.
+// Размер карты выбирается в диалоге новой игры (setMapSize): W, H, GW, GH и рамка города меняются, а все сетки клеток выделены
+// один раз под большую карту (GMAX) и индексируются текущим GW — так их не надо пересоздавать при смене размера
+const CS = 8;
+const MAP_SIZES = { normal: { n: "Обычная", desc: "900 × 600 м", W: 3600, H: 2400, CITY_W: 2640, CITY_H: 1760 }, big: { n: "Большая", desc: "1300 × 900 м, больше районов и ферм", W: 5200, H: 3600, CITY_W: 3800, CITY_H: 2640, traffic: .62 } };
+const GMAX = (MAP_SIZES.big.W / CS) * (MAP_SIZES.big.H / CS);
+let mapSize = "normal", W = 3600, H = 2400, GW = W / CS, GH = H / CS, CITY_W = 2640, CITY_H = 1760;
+function setMapSize(k) { const M = MAP_SIZES[k] || MAP_SIZES.normal; mapSize = MAP_SIZES[k] ? k : "normal"; W = M.W; H = M.H; GW = W / CS; GH = H / CS; CITY_W = M.CITY_W; CITY_H = M.CITY_H; }
 const $ = id => document.getElementById(id);
 const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 const rnd = (a = 0, b = 1) => a + Math.random() * (b - a);
@@ -494,7 +504,7 @@ const TAU = Math.PI * 2;
 
 /* ---------- город ---------- */
 // клетки: 0 асфальт, 1 тротуар, 2 газон, 3 здание, 4 дерево, 5 машина, 6 баррикада, 7 площадь, 8 завал
-const grid = new Uint8Array(GW * GH), bhp = new Float32Array(GW * GH);
+const grid = new Uint8Array(GMAX), bhp = new Float32Array(GMAX);
 const BLOCK = c => c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10;
 const cellAt = (x, y) => grid[clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1)];
 let buildings = [], trees = [], cars = [], lamps = [], fountains = [], fences = [], special = {}, blocks = [], props = [];
@@ -503,20 +513,20 @@ function fillCells(x0, y0, x1, y1, v) {
   for (let y = Math.max(0, Math.floor(y0 / CS)); y < Math.min(GH, Math.ceil(y1 / CS)); y++)
     for (let x = Math.max(0, Math.floor(x0 / CS)); x < Math.min(GW, Math.ceil(x1 / CS)); x++) grid[y * GW + x] = v;
 }
-// район: 0 центр с небоскрёбами, 1 жилые многоэтажки, 2 частный сектор
+// район: 0 центр с небоскрёбами, 1 жилые многоэтажки, 2 частный сектор; lakes — где у планировки озёра: в городе, в парке или за городом
 // планировки: пороги районов (радиус от центра), способ построения сети улиц
 const LAYOUTS = {
-  grid: { n: "Классическая сетка", d: [.36, .82], gen: "grid" },
-  organic: { n: "Живой город", d: [.3, .82], gen: "organic" },
-  ring: { n: "Кольцевой город", d: [.3, .85], gen: "ring" },
-  radial: { n: "Город звёзд", d: [.3, .86], gen: "radial" },
-  diag: { n: "Диагонали", d: [.36, .82], gen: "diag" },
-  winding: { n: "Извилистые улицы", d: [.25, .8], gen: "winding" },
-  old: { n: "Исторический центр", d: [.15, .8], old: true, wall: true, gen: "old" },
-  park: { n: "Город-парк", d: [.3, .85], park: true, gen: "park" },
-  mega: { n: "Мегаполис", d: [.62, 1.1], gen: "mega" },
-  suburb: { n: "Пригород", d: [.12, .38], compact: true, gen: "suburb" },
-  industry: { n: "Промзона", d: [.25, .85], industry: .45, gen: "industry" },
+  grid: { n: "Классическая сетка", d: [.36, .82], gen: "grid", lakes: "rural" },
+  organic: { n: "Живой город", d: [.3, .82], gen: "organic", lakes: "city" },
+  ring: { n: "Кольцевой город", d: [.3, .85], gen: "ring", lakes: "rural" },
+  radial: { n: "Город звёзд", d: [.3, .86], gen: "radial", lakes: "rural" },
+  diag: { n: "Диагонали", d: [.36, .82], gen: "diag", lakes: "rural" },
+  winding: { n: "Извилистые улицы", d: [.25, .8], gen: "winding", lakes: "rural" },
+  old: { n: "Исторический центр", d: [.15, .8], old: true, wall: true, gen: "old", lakes: "rural" },
+  park: { n: "Город-парк", d: [.3, .85], park: true, gen: "park", lakes: "park" },
+  mega: { n: "Мегаполис", d: [.62, 1.1], gen: "mega", lakes: "rural" },
+  suburb: { n: "Пригород", d: [.12, .38], compact: true, gen: "suburb", lakes: "rural" },
+  industry: { n: "Промзона", d: [.25, .85], industry: .45, gen: "industry", lakes: "rural" },
   river: { n: "Город на реке", d: [.3, .8], river: true, hidden: true, gen: "organic" },
   port: { n: "Портовый город", d: [.3, .78], sea: true, industry: .25, hidden: true, gen: "organic" },
   mountain: { n: "Горный городок", d: [.3, .8], hills: true, ridges: 2, hidden: true, gen: "winding" },
@@ -524,9 +534,12 @@ const LAYOUTS = {
 };
 let L = LAYOUTS.grid, layoutKey = "grid", waters = [], bridges = [], walls = [];
 function districtOf(x, y) { const r = Math.hypot((x - W / 2) / (CITY_W / 2), (y - H / 2) / (CITY_H / 2)); return r < L.d[0] ? 0 : r < L.d[1] ? 1 : 2; }
+// высота этажа: у домов частного сектора, дач, усадеб и ферм ниже, у гаражей совсем низкие боксы
+const LOW_KINDS = new Set(["house", "cottage", "dacha", "farmhouse", "manor"]);
+function floorH(kind) { return kind === "garages" ? 9 : LOW_KINDS.has(kind) ? 11 : 12; }
 const CARC = ["#8e1f1f", "#24497a", "#d8d8d4", "#1d1f22", "#5f6366", "#b59532", "#2f5a3a", "#6d2c4f", "#9aa0a4", "#e0e0dc", "#30343a"];
 function addBuilding(bb) {
-  bb.h = bb.floors * (bb.kind === "house" ? 11 : 12);
+  bb.h = bb.floors * floorH(bb.kind);
   bb.fire = 0; bb.scorch = 0; bb.hp = 100 + bb.floors * 6 + (bb.x1 - bb.x0) * (bb.y1 - bb.y0) / 400; bb.maxHp = bb.hp;
   bb.state = "ok"; bb.ruinH = 0; bb.cT = 0;
   buildings.push(bb); fillCells(bb.x0, bb.y0, bb.x1, bb.y1, 3);
@@ -535,6 +548,7 @@ function addBuilding(bb) {
 // дорога за городом — без тротуаров
 function markRural() { for (const e of RE) { let n = 0, out = 0; for (let t = 0; t <= e.len; t += 20) { const p = edgePos(e, t); n++; if (cityK(p.x, p.y) < .42) out++; } e.rural = out / n > .55; } }
 function genCity(layout = "random") {
+  setMapSize(mapSize);
   layoutKey = layout === "random" || !LAYOUTS[layout] ? pick(Object.keys(LAYOUTS).filter(k => !LAYOUTS[k].hidden)) : layout; L = LAYOUTS[layoutKey];
   WIDE_SEED = Math.random() * 1000; // какие улицы будут широкими — в каждом городе по-своему
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -543,13 +557,13 @@ function genCity(layout = "random") {
     RN = []; RE = []; RL = []; rounds = []; presets = []; zoneAt = () => null; oldTown = null; bigPark = null; ponds = []; routeCache.clear(); exitRoute = null;
     prepareWater();
     LAYOUT_GEN[L.gen || layoutKey]();
+    placeLakes(); // озёра за городом — после дорог, в стороне от них
     markRural(); finishGraph();
     rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;
   }
   fillTerrain(); sinkPonds(); flattenRoads(); finishTerrain();
   lamps = lamps.filter(l => cellAt(l.x, l.y) === 1);
-  buildBusLines();
 }
 const blocked = (x, y) => x < 1 || y < 1 || x >= W - 1 || y >= H - 1 || BLOCK(cellAt(x, y));
 function los(x0, y0, x1, y1) {
@@ -561,17 +575,17 @@ function los(x0, y0, x1, y1) {
 /* ---------- поля расстояний по улицам (алгоритм Дейкстры с корзинами) ---------- */
 // баррикада проходима «дорого»: зомби идут к ней и ломают, а не теряют след
 const FAR = 32000;
-const underRubble = new Uint8Array(GW * GH);
-const fZ = new Int16Array(GW * GH), fH = new Int16Array(GW * GH), fE = new Int16Array(GW * GH), fInf = new Int16Array(GW * GH), fC = new Int16Array(GW * GH);
+const underRubble = new Uint8Array(GMAX);
+const fZ = new Int16Array(GMAX), fH = new Int16Array(GMAX), fE = new Int16Array(GMAX), fInf = new Int16Array(GMAX), fC = new Int16Array(GMAX);
 const RING = 16, ring = Array.from({ length: RING }, () => []);
 const NB4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // зебры: клетки проезжей части, где пешеходам можно переходить
-const crossMask = new Uint8Array(GW * GH);
+const crossMask = new Uint8Array(GMAX);
 // стоимость клетки для пешехода: тротуар, газон, площадь — 1; проезжая часть вне зебры — 8; завал — непроходим (зомби карабкаются)
 // mode: 0 пешеход, 1 зомби (карабкается по завалам, дорог не боится), 2 техника и танк (по дорогам и завалам, тротуар хуже)
 function walkCost(j, mode) { const c = grid[j]; if (c === 8) return mode ? 3 : 0; if (c === 6) return mode === 1 ? 9 : 0; if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8; return mode === 2 && roadMask[j] !== 1 ? 2 : 1; }
 function bfs(field, sources, mode, maxD = 3000) {
-  field.fill(FAR);
+  field.fill(FAR, 0, GW * GH); // сетка выделена под большую карту, чистим только используемую часть
   let pending = 0;
   for (const s of sources) {
     const i = clamp(Math.floor(s.y / CS), 0, GH - 1) * GW + clamp(Math.floor(s.x / CS), 0, GW - 1);
@@ -624,8 +638,8 @@ function fieldDir(field, x, y, away) {
 // полосы: по одной в каждую сторону со смещением вправо по ходу движения; у кольца одна полоса по оси
 let RN = [], RE = [], RL = [], rounds = [];
 const SW = 8; // ширина тротуара
-const roadMask = new Uint8Array(GW * GH); // 1 проезжая часть, 2 тротуар, 3 обочина за городом
-const regionOf = new Int32Array(GW * GH);  // номер квартала клетки, −1 — дорога
+const roadMask = new Uint8Array(GMAX); // 1 проезжая часть, 2 тротуар, 3 обочина за городом
+const regionOf = new Int32Array(GMAX);  // номер квартала клетки, −1 — дорога
 
 /* ---------- ломаные ---------- */
 function plCum(pts) { const c = [0]; for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return c; }
@@ -1004,15 +1018,15 @@ function blockAt(x, y) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS);
 /* ---------- поиск пути по дорогам ---------- */
 // расстояние от каждого узла до цели по направленным полосам (с учётом перекрытых недавно рёбер)
 function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.kind === "ring" ? 2 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0) + (e.quar && e.quarGate !== e.quar ? 3000 : e.quarGate ? 400 : 0) + (e.narrow ? 150 : 0) + (e.jamN || 0) * 110; }
-function dijkstraTo(seeds, skipL) {
+function dijkstraTo(seeds) {
   const dist = new Float64Array(RN.length).fill(1e12), done = new Uint8Array(RN.length);
-  const seedN = new Uint8Array(RN.length); for (const [n, d] of seeds) { dist[n.id] = Math.min(dist[n.id], d); seedN[n.id] = 1; }
+  for (const [n, d] of seeds) dist[n.id] = Math.min(dist[n.id], d);
   for (let k = 0; k < RN.length; k++) {
     let u = -1, bd = 1e12; for (let i = 0; i < RN.length; i++) if (!done[i] && dist[i] < bd) { bd = dist[i]; u = i; }
     if (u < 0) break; done[u] = 1;
-    const n = RN[u]; if (n.exit && !seedN[u]) continue; // через выезд за карту не разворачиваются: там машина уезжает насовсем (сам выезд как цель — можно)
+    const n = RN[u];
     // в узел n можно приехать по полосе, которая ведёт в n
-    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n || l === skipL) continue; const m = l.from, nd = bd + edgeCost(e) + (e.checkCp && typeof postLaneShut === "function" && postLaneShut(e.checkCp, l) ? 6000 : 0); if (nd < dist[m.id]) dist[m.id] = nd; }
+    for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (!l || l.to !== n) continue; const m = l.from, nd = bd + edgeCost(e) + (e.checkCp && typeof postLaneShut === "function" && postLaneShut(e.checkCp, l) ? 6000 : 0); if (nd < dist[m.id]) dist[m.id] = nd; }
   }
   return dist;
 }
@@ -1201,9 +1215,9 @@ function subdivide(o) {
     for (const F of graphFaces()) {
       if (!o.inside(F.cx, F.cy) || F.area < o.area(F.cx, F.cy)) continue;
       const ax = polyAxis(F); if (ax.major < o.minW * 2) continue;
-      for (let tr = 0; tr < 6; tr++) {
-        // поперёк длинной оси, чуть в сторону от середины и чуть наискосок
-        const shift = rnd(-.14, .14) * ax.major + (ax.u0 + ax.u1) / 2, ang = rnd(-o.jit, o.jit);
+      for (let tr = 0; tr < (o.avoid ? 16 : 6); tr++) {
+        // поперёк длинной оси, чуть в сторону от середины и чуть наискосок; если середину занимает озеро — пробуем и дальше от неё
+        const shift = rnd(-1, 1) * (o.avoid && tr >= 6 ? .4 : .14) * ax.major + (ax.u0 + ax.u1) / 2, ang = rnd(-o.jit, o.jit);
         const px = F.cx + ax.ux * shift, py = F.cy + ax.uy * shift; if (!inPoly(F.poly, px, py)) continue;
         const dx = -ax.uy * Math.cos(ang) + ax.ux * Math.sin(ang), dy = ax.ux * Math.cos(ang) + ax.uy * Math.sin(ang);
         const ch = chordThrough(F.poly, px, py, dx, dy); if (!ch) continue;
@@ -1214,6 +1228,7 @@ function subdivide(o) {
         let pts = [a, b];
         if (o.curve) { const m = rnd(-o.curve, o.curve) * L; pts = spline([a, [(a[0] + b[0]) / 2 - dy * m, (a[1] + b[1]) / 2 + dx * m], b], 10); }
         if (!pts.every(p => o.inside(p[0], p[1]) || Math.hypot(p[0] - a[0], p[1] - a[1]) < 6 || Math.hypot(p[0] - b[0], p[1] - b[1]) < 6)) continue;
+        if (o.avoid && pts.some(p => o.avoid(p[0], p[1]))) continue; // через озеро улицу не режем
         // с углом к краю не острее 35°
         if (!cutAngleOk(pts)) continue;
         const kind = typeof o.kind === "function" ? o.kind(L, F) : o.kind;
@@ -1308,8 +1323,9 @@ const LAYOUT_GEN = {
     const n = 5 + Math.floor(Math.random() * 2), a0 = rnd(0, TAU);
     for (let i = 0; i < n; i++) { const a = a0 + i / n * TAU + rnd(-.2, .2); rayRoad(cx, cy, a, R0, toEdgeR(cx, cy, a), "av", 50); }
     loopRoad(circlePts(cx, cy, rnd(250, 290), 16, .12, rnd(0, TAU), 1, rnd(210, 240)), "av", { extra: { boulevard: true } });
+    if (L.lakes === "city") cityLake(cx, cy, 330, Math.min(560, CITY_W * .22)); // озеро-парк в стороне от центра; улицы ниже его обходят
     const inCity = cityEdgeLoop(cx, cy);
-    subdivide({ inside: inCity, area: (x, y) => [36000, 34000, 44000][districtOf(x, y)], minW: 118, jit: .2, curve: .07, kind: cutKind });
+    subdivide({ inside: inCity, avoid: (x, y) => lakes.length > 0 && lakeD(x, y) < 26, area: (x, y) => [36000, 34000, 44000][districtOf(x, y)], minW: 118, jit: .2, curve: .07, kind: cutKind });
   },
   // кольцевой город: паутина из колец и лучей вокруг развязки
   ring() {
@@ -1426,6 +1442,7 @@ const LAYOUT_GEN = {
   // город-парк: большой парк с озером в середине, кольцо вокруг, лучи наружу, улицы растут между ними
   park() {
     const cx = cityBlob.x, cy = cityBlob.y, rx = rnd(300, 340), ry = rnd(190, 220);
+    if (L.lakes === "park") addLake(cx, cy, rx * rnd(.34, .44), ry * rnd(.36, .46), true); // настоящее озеро посреди парка
     loopRoad(circlePts(cx, cy, rx + 26, 16, .03, rnd(0, TAU), 1, ry + 26), "av", { extra: { boulevard: true } });
     for (let i = 0; i < 7; i++) { const a = i / 7 * TAU + rnd(-.15, .15), r0 = Math.hypot(Math.cos(a) * (rx + 26), Math.sin(a) * (ry + 26)); rayRoad(cx, cy, Math.atan2(Math.sin(a) * (ry + 26), Math.cos(a) * (rx + 26)), r0 - 2, toEdgeR(cx, cy, a), "av", 30); }
     const inCity = cityEdgeLoop(cx, cy), outP = (x, y) => Math.hypot((x - cx) / (rx + 60), (y - cy) / (ry + 60)) > 1 && inCity(x, y);
@@ -1438,7 +1455,7 @@ const LAYOUT_GEN = {
 };
 
 /* ---------- застройка ---------- */
-const distRoad = new Uint8Array(GW * GH), usedMask = new Uint8Array(GW * GH), laneMask = new Uint8Array(GW * GH);
+const distRoad = new Uint8Array(GMAX), usedMask = new Uint8Array(GMAX), laneMask = new Uint8Array(GMAX);
 function computeDistRoad() {
   distRoad.fill(255); const q = []; for (let i = 0; i < GW * GH; i++) if (roadMask[i]) { distRoad[i] = 0; q.push(i); }
   for (let h = 0; h < q.length; h++) { const i = q[h], d = distRoad[i]; if (d >= 12) continue; const x = i % GW; for (const j of [x > 0 ? i - 1 : -1, x < GW - 1 ? i + 1 : -1, i - GW, i + GW]) if (j >= 0 && j < GW * GH && distRoad[j] > d + 1) { distRoad[j] = d + 1; q.push(j); } }
@@ -1510,7 +1527,7 @@ function placeSpecial(kind) {
     const e = pick(cand), side = Math.random() < .5 ? 1 : -1, t = rnd(e.ra + 20, Math.max(e.ra + 21, e.len - e.rb - S.w - 20));
     const p = edgePos(e, t + S.w / 2), nx = -p.ty * side, ny = p.tx * side, probe = [p.x + nx * (e.hw + SW + 6), p.y + ny * (e.hw + SW + 6)];
     const b = blockAt(probe[0], probe[1]); if (!b || b.rural) continue;
-    const kk = kindAt(probe[0], probe[1]); if (!S.ok(kk) || b.d > S.d0 + (k > 250 ? 1 : 0)) continue;
+    const kk = kindAt(probe[0], probe[1]); if (!S.ok(kk, b) || b.d > S.d0 + (k > 250 ? 1 : 0)) continue;
     const lw = S.lot ? S.lot[0] : S.w, ld = S.lot ? S.lot[1] : S.d;
     // участок целиком, потом здание в его глубине
     const lot = placeAlong(e, t, side, lw, ld, ld, S.lot ? 2 : S.set, { kind: "_probe", floors: 1, style: 0 }, b.id);
@@ -1536,19 +1553,19 @@ function buildFrontage() {
       let t = (e.fa || 0) + rnd(0, 4), lastKind = null;
       const tEnd = e.len - (e.fb || 0);
       while (t < tEnd - 10) {
-        const p = edgePos(e, t + 6), nx = -p.ty * side, ny = p.tx * side, k = kindAt(p.x + nx * (e.hw + e.sw + 5), p.y + ny * (e.hw + e.sw + 5));
+        const p = edgePos(e, t + 6), nx = -p.ty * side, ny = p.tx * side, qx = p.x + nx * (e.hw + e.sw + 5), qy = p.y + ny * (e.hw + e.sw + 5), k = kindAt(qx, qy);
         const S = SPEC[k === "towers" && Math.random() < .3 ? "mid" : k];
         if (!S) { t += 8; continue; }
-        const s = S(p.x, p.y);
+        const s = S(qx, qy); // точка внутри квартала: по ней SPEC узнаёт характер района
         if (k === "suburb") {
           const lot = Math.min(s.lot, tEnd - t); if (lot < s.w + 8) break;
-          const hb = placeAlong(e, t + (lot - s.w) / 2 + rnd(-2, 2), side, s.w, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge });
+          const hb = placeAlong(e, t + (lot - s.w) / 2 + rnd(-2, 2), side, s.w, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge, shape: s.shape });
           if (hb) suburbLot(e, t, side, lot, hb);
           t += lot; continue;
         }
         const minW = k === "old" ? 10 : k === "towers" ? 24 : 16, w = Math.min(s.w, tEnd - t); if (w < minW) break;
         // не влезает — пробуем уже, у острых углов квартала часто помещается только узкий дом
-        let b = null; for (let ww = w; ww >= minW && !b; ww -= 6) b = placeAlong(e, t, side, ww, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge });
+        let b = null; for (let ww = w; ww >= minW && !b; ww -= 6) b = placeAlong(e, t, side, ww, s.d[0], s.d[1], s.set, { kind: s.kind, floors: s.floors, style: s.style, ridge: s.ridge, shape: s.shape });
         if (b) { t += b.w + s.gap; lastKind = k; } else t += 4;
       }
     }
@@ -1592,8 +1609,8 @@ function fillInteriors() {
       if (k !== "square" && blockAt(x, y) === b && cells.length > 20) { const r = k === "island" ? Math.min(14, Math.sqrt(cells.length) * 2.2) : Math.min(13, Math.sqrt(cells.length) * 1.6); if (footFree(x, y, r * 2, r * 2, 0, b.id, g => g === 7 || g === 1 || g === 2)) { fountains.push({ x, y, r }); fillDisc(x, y, r - 2, r - 2, 3); } }
       if (k === "island") fillDisc(x, y, 26, 26, 2, g => g === 3);
       for (let i = 0; i < cells.length / 30; i++) { const c = randCell(c => distRoad[c] === 1); if (c < 0) break; const [tx, ty] = cxy(c); addTree(tx, ty, rnd(5, 8), rnd(14, 20)); }
-    } else if (k === "park" || k === "bigpark" || k === "green" || k === "glacis") {
-      if ((k === "park" || k === "bigpark") && cells.length > 300) parkPond(b);
+    } else if (k === "park" || k === "bigpark" || k === "green" || k === "glacis" || k === "lake") {
+      if ((k === "park" || k === "bigpark") && cells.length > 300 && !b.lake) parkPond(b);
       if (k === "park" || k === "bigpark") parkPaths(b);
       const n = cells.length * CS * CS / (k === "green" ? 1500 : k === "glacis" ? 900 : 1000);
       for (let i = 0; i < n; i++) { const c = randCell(c => grid[c] === 2 && (k === "glacis" || distRoad[c] >= 1)); if (c < 0) break; const [x, y] = cxy(c); addTree(x, y, rnd(7, 13), rnd(16, 32)); }
@@ -1630,7 +1647,7 @@ function parkPaths(b) {
     const ax = (a % GW) * CS + 4, ay = Math.floor(a / GW) * CS + 4, cx2 = (c % GW) * CS + 4, cy2 = Math.floor(c / GW) * CS + 4;
     if (Math.hypot(ax - cx2, ay - cy2) < 80) continue;
     const m = b.pond ? [b.pond.x + rnd(-1, 1) * (b.pond.rx + 30), b.pond.y + rnd(-1, 1) * (b.pond.ry + 30)] : [b.cx + rnd(-40, 40), b.cy + rnd(-40, 40)];
-    const pts = []; for (let t = 0; t <= 1.001; t += .025) { const u = 1 - t, x = u * u * ax + 2 * u * t * m[0] + t * t * cx2, y = u * u * ay + 2 * u * t * m[1] + t * t * cy2; if (b.pond && Math.hypot((x - b.pond.x) / (b.pond.rx + 7), (y - b.pond.y) / (b.pond.ry + 7)) < 1) { if (pts.length > 1) b.paths.push(pts.splice(0)); else pts.length = 0; continue; } pts.push([x, y]); }
+    const pts = []; for (let t = 0; t <= 1.001; t += .025) { const u = 1 - t, x = u * u * ax + 2 * u * t * m[0] + t * t * cx2, y = u * u * ay + 2 * u * t * m[1] + t * t * cy2; if ((b.pond && Math.hypot((x - b.pond.x) / (b.pond.rx + 7), (y - b.pond.y) / (b.pond.ry + 7)) < 1) || (b.lake && lakeD(x, y) < 12)) { if (pts.length > 1) b.paths.push(pts.splice(0)); else pts.length = 0; continue; } pts.push([x, y]); }
     if (pts.length > 1) b.paths.push(pts);
   }
   for (const path of b.paths) for (const [x, y] of path) fillDisc(x, y, 4, 4, 7, g => g === 9 || g === 3 || g === 4);
@@ -1678,26 +1695,24 @@ function streetFurniture() {
 }
 // загород: поля полосами, луга, перелески; изредка ферма у дороги
 let patches = [];
-const patchOf = new Int16Array(GW * GH);
+const patchOf = new Int16Array(GMAX);
 function buildRural() {
   patches = []; patchOf.fill(-1);
   for (const b of blocks) {
     if (!b.rural) continue;
     const cells = blockCells(b), n = Math.max(1, Math.round(cells.length * CS * CS / (170 * 170))), seeds = [];
-    for (let k = 0; k < n; k++) { const c = cells[Math.floor(Math.random() * cells.length)]; const r = Math.random(), far = 1 - b.city; seeds.push({ x: (c % GW) * CS, y: Math.floor(c / GW) * CS, id: patches.length, kind: r < .25 + far * .25 ? "forest" : r < .7 ? "field" : "meadow", crop: Math.floor(Math.random() * 4), ang: nearestEdgeAng((c % GW) * CS, Math.floor(c / GW) * CS) + (Math.random() < .5 ? 0 : Math.PI / 2) }); patches.push(seeds[seeds.length - 1]); }
+    for (let k = 0; k < n; k++) { const c = cells[Math.floor(Math.random() * cells.length)]; const r = Math.random(), far = 1 - b.city; seeds.push({ x: (c % GW) * CS, y: Math.floor(c / GW) * CS, id: patches.length, kind: r < .25 + far * .25 ? "forest" : r < .62 ? "field" : r < .74 ? "orchard" : "meadow", crop: Math.floor(Math.random() * 4), ang: nearestEdgeAng((c % GW) * CS, Math.floor(c / GW) * CS) + (Math.random() < .5 ? 0 : Math.PI / 2) }); patches.push(seeds[seeds.length - 1]); }
     for (const c of cells) { const x = (c % GW) * CS, y = Math.floor(c / GW) * CS; let best = seeds[0], bd = 1e18; for (const s of seeds) { const d = (s.x - x) ** 2 + (s.y - y) ** 2; if (d < bd) { bd = d; best = s; } } patchOf[c] = best.id; }
     for (const c of cells) {
       const s = patches[patchOf[c]], x = (c % GW) * CS + rnd(1, 7), y = Math.floor(c / GW) * CS + rnd(1, 7);
       if (s.kind === "forest" && Math.random() < .17 && distRoad[c] >= 1) addTree(x, y, rnd(7, 13), rnd(18, 32));
       else if (s.kind === "meadow" && Math.random() < .012 && distRoad[c] >= 1) addTree(x, y, rnd(6, 12), rnd(16, 28));
+      else if (s.kind === "orchard" && (c % GW) % 3 === 1 && Math.floor(c / GW) % 3 === 1 && distRoad[c] >= 2) addTree((c % GW) * CS + 4, Math.floor(c / GW) * CS + 4, rnd(4.5, 6.5), rnd(9, 14)); // сад: деревья рядами
     }
-    // ферма у дороги в поле
+    // ферма у дороги в поле, ранчо у луга (buildFarm в layout2.js)
     for (const s of seeds) {
-      if (s.kind !== "field" || Math.random() > .4) continue;
-      const q = gEdgeNear(s.x, s.y, 260); if (!q) continue;
-      const p = edgePos(q.e, q.t), side = ((s.x - p.x) * -p.ty + (s.y - p.y) * p.tx) > 0 ? 1 : -1;
-      const hb = placeAlong(q.e, q.t, side, 20, 16, 16, rnd(10, 18), { kind: "house", floors: 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x" }, b.id);
-      if (hb) { placeAlong(q.e, q.t + 28, side, 22, 16, 16, rnd(12, 20), { kind: "barn", floors: 1, style: 26, ridge: "x" }, b.id); for (let k = 0; k < 3; k++) addTree(hb.cx + rnd(-26, 26), hb.cy + rnd(-26, 26), rnd(6, 9), rnd(14, 22)); }
+      if (s.kind === "field" && Math.random() < .45) buildFarm(s, b, false);
+      else if (s.kind === "meadow" && Math.random() < .45) buildFarm(s, b, true);
     }
   }
 }
@@ -1733,13 +1748,15 @@ function classifyBlocks() {
       : b.d === 1 ? (r < ind ? "industry" : r < ind + .09 && mid ? "park" : r < ind + .13 && small ? "lot" : r < ind + .16 && small ? "plaza" : "apt")
         : (r < .1 && mid ? "park" : r < .1 + ind * .5 ? "industry" : "suburb");
   }
-  // клетки: тротуарная плитка у фасадов, газоны во дворах, асфальт стоянок
+  assignDistricts();
+  // клетки: тротуарная плитка у фасадов, газоны во дворах, асфальт стоянок и гаражей
   for (let i = 0; i < GW * GH; i++) {
     const r = regionOf[i]; if (r < 0) continue;
     const b = blocks[r], x = (i % GW) * CS + 4, y = Math.floor(i / GW) * CS + 4, k = b.rural ? "rural" : zoneAt(x, y) || b.kind;
-    grid[i] = k === "towers" || k === "plaza" || k === "island" || k === "square" || k === "old" ? 7 : k === "apt" ? (distRoad[i] <= 2 ? 1 : 2) : k === "industry" || k === "lot" ? 0 : 2;
-    if (k === "industry" || k === "lot") b.lot = true;
+    grid[i] = k === "towers" || k === "plaza" || k === "island" || k === "square" || k === "old" ? 7 : k === "apt" ? (distRoad[i] <= 2 ? 1 : 2) : k === "industry" || k === "lot" || k === "garages" ? 0 : 2;
+    if (k === "industry" || k === "lot" || k === "garages") b.lot = true;
   }
+  markWater();
 }
 // всё вместе: сеть уже построена
 function fillCity() {
@@ -1748,10 +1765,11 @@ function fillCity() {
   buildWalls();
   for (const k of ["hospital", "police", "mall", "fire", "power", "water", "radio"]) if (!placeSpecial(k)) placeSpecialFallback(k);
   placeLandmarks(true);
+  placeDistrictBuildings();
   buildFrontage();
   placeLandmarks(false);
   if (oldTown) { addRotBuilding(oldTown.x, oldTown.y - 6, 44, 70, rnd(-.3, .3), { kind: "cathedral", floors: 4, style: 21 }); const fx = oldTown.x, fy = oldTown.y + 52; fountains.push({ x: fx, y: fy, r: 9 }); fillDisc(fx, fy, 7, 7, 3); }
-  fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts();
+  furnishLakes(); fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts();
 }
 // достопримечательности: храм, вокзал, школа, заправки, водонапорная башня — у улиц со своим участком;
 // телебашня, стадион, колесо обозрения и стела с вечным огнём — внутри кварталов; каждой по одной, если нашлось место
@@ -1801,10 +1819,10 @@ function placeProps() {
   for (const e of RE) {
     if (e.rural || e.kind === "ring") continue;
     const sw = e.sw || SW;
-    if (e.hw >= 15 && e.kind !== "ln") for (let t = (e.ra || 0) + 40 + rnd(0, 60); t < e.len - (e.rb || 0) - 48; t += rnd(240, 320)) {
+    if (e.hw >= 15 && e.kind !== "ln") for (let t = (e.ra || 0) + 40 + rnd(0, 60); t < e.len - (e.rb || 0) - 30; t += rnd(240, 320)) {
       const side = Math.random() < .5 ? 1 : -1, p = edgePos(e, t), nx = -p.ty * side, ny = p.tx * side, off = e.hw + Math.min(sw, 8) * .55, x = p.x + nx * off, y = p.y + ny * off;
       if (cellAt(x, y) !== 1 || !clear(x, y, 9)) continue;
-      props.push({ k: "stop", x, y, a: Math.atan2(-ny, -nx), e: e.id, t, side }); // ребро, положение и сторона — для маршрутов автобусов (sim20.js)
+      props.push({ k: "stop", x, y, a: Math.atan2(-ny, -nx) });
     }
     for (const end of [0, 1]) {
       if (Math.random() > .25) continue;
@@ -1914,7 +1932,7 @@ function buildOutskirts() {
     for (let i = -3; i <= 3; i++) for (let j = 0; j < 4; j++) {
       const lx = i * 26, lz = e.hw + 34 + j * 26, x = p.x + ca * lx + nx * lz, y = p.y + sa * lx + ny * lz;
       if (!footFree(x, y, 12, 10, ang, b.id)) continue;
-      addRotBuilding(x, y, rnd(8, 11), rnd(7, 9), ang, { kind: "house", floors: 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", dacha: true });
+      addRotBuilding(x, y, rnd(8, 11), rnd(7, 9), ang, { kind: "dacha", floors: 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x" });
       for (const i2 of rotCells(x, y, 14, 12, ang)) usedMask[i2] = 1;
       const hw2 = 12, c0 = [x - ca * hw2 - nx * hw2, y - sa * hw2 - ny * hw2], c1 = [x + ca * hw2 - nx * hw2, y + sa * hw2 - ny * hw2], c2 = [x + ca * hw2 + nx * hw2, y + sa * hw2 + ny * hw2], c3 = [x - ca * hw2 + nx * hw2, y - sa * hw2 + ny * hw2];
       fences.push([...c1, ...c2], [...c2, ...c3], [...c3, ...c0]);
@@ -1940,6 +1958,232 @@ function placeSpecialFallback(kind) {
     if (b) { special[kind] = { x: b.doorPref[0], y: b.doorPref[1], b }; return true; }
   }
   return false;
+}
+
+/* ---------- районы, новые здания, озёра-парки, фермы и ранчо ----------
+   Характер квартала (b.ch) назначается после классификации по расстоянию от центра и планировке; от него зависит, какие дома
+   ставит buildFrontage (SPEC) и какие учреждения приходят в квартал (placeDistrictBuildings). Озёра — настоящая вода из
+   terrain.js (lakes): клетки под водой — 9, по берегу набережная-дорожка, пляж с пирсом и зонтиками, скамейки лицом к воде.
+   Фермы и ранчо стоят в полях у загородных дорог, их жители живут и работают там же (assignHomes в sim11.js). */
+const CH_NAME = { center: "центр", mid: "кварталы средней этажности", sleep: "спальный район", cottage: "коттеджный посёлок", private: "частный сектор", old: "старый город", industry: "промзона", garages: "гаражи", farm: "фермы и ранчо" };
+function blockHash(b, k = 0) { return Math.abs(Math.sin(b.id * 12.9898 + k * 7.31 + WIDE_SEED * 3.7) * 43758.5453) % 1; }
+// характер квартала: центр с башнями, средняя этажность ближе к центру, спальные панельные кварталы дальше, коттеджи и частный сектор на краю
+function assignDistricts() {
+  for (const b of blocks) {
+    if (b.rural) { b.ch = "farm"; continue; }
+    const k = b.kind, r = Math.hypot((b.cx - W / 2) / (CITY_W / 2), (b.cy - H / 2) / (CITY_H / 2)) + (blockHash(b) - .5) * .16;
+    b.ch = k === "old" || k === "square" || k === "glacis" ? "old" : k === "industry" ? "industry" : k === "towers" ? "center"
+      : k === "apt" ? (r < L.d[0] + (L.d[1] - L.d[0]) * .45 ? "mid" : "sleep")
+        : k === "suburb" ? (r < L.d[1] + .14 && blockHash(b, 1) < .55 ? "cottage" : "private") : k;
+  }
+  // гаражные кооперативы: пара кварталов среднего размера в спальном районе или промзоне становятся рядами гаражей
+  const gc = blocks.filter(b => !b.rural && (b.ch === "sleep" || b.ch === "industry") && b.n > 60 && b.n < 320 && b.d >= 1).sort(() => Math.random() - .5);
+  for (const b of gc.slice(0, mapSize === "big" ? 3 : 2)) { b.kind = "garages"; b.ch = "garages"; }
+}
+// частный сектор: в коттеджном посёлке дома в два этажа разных форм (Г-образные, с гаражом, с мансардой), в остальном — обычные дома
+const COTTAGE_SHAPES = ["plain", "L", "garage", "mansard"];
+SPEC.suburb = (x, y) => {
+  const b = blockAt(x, y), ch = b ? b.ch : "private";
+  if (ch === "cottage") {
+    const shape = pick(COTTAGE_SHAPES);
+    return { lot: rnd(42, 54), w: shape === "garage" ? rnd(25, 30) : rnd(19, 24), d: [15, 21], set: rnd(8, 13), kind: "cottage", floors: shape === "mansard" ? 1 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x", shape };
+  }
+  return { lot: rnd(34, 46), w: rnd(16, 23), d: [14, 20], set: rnd(9, 14), kind: "house", floors: Math.random() < .55 ? 1 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x" };
+};
+// многоэтажки: в спальном районе длинные панельные пяти- и девятиэтажки с широкими дворами, ближе к центру — дома средней этажности
+SPEC.apt = (x, y) => {
+  const b = blockAt(x, y), ch = b ? b.ch : "mid", r = Math.hypot((x - W / 2) / (CITY_W / 2), (y - H / 2) / (CITY_H / 2));
+  if (ch === "sleep") return { w: rnd(40, 76), d: [12, 16], set: rnd(3, 7), gap: rnd(12, 24), kind: "apt", floors: pick([5, 5, 9, 9, 12]), style: 29 + Math.floor(Math.random() * 2) };
+  return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(5, 12) * (1.25 - r * .7)), 4, 12), style: Math.floor(Math.random() * 5) };
+};
+// учреждения районов: рынок у спального района, автосервис на краю промзоны и частного сектора, кафе в центре, усадьба с участком в частном секторе
+Object.assign(SPECIAL, {
+  market: { w: 44, d: 24, set: 4, floors: 2, style: 33, lot: [88, 66, 0], ok: (k, b) => !!b && (b.ch === "sleep" || b.ch === "mid" || b.ch === "center"), d0: 1 },
+  autoservice: { w: 30, d: 18, set: 2, floors: 1, style: 32, lot: [58, 44, 0], ok: (k, b) => !!b && (b.ch === "industry" || b.ch === "sleep" || b.ch === "private"), d0: 2 },
+  cafe: { w: 18, d: 12, set: 8, floors: 1, style: 34, ok: (k, b) => !!b && (b.ch === "center" || b.ch === "mid" || b.ch === "old"), d0: 1 },
+  manor: { w: 26, d: 16, set: 14, floors: 2, style: 36, lot: [64, 54, 2], ok: (k, b) => !!b && (b.ch === "private" || b.ch === "cottage"), d0: 2 },
+});
+// забор по участку: три стороны, лицевая — с калиткой посередине
+function fenceLot(bb) {
+  const R = bb.lotRect, f = bb.front, c = Math.cos(R.rot), s = Math.sin(R.rot), P = (u, v) => [R.cx + u * c - v * s, R.cy + u * s + v * c];
+  const hw = R.w / 2 - 1, hd = R.d / 2 - 1, frontV = (f.nx * -s + f.ny * c) > 0 ? hd : -hd; // сторона участка, обращённая к улице
+  fences.push([...P(-hw, -hd), ...P(-hw, hd)], [...P(hw, -hd), ...P(hw, hd)], [...P(-hw, -frontV), ...P(hw, -frontV)], [...P(-hw, frontV), ...P(-4, frontV)], [...P(4, frontV), ...P(hw, frontV)]);
+}
+function placeMany(kind, n, after) {
+  let made = 0;
+  for (let k = 0; k < n; k++) {
+    if (!placeSpecial(kind)) break;
+    const sp = special[kind]; made++; if (after) after(sp.b); if (kind !== "market") delete special[kind];
+  }
+  return made;
+}
+// здание внутри квартала, лицом к ближайшей улице; дверь на лицевой стороне
+function innerPlace(kind, w, d, floors, style, pred, margin = 12) {
+  const cands = blocks.filter(b => !b.rural && pred(b)).sort(() => Math.random() - .5);
+  for (const b of cands) for (let k = 0; k < 30; k++) {
+    const x = b.cx + rnd(-1, 1) * (b.x1 - b.x0) * .22, y = b.cy + rnd(-1, 1) * (b.y1 - b.y0) * .22, rot = nearestEdgeAng(x, y);
+    if (!footFree(x, y, w + margin, d + margin, rot, b.id)) continue;
+    const bb = addRotBuilding(x, y, w, d, rot, { kind, floors, style });
+    for (const i of rotCells(x, y, w + margin - 4, d + margin - 4, rot)) usedMask[i] = 1;
+    // лицевая сторона (+z) — та, что ближе к улице
+    const zx = -Math.sin(rot), zy = Math.cos(rot), q1 = gEdgeNear(x + zx * 60, y + zy * 60, 300), q2 = gEdgeNear(x - zx * 60, y - zy * 60, 300), sgn = (q1 ? q1.d : 1e9) <= (q2 ? q2.d : 1e9) ? 1 : -1;
+    bb.doorPref = [x + zx * sgn * (d / 2 + 3), y + zy * sgn * (d / 2 + 3)]; bb.faceSgn = sgn;
+    return bb;
+  }
+  return null;
+}
+// ряды гаражей в квартале-кооперативе: длинные одноэтажные боксы вдоль ближайшей улицы, проезды между рядами
+function fillGarages(b) {
+  const ang = nearestEdgeAng(b.cx, b.cy), ca = Math.cos(ang), sa = Math.sin(ang), R = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2;
+  for (let v = -R; v < R; v += 24) for (let u = -R; u < R; u += 6) {
+    const x = b.cx + u * ca - v * sa, y = b.cy + u * sa + v * ca;
+    for (const w of [84, 60, 42, 30]) {
+      const cx = x + ca * w / 2, cy = y + sa * w / 2;
+      if (!footFree(cx, cy, w, 11, ang, b.id, g => g === 0)) continue;
+      const bb = addRotBuilding(cx, cy, w, 11, ang, { kind: "garages", floors: 1, style: 37 });
+      bb.doorPref = [cx - sa * 8, cy + ca * 8];
+      for (const i of rotCells(cx, cy, w + 4, 21, ang)) usedMask[i] = 1;
+      u += w; break;
+    }
+  }
+}
+// все учреждения районов разом: вызывается после больниц и достопримечательностей, до рядовой застройки
+function placeDistrictBuildings() {
+  const big = mapSize === "big";
+  placeMany("market", big ? 2 : 1);
+  placeMany("autoservice", big ? 3 : 2, bb => {
+    // пара машин на площадке перед боксом
+    const f = bb.front, ang = Math.atan2(f.uy, f.ux);
+    for (const k of [-1, 1]) { const x = bb.cx + f.ux * k * 14 + f.nx * (bb.d / 2 + 9), y = bb.cy + f.uy * k * 14 + f.ny * (bb.d / 2 + 9), cs = rotCells(x, y, 17, 7, ang); if (!cs.length || cs.some(i => grid[i] !== 0)) continue; for (const i of cs) grid[i] = 5; const M = pickCarModel(true); cars.push({ x, y, ang, model: M.k, len: M.len, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0 }); }
+  });
+  placeMany("cafe", big ? 5 : 3);
+  placeMany("manor", big ? 4 : 2, bb => { fenceLot(bb); for (let k = 0; k < 4; k++) { const R = bb.lotRect, c = Math.cos(R.rot), s = Math.sin(R.rot), u = rnd(-R.w / 2 + 6, R.w / 2 - 6), v = rnd(-R.d / 2 + 6, R.d / 2 - 6); addTree(R.cx + u * c - v * s, R.cy + u * s + v * c, rnd(6, 9), rnd(14, 24)); } });
+  // детские сады во дворах спальных кварталов, с забором и площадкой перед входом
+  for (let k = 0, n = big ? 4 : 2; k < n; k++) {
+    const bb = innerPlace("kinder", 38, 22, 2, 31, b => b.ch === "sleep" && b.n > 220 && !b.lot, 28);
+    if (!bb) break;
+    const c = Math.cos(bb.rot), s = Math.sin(bb.rot), P = (u, v) => [bb.cx + u * c - v * s, bb.cy + u * s + v * c], hw = bb.w / 2 + 11, hd = bb.d / 2 + 11, fv = bb.faceSgn * hd;
+    fences.push([...P(-hw, -hd), ...P(-hw, hd)], [...P(hw, -hd), ...P(hw, hd)], [...P(-hw, -fv), ...P(hw, -fv)], [...P(-hw, fv), ...P(-3, fv)], [...P(3, fv), ...P(hw, fv)]);
+    const [px, py] = P(bb.w / 2 - 6, bb.faceSgn * (bb.d / 2 + 6)); props.push({ k: "play", x: px, y: py, a: bb.rot + (bb.faceSgn > 0 ? 0 : Math.PI), v: Math.floor(Math.random() * 3) });
+  }
+  for (const b of blocks) if (b.kind === "garages") fillGarages(b);
+}
+
+/* ---------- озёра ---------- */
+// место свободно: контур озера с запасом не задевает дорог и края карты
+function lakeFree(x, y, rx, ry, margin, inside) {
+  if (x - rx * 1.3 < 60 || y - ry * 1.3 < 60 || x + rx * 1.3 > W - 60 || y + ry * 1.3 > H - 60) return false;
+  if (gEdgeNear(x, y, Math.max(rx, ry) * 1.3 + margin)) return false;
+  for (let a = 0; a < TAU; a += .22) { const px = x + Math.cos(a) * (rx * 1.3 + margin), py = y + Math.sin(a) * (ry * 1.3 + margin); if (gEdgeNear(px, py, margin) || (inside && !inside(px, py))) return false; }
+  return true;
+}
+function addLake(x, y, rx, ry, city) { const l = { x, y, rx, ry, city: !!city }; lakes.push(l); return l; }
+// озеро в городе: между бульварным кольцом и краем, подальше от проспектов — до нарезки улиц, чтобы они обошли воду
+function cityLake(cx, cy, r0, r1) {
+  for (let k = 0; k < 80; k++) {
+    const a = rnd(0, TAU), r = rnd(r0, r1), x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r * .8, rx = rnd(70, 105), ry = rx * rnd(.6, .85);
+    if (!lakeFree(x, y, rx, ry, 34, (px, py) => urbanAt(px, py, .62))) continue;
+    const l = addLake(x, y, rx, ry, true); presets.push({ x, y, kind: "lake" }); return l;
+  }
+  return null;
+}
+// озёра за городом: в полях, в стороне от дорог; на большой карте их больше
+function placeLakes() {
+  if (!L.lakes) return;
+  const want = (L.lakes === "rural" ? (Math.random() < .75 ? 1 : 0) : 0) + (mapSize === "big" ? 1 : 0);
+  for (let n = 0, k = 0; n < want && k < 200; k++) {
+    const x = rnd(120, W - 120), y = rnd(120, H - 120), rx = rnd(80, 140), ry = rx * rnd(.55, .85);
+    if (cityK(x, y) > .25 || !lakeFree(x, y, rx, ry, 40)) continue;
+    if (lakes.some(l => Math.hypot(l.x - x, l.y - y) < 500)) continue;
+    addLake(x, y, rx, ry, false); n++;
+  }
+}
+function nearLakes(x, y, m) { for (const l of lakes) if (Math.abs(x - l.x) < l.rx * 1.3 + m && Math.abs(y - l.y) < l.ry * 1.3 + m) return true; return false; }
+// клетки под водой — 9, полоса берега занята: домов и построек у самой воды не ставим
+function markWater() {
+  if (!lakes.length) return;
+  for (const l of lakes) { const b = blockAt(l.x, l.y); if (b) b.lake = true; }
+  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+    const x = gx * CS + 4, y = gy * CS + 4; if (!nearLakes(x, y, 16)) continue;
+    const d = lakeD(x, y), i = gy * GW + gx;
+    if (d < 0) { if (!roadMask[i]) grid[i] = 9; usedMask[i] = 1; } else if (d < 14) usedMask[i] = 1;
+  }
+}
+// точка берега: от центра озера по лучу до расстояния off от воды
+function shorePoint(l, a, off) {
+  const c = Math.cos(a), s = Math.sin(a), R = Math.max(l.rx, l.ry) * 1.5 + off + 10;
+  for (let r = 4; r < R; r += 2) { const x = l.x + c * r, y = l.y + s * r; if (lakeD(x, y) >= off) return [x, y]; }
+  return null;
+}
+const angDiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+// набережная вокруг воды, пляж с пирсом и зонтиками на стороне, обращённой к центру города, скамейки лицом к воде
+function furnishLakes() {
+  for (const l of lakes) {
+    const walk = [], N = Math.max(40, Math.round(TAU * Math.max(l.rx, l.ry) / 14));
+    for (let k = 0; k < N; k++) { const p = shorePoint(l, k / N * TAU, 9); if (p && !gEdgeNear(p[0], p[1], 14)) walk.push(p); }
+    if (walk.length < 8) continue;
+    walk.push(walk[0]); l.walk = walk;
+    for (const [x, y] of walk) fillDisc(x, y, 3.5, 3.5, 7, g => g === 9 || g === 3 || g === 4 || g === 0 || g === 5);
+    // пляж: сектор берега, ближе к центру города
+    const a0 = Math.atan2(cityBlob.y - l.y, cityBlob.x - l.x) + rnd(-.5, .5), half = rnd(.45, .7);
+    l.beach = { a0, half };
+    for (let gy = Math.max(0, Math.floor((l.y - l.ry * 1.4 - 20) / CS)); gy < Math.min(GH, Math.ceil((l.y + l.ry * 1.4 + 20) / CS)); gy++)
+      for (let gx = Math.max(0, Math.floor((l.x - l.rx * 1.4 - 20) / CS)); gx < Math.min(GW, Math.ceil((l.x + l.rx * 1.4 + 20) / CS)); gx++) {
+        const x = gx * CS + 4, y = gy * CS + 4, d = lakeD(x, y), i = gy * GW + gx;
+        if (d >= 0 && d < 15 && angDiff(Math.atan2(y - l.y, x - l.x), a0) < half && (grid[i] === 2 || grid[i] === 7) && !roadMask[i]) { grid[i] = 7; usedMask[i] = 1; }
+      }
+    const pp = shorePoint(l, a0, 1);
+    if (pp) props.push({ k: "pier", x: pp[0], y: pp[1], a: a0 + Math.PI });
+    for (let k = 0; k < 5; k++) { const p = shorePoint(l, a0 + rnd(-half * .8, half * .8), rnd(5, 12)); if (p && cellAt(p[0], p[1]) === 7) props.push({ k: "umbrella", x: p[0], y: p[1], a: rnd(0, TAU), v: k % 3 }); }
+    for (let k = 1; k < walk.length - 1; k += 5) {
+      const [x, y] = walk[k], dx = x - l.x, dy = y - l.y, n = Math.hypot(dx, dy) || 1, bx = x + dx / n * 5.5, by = y + dy / n * 5.5;
+      if (cellAt(bx, by) === 2 && !props.some(o => Math.abs(o.x - bx) < 6 && Math.abs(o.y - by) < 6)) props.push({ k: "bench", x: bx, y: by, a: Math.atan2(-dy, -dx) });
+    }
+    // деревья по берегу загородного озера (городское озеро озеленяет fillInteriors как парк)
+    const b = blockAt(l.x, l.y);
+    if (b && b.rural) for (let k = 0; k < 40; k++) { const p = shorePoint(l, rnd(0, TAU), rnd(16, 40)); if (p && cellAt(p[0], p[1]) === 2) addTree(p[0], p[1], rnd(7, 12), rnd(16, 30)); }
+  }
+}
+
+/* ---------- фермы и ранчо ---------- */
+let farmSeq = 0;
+// ферма у загородной дороги: дом и амбар фасадом к дороге, за ними двор — силос, техника, сено; у ранчо вместо силоса загон со скотом
+function buildFarm(s, b, ranch) {
+  const q = gEdgeNear(s.x, s.y, 260); if (!q) return false;
+  const e = q.e, p = edgePos(e, q.t), side = ((s.x - p.x) * -p.ty + (s.y - p.y) * p.tx) > 0 ? 1 : -1, nx = -p.ty * side, ny = p.tx * side;
+  const ang = Math.atan2(p.ty, p.tx), ca = Math.cos(ang), sa = Math.sin(ang);
+  const at = (u, v) => [p.x + ca * u + nx * (e.hw + v), p.y + sa * u + ny * (e.hw + v)]; // u вдоль дороги, v вглубь от обочины
+  const [yx, yy] = at(10, 82), cells = rotCells(yx, yy, 150, 104, ang);
+  if (!cells.length || cells.some(i => roadMask[i] || usedMask[i] || regionOf[i] !== b.id || grid[i] === 3 || grid[i] === 9 || grid[i] === 10 || grid[i] === 5)) return false;
+  const t0 = clamp(q.t - 30, 20, Math.max(20, e.len - 90));
+  const id = ++farmSeq;
+  const hb = placeAlong(e, t0, side, 22, 16, 16, rnd(10, 16), { kind: "farmhouse", floors: 1, style: 35, ridge: "x", farm: id }, b.id);
+  if (!hb) return false;
+  placeAlong(e, t0 + 36, side, ranch ? 30 : 26, 18, 18, rnd(14, 22), { kind: "barn", floors: 1, style: 26, ridge: "x", farm: id }, b.id);
+  // двор: деревья вырубаются, клетки заняты под постройки
+  const inside = new Set(cells); trees = trees.filter(t => !inside.has(Math.floor(t.y / CS) * GW + Math.floor(t.x / CS)));
+  for (const i of cells) { usedMask[i] = 1; if (grid[i] === 4) grid[i] = 2; }
+  const prop = (k, u, v, a = 0, w = 0, d = 0, vv = 0) => { const [x, y] = at(u, v); props.push({ k, x, y, a: ang + a, v: vv }); if (w) for (const i of rotCells(x, y, w, d, ang + a)) if (grid[i] === 2) grid[i] = 4; };
+  if (!ranch) {
+    prop("silo", -45, 70, 0, 8, 8); prop("silo", -34, 70, 0, 8, 8);
+    const hg = addRotBuilding(...at(40, 78), 34, 22, ang, { kind: "hangar", floors: 2, style: 15, farm: id }); hg.doorPref = at(40, 64);
+    prop("tractor", 2, 62, Math.PI / 2, 14, 7, Math.floor(Math.random() * 2));
+    for (let k = 0; k < 5; k++) prop("hay", -20 + k * 7, 100 + (k % 2) * 6, rnd(-.3, .3), 4, 4);
+  } else {
+    // загон: забор, скот, кормушка; конюшня-ангар у края двора
+    const P = (u, v) => at(u, v), c0 = P(-50, 62), c1 = P(28, 62), c2 = P(28, 112), c3 = P(-50, 112);
+    fences.push([...c0, ...c1], [...c1, ...c2], [...c2, ...c3], [...c3, ...P(-50, 92)], [...P(-50, 72), ...c0]);
+    for (let k = 0, n = 4 + Math.floor(Math.random() * 4); k < n; k++) prop("cow", rnd(-42, 20), rnd(70, 104), rnd(0, TAU), 4, 3, Math.floor(Math.random() * 3));
+    prop("trough", -11, 66, 0, 6, 2);
+    const hg = addRotBuilding(...at(56, 84), 30, 22, ang, { kind: "hangar", floors: 2, style: 15, farm: id }); hg.doorPref = at(56, 70);
+    prop("tractor", 60, 60, Math.PI / 2, 14, 7, 1);
+    for (let k = 0; k < 3; k++) prop("hay", 46 + k * 7, 104, rnd(-.3, .3), 4, 4);
+  }
+  // пикап у дома, деревья во дворе
+  { const [x, y] = at(-36, 46), a = ang + Math.PI / 2, cs = rotCells(x, y, 17, 7, a); if (cs.length && cs.every(i => grid[i] === 2)) { for (const i of cs) grid[i] = 5; cars.push({ x, y, ang: a, model: "pickup", len: 1.08, col: pick(CARC), wreck: false, boomT: 0, burnT: 0 }); } }
+  for (let k = 0; k < 3; k++) addTree(hb.cx + rnd(-28, 28), hb.cy + rnd(-28, 28), rnd(6, 9), rnd(14, 22));
+  b.farm = (b.farm || 0) + 1;
+  return true;
 }
 
 /* ---------- машины на дорогах: полоса вдоль ребра, дуга поворота через перекрёсток ---------- */
@@ -1989,18 +2233,17 @@ function chooseNext(c) {
   if (c.trip && (c.flee || c.panic)) { c.trip = null; c.goal = null; } // бегущему не до дел
   const opts = exitsOf(l);
   if (!opts.length) return oppLane(l);
-  // маршрутный автобус едет к остановке по её полосе: встречная полоса той же улицы — только если другого пути нет (sim20.js)
-  const R = c.goal ? (c.line >= 0 && c.bus && !c.service ? busRoute(c) : routeTo(c.goal.x, c.goal.y)) : null;
+  const R = c.goal ? routeTo(c.goal.x, c.goal.y) : null;
   if (R || c.flee || c.leaving || (c.trip && c.trip.exit)) {
     const dist = R ? R.dist : exitDist();
     let best = null, bd = 1e18; const ds = [];
-    for (const m of opts) { const d = R && m.e === R.e ? (R.lane && m !== R.lane ? 1e9 : m.d > 0 ? R.et : m.e.len - R.et) : edgeCost(m.e) + dist[m.to.id]; ds.push(d); if (d < bd) { bd = d; best = m; } }
+    for (const m of opts) { const d = R && m.e === R.e ? (m.d > 0 ? R.et : m.e.len - R.et) : edgeCost(m.e) + dist[m.to.id]; ds.push(d); if (d < bd) { bd = d; best = m; } }
     if (best && bd < 1e11) {
       // горожане между почти равными путями выбирают случайно (службы и бегущие — строго кратчайший): поток расходится по параллельным улицам
       if (!c.service && !c.flee && !c.leaving) { let tot = 0; const w = ds.map(d => { const k = d - bd < bd * .2 + 40 ? Math.exp(-(d - bd) / (bd * .08 + 20)) : 0; tot += k; return k; }); let r = Math.random() * tot; for (let i = 0; i < opts.length; i++) { r -= w[i]; if (r <= 0) return opts[i]; } }
       return best;
     }
-    if (c.trip) pickTrip(c); else if (c.line >= 0 && c.bus && !c.service) busNextStop(c, "unreach"); // цель отсюда недостижима — новая
+    if (c.trip) pickTrip(c); // цель отсюда недостижима — новая
   }
   let tot = 0;
   const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
@@ -2250,10 +2493,8 @@ function stepRoadCar(c, dt) {
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
   if (c.gas) { if (c.panic || c.flee) cancelGas(c); else if (gasArrive(c, l)) return stepGas(c, dt); }
   if (c.pulled && !c.deployed) { c.pulled = false; if (!c.over) c.latTgt = 0; }
-  if (c.park && c.park.stop !== undefined) busStopTick(c, dt);
   if (c.park && stepPark(c, l, dt)) return;
-  if (c.bus && !c.service && busLines.length) busLineStep(c, l);
-  if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas && !(c.bus && c.line >= 0)) pickTrip(c); // маршрутный автобус по делам не ездит
+  if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas) pickTrip(c);
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && !c.leaving && !c.deployed) {
@@ -2321,7 +2562,6 @@ function stepRoadCar(c, dt) {
   carHitPeople(c, tx, ty, dt);
   if (!c.moving) return;
   if (c.wait > 3 && A.zNear >= 2 && !c.service) { abandonCar(c, "Водитель бросил машину посреди дороги"); return; }
-  if (c.bus && c.line >= 0 && c.wait > 40 && !c.park && c.goal) { l.e.blockT = simT; c.next = null; c.wait = 20; }
   if (c.service && !c.leaving && A.zNear >= 1 && (c.service === "police" || c.service === "army")) { deployCrew(c); return; }
   stepOvertake(c, dt, tx, ty, Math.min(A.clear, cellClear), cellClear < A.clear ? null : A.ahead);
   if (c.lane !== l) return; // развернулся
@@ -2378,7 +2618,7 @@ function stepTurnPose(c, dt) {
   c.dir = dirOf(p.tx, p.ty);
 }
 // сколько машин нужно городу: по суммарной длине полос
-function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.len; return Math.round(L / 700 * TRAFFIC_TUNE.density); }
+function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.len; return Math.round(L / 700 * TRAFFIC_TUNE.density * (MAP_SIZES[mapSize].traffic || 1)); } // на большой карте машин на километр меньше, чтобы кадры не дорожали
 // городские машины: кузов, длина (в долях седана) и цвета; припаркованным во дворах не достаются фургоны
 const CIV_CARS = [
   { k: "sedan", w: 30, len: 1 }, { k: "hatch", w: 18, len: .86 }, { k: "lada", w: 14, len: .92, cols: ["#d8cfa8", "#e8e6dc", "#a8322a", "#3f6b4a", "#3a5f8a", "#c9b47a", "#7a2a2a"] },
@@ -2390,7 +2630,6 @@ function pickCarModel(parked) {
   const pool = parked ? CIV_CARS.filter(m => !m.noPark) : CIV_CARS; let r = Math.random() * pool.reduce((a, m) => a + m.w, 0);
   for (const m of pool) { r -= m.w; if (r <= 0) return m; } return pool[0];
 }
-const BUS_COLS = ["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"];
 function newCar() {
   const M = pickCarModel();
   return { model: M.k, moving: true, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: M.len, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, fuel: rnd(.12, 1), gas: null, gasTry: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
@@ -2401,7 +2640,7 @@ function spawnTraffic(n) {
     let r = Math.random() * tot, lane = pool[0]; for (const l of pool) { r -= wt(l); if (r <= 0) { lane = l; break; } }
     const c = newCar(), q = Math.random();
     if (q < .04) { c.tanker = true; c.model = "tanker"; c.len = 1.7; c.col = pick(["#d8d8d4", "#c9c2b0", "#e8e8e2"]); c.spd *= .85; }
-    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.3; c.vlen = 2.45; c.col = pick(BUS_COLS); c.spd *= .8; }
+    else if (q < .09) { c.bus = true; c.model = "bus"; c.len = 2.3; c.vlen = 2.45; c.col = pick(["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"]); c.spd *= .8; }
     const s = rnd(laneStart(lane) + 12, laneEnd(lane) - 12);
     placeOnLane(c, lane, s);
     if (blocked(c.x, c.y) || laneBusy(lane, s, c, 20)) continue;
@@ -2524,7 +2763,7 @@ function gasTick(dt) {
    вечером домой. Маршрут считает routeTo (как у служб); у нужной улицы машина встаёт у бордюра на полминуты, если ширина
    позволяет разойтись с проезжающими, и выбирает новую цель. Недостижимая или слишком долгая цель меняется */
 let tripPools = null, tripPoolT = -1e9;
-const TRIP_HOME = new Set(["house", "apt", "oldhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral"]);
+const TRIP_HOME = new Set(["house", "apt", "oldhouse", "cottage", "dacha", "manor", "farmhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar", "barn", "garages", "autoservice", "kinder"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral", "market", "cafe"]);
 function tripPool() {
   if (tripPools && simT - tripPoolT < 30) return tripPools;
   const P = { home: [], work: [], shop: [] };
@@ -2558,7 +2797,7 @@ function arriveTrip(c, l) {
   const sh = curbShift(l); let taken = !TRAFFIC_TUNE.park;
   nearCars(c.x, c.y, 44, o => { if (!taken && o !== c && !o.gone && o.lane === l && !o.turn && Math.abs(o.s - c.s) < 30) taken = true; }); // рядом кто-то стоит или едет — не встаём
   if (taken) return;
-  if (-sh >= 9.6 && !l.e.oneway && laneEnd(l) - c.s > 24 && c.s - laneStart(l) > 30 && !c.over && !c.bus && !c.tanker && !nearBusStop(l, c.s)) { c.park = { t: rnd(TRAFFIC_TUNE.park0, TRAFFIC_TUNE.park1) }; c.latTgt = sh; }
+  if (-sh >= 9.6 && !l.e.oneway && laneEnd(l) - c.s > 24 && c.s - laneStart(l) > 30 && !c.over && !c.bus && !c.tanker) { c.park = { t: rnd(TRAFFIC_TUNE.park0, TRAFFIC_TUNE.park1) }; c.latTgt = sh; }
 }
 // стоянка у бордюра: докатываемся, стоим, выезжаем, когда в полосе за спиной свободно
 function stepPark(c, l, dt) {
@@ -2573,7 +2812,7 @@ function stepPark(c, l, dt) {
 // высота в единицах мира (1 ед. = 25 см). Город стоит на пологих холмах, за ним хребты со снегом.
 // Вода — ямы в рельефе под общей водной гладью. Клетка 10 — скала, по ней не пройти.
 let terrainSeed = 1, hasHills = true, ridgeSides = [], rocks = [], river = null, shore = null, lakes = [], cityBlob = null;
-const TH = new Float32Array(GW * GH); // высота по клеткам города
+const TH = new Float32Array(GMAX); // высота по клеткам города
 const MOUNT = { front: 320, span: 1000, hmax: 420 }, WATER_Y = -1.5, BED = -5.5, BANK = 10; // рельефа нет: земля ровная, у воды короткий откос
 function tHash(ix, iy) { let n = (ix * 374761393 + iy * 668265263 + terrainSeed * 1442695041) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967295; }
 function vnoise(x, y) {
@@ -2753,7 +2992,7 @@ function slopeK(x0, y0, x1, y1) {
 /* ---------- жители ---------- */
 // роль: civ, zombie, police, army, medic; состояние: alive, dead, saved
 let agents = [], nextId = 1, simT = 0, stats = [], events = [], firsts = {}, noises = [];
-let bites = 0, deaths = 0, zkills = 0, saved = 0, cured = 0, fieldT = 0, statT = 0, logDirty = true;
+let bites = 0, deaths = 0, zkills = 0, saved = 0, cured = 0, fieldT = 0, fieldTick = 0, statT = 0, logDirty = true;
 let evac = null, strikes = [], fires = [], hasMedics = false;
 const settings = { services: true, inc: 20, armed: .05, fast: false, night: false, threats: true };
 const CLOTH = ["#b23a3a", "#2f5f9e", "#d9d2c1", "#2a2a2e", "#5c7a45", "#a5702f", "#6b4590", "#cf8337", "#55606a", "#e2e2dc", "#7a2f2f", "#3d7f86"];
@@ -3135,9 +3374,7 @@ function thinkHuman(a, dt) {
     else { const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y); if (d < 5) { a.homeGoal = false; a.homeTrip = true; enterShelter(a, b); checkReunion(b); return [0, 0, 0]; } return goTo(a, b.door[0], b.door[1], (a.panic > .3 ? 13 : 7) * hurt); }
   }
   if (a.role === "civ" && a.bcastT > 0 && a.dest) { const d = Math.hypot(a.dest[0] - a.x, a.dest[1] - a.y); if (d < 7) { a.dest = null; a.bcastT = 0; a.idleT = rnd(20, 60); } else return goTo(a, a.dest[0], a.dest[1], 9 * hurt); }
-  if (a.role === "civ" && a.busWait) { const r = busWaitStep(a, dt, zn); if (r) return r; } // ждёт автобус на остановке (sim20.js)
   if (a.role === "civ" && a.panic < .3) {
-    if (!a.dest && a.idleT <= 0 && busLines.length && !settings.curfew && alert < 3 && Math.random() < dt * .003 && busWaitStart(a)) return [0, 0, 0];
     if (!a.dest && a.idleT <= 0 && Math.random() < dt * .02) a.dest = civDestination(a);
     if (a.dest) { const d = Math.hypot(a.dest[0] - a.x, a.dest[1] - a.y); if (d < 7) { a.dest = null; a.idleT = rnd(15, 60); } else return goTo(a, a.dest[0], a.dest[1], 5.5 * hurt); }
   }
@@ -3204,7 +3441,9 @@ function step(dt) {
     hasMedics = false;
     for (const a of agents) {
       if (a.role === "medic" && a.state === "alive") hasMedics = true; if (a.state !== "alive") continue; if (a.role === "zombie") Z.push(a); else if (!a.hidden && !a.post) { Hm.push(a); if (a.bitten) I.push(a); } }
-    bfs(fZ, Z, 0, 140); bfs(fH, Hm, 1, 64); if (hasMedics) bfs(fInf, I); if (evac) bfs(fE, [evac], 0, 280); if (camps.length) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })));
+    // поля на всю карту (заражённые для медиков, лагеря) считаются по очереди раз в секунду: на большой карте они вдвое дороже
+    fieldTick ^= 1;
+    bfs(fZ, Z, 0, 140); if (Z.length) bfs(fH, Hm, 1, 64); if (hasMedics && fieldTick) bfs(fInf, I, 0, 520); if (evac) bfs(fE, [evac], 0, 280); if (camps.length && !fieldTick) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })), 0, 520); // дальше ~1,3 км пешком поле не считаем
   }
   for (const a of agents) {
     if (a.state === "saved") continue;
@@ -3356,11 +3595,11 @@ function newCitySim(n) {
   agents = []; stats = []; events = []; firsts = {}; noises = []; simT = 0; bites = 0; deaths = 0; zkills = 0; saved = 0; cured = 0;
   evac = null; strikes = []; fires = []; barrDirty = true; tanks = []; timers = []; reports = []; armyWaves = 0; machines = []; nuke = null; radZones = [];
   research = 0; scientists = 0; vaccineReady = false; tents = []; wallMask.fill(0); postMask.fill(0); quarMask.fill(0); zoneOf.fill(0); zoneSeq = 0; wallJobs = []; gangsSpawned = 0; computeDoors();
-  spawnTraffic(trafficN()); spawnLineBuses();
+  spawnTraffic(trafficN());
   for (const k in lastLog) delete lastLog[k];
   resetExtras(); resetBuild(); resetWorld2(); resetThreats(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
-  assignHomes(); seedBusWaiters();
+  assignHomes();
   const p0 = pickPatientZero(); pickHeroes(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
   logE("Нулевой пациент где-то в городе. Он ещё не знает, что заражён", "bad");
   fieldT = 0; record(); logDirty = true;
@@ -3407,9 +3646,8 @@ function abandonCar(c, why) {
     const side = Math.random() < .5 ? 1 : -1, ox = rx * 8 * side, oy = ry * 8 * side;
     const [x, y] = blocked(c.x + ox, c.y + oy) ? freeNear(c.x, c.y, 16) : [c.x + ox, c.y + oy];
     const d = newAgent("civ", x, y); d.panic = 1; nameFor(d);
-    if (c.passengers && c.passengers.length) busUnload(c);
-    else if (c.bus && !c.unloaded && !(c.line >= 0)) { c.unloaded = true; for (let i = 0; i < 6; i++) { const [px, py] = freeNear(c.x + ox, c.y + oy, 10); const p = newAgent("civ", px, py); p.panic = 1; nameFor(p); } logT("bus", "Пассажиры выбегают из автобуса", "bad", 20); }
-  } else if (c.bus && why === "crash" && !c.unloaded && !(c.line >= 0)) { // маршрутный автобус: настоящих пассажиров выводит busCrash
+    if (c.bus && !c.unloaded) { c.unloaded = true; for (let i = 0; i < 6; i++) { const [px, py] = freeNear(c.x + ox, c.y + oy, 10); const p = newAgent("civ", px, py); p.panic = 1; nameFor(p); } logT("bus", "Пассажиры выбегают из автобуса", "bad", 20); }
+  } else if (c.bus && why === "crash" && !c.unloaded) {
     c.unloaded = true; for (let i = 0; i < 5; i++) { const [px, py] = freeNear(c.x, c.y, 12); const p = newAgent("civ", px, py); p.panic = 1; p.hp = rnd(25, 60); p.bleed = 6; nameFor(p); } logT("buscrash", "Автобус разбился: пассажиры ранены", "bad", 20);
   }
   if (why && why !== "crash") logT("abandon", why, "bad", 15);
@@ -4151,7 +4389,7 @@ function fillDisc(cx, cy, rx, ry, v, keep) {
 function addRotBuilding(cx, cy, w, d, rot, props) {
   const c = Math.abs(Math.cos(rot)), s = Math.abs(Math.sin(rot)), hx = (w * c + d * s) / 2, hy = (w * s + d * c) / 2;
   const bb = { x0: cx - hx, y0: cy - hy, x1: cx + hx, y1: cy + hy, rot, w, d, cx, cy, ...props };
-  bb.h = bb.floors * (bb.kind === "house" ? 11 : 12); bb.fire = 0; bb.scorch = 0; bb.hp = 100 + bb.floors * 6 + w * d / 400; bb.maxHp = bb.hp; bb.state = "ok"; bb.ruinH = 0; bb.cT = 0;
+  bb.h = bb.floors * floorH(bb.kind); bb.fire = 0; bb.scorch = 0; bb.hp = 100 + bb.floors * 6 + w * d / 400; bb.maxHp = bb.hp; bb.state = "ok"; bb.ruinH = 0; bb.cT = 0;
   buildings.push(bb); fillRotRect(cx, cy, w, d, rot, 3);
   return bb;
 }
@@ -4344,7 +4582,7 @@ function stepConstruction(dt) {
 
 /* ---------- тяжёлая техника: погрузчик, самосвал, эвакуатор, бетономешалка ---------- */
 let machines = [];
-const siteMask = new Uint8Array(GW * GH);
+const siteMask = new Uint8Array(GMAX);
 // стройплощадка огораживается: забор по границе квартала и участка, проезд со стороны улицы; снимается, когда дом готов
 function fenceSite(b) {
   if (b.siteCells) return;
@@ -4570,7 +4808,7 @@ function stepMachines(dt) {
 }
 
 /* ---------- укрытия: люди прячутся в домах и на крышах, зомби ломают двери ---------- */
-const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire", "church", "station", "school"]);
+const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire", "church", "station", "school", "cottage", "dacha", "manor", "farmhouse", "barn", "hangar", "market", "garages", "autoservice", "cafe", "kinder"]);
 function computeDoors() {
   for (const b of buildings) {
     b.occ = []; b.door = null;
@@ -4675,7 +4913,7 @@ function stepTents(dt) {
 /* ---------- карантин: зона по кварталам, барьеры на въездах, пост пропуска, снятие после тишины ---------- */
 // зона — кварталы, задетые прямоугольником, и улицы между ними; граница идёт по краю кварталов (дома — часть стены),
 // улицы, уходящие из зоны, перекрываются барьером сразу, сетку по краям кварталов ставят строители; один въезд — пост пропуска
-const wallMask = new Uint8Array(GW * GH), quarMask = new Uint8Array(GW * GH), zoneOf = new Int16Array(GW * GH);
+const wallMask = new Uint8Array(GMAX), quarMask = new Uint8Array(GMAX), zoneOf = new Int16Array(GMAX);
 let wallJobs = [], zoneSeq = 0, zoneT = 0; // wallJobs — действующие зоны карантина
 const quarAt = (x, y) => zoneOf[clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1)];
 const fenceable = c => c === 0 || c === 1 || c === 2 || c === 7 || c === 8;
@@ -4925,10 +5163,11 @@ function nameFor(a, last) {
 const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", builder: "строитель", sanitar: "санитар", bandit: "мародёр", zombie: "зомби" };
 // семьи: 1–4 человека, общий дом; половина сейчас дома, остальные в городе
 let families = [], famMap = {};
+const HOME_KINDS = new Set(["apt", "house", "cottage", "manor", "farmhouse", "dacha"]), WORK_KINDS = new Set(["tower", "mall", "warehouse", "hospital", "police", "fire", "barn", "hangar", "autoservice", "kinder", "market", "cafe", "school"]);
 function assignHomes() {
   families = []; famMap = {};
-  const homes = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && (b.kind === "apt" || b.kind === "house"));
-  const works = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && ["tower", "mall", "warehouse", "hospital", "police", "fire"].includes(b.kind));
+  const homes = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && HOME_KINDS.has(b.kind));
+  const works = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && WORK_KINDS.has(b.kind));
   const civs = agents.filter(a => a.role === "civ");
   for (let i = civs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [civs[i], civs[j]] = [civs[j], civs[i]]; }
   let i = 0, fid = 1;
@@ -4939,7 +5178,9 @@ function assignHomes() {
     families.push(fam); famMap[fam.id] = fam;
     for (const m of members) {
       m.fam = fam.id; m.home = fam.home; nameFor(m, last);
-      if (works.length && !m.age && Math.random() < .7) m.work = pick(works)[1];
+      // семья с фермы работает на своей ферме: в амбаре или ангаре, а если их нет — дома
+      if (hp && hp[0].farm) { const wb = buildings.findIndex(x => x.farm === hp[0].farm && x.kind !== "farmhouse" && x.door); if (!m.age) m.work = wb >= 0 ? wb : hp[1]; }
+      else if (works.length && !m.age && Math.random() < .7) m.work = pick(works)[1];
       if (hp && Math.random() < .5) { const [x, y] = freeNear(hp[0].door[0], hp[0].door[1], 40); m.x = x; m.y = y; }
     }
     i += n;
@@ -5194,7 +5435,7 @@ function placeName(x, y) {
   if (!b) return "на окраине";
   let k = b.kind;
   if (b.rural) { const gi = Math.floor(y / CS) * GW + Math.floor(x / CS), pt = patchOf[gi] >= 0 ? patches[patchOf[gi]] : null; k = pt ? pt.kind : "field"; }
-  return { hill: "на холме", field: "в поле", meadow: "на лугу", forest: "в лесу", bank: "на берегу", park: "в парке", plaza: "на площади", towers: "в центре", apt: "во дворе многоэтажек", houses: "во дворе многоэтажек", suburb: "в частном секторе", industry: "в промзоне", lot: "на парковке", bigpark: "в городском парке", old: "в старом городе", square: "на соборной площади", island: "на круглой площади", green: "в сквере", glacis: "на бульварном кольце" }[k] || "на улице";
+  return { hill: "на холме", field: "в поле", meadow: "на лугу", forest: "в лесу", bank: "на берегу", park: "в парке", lake: "на берегу озера", garages: "в гаражах", orchard: "в саду", plaza: "на площади", towers: "в центре", apt: "во дворе многоэтажек", houses: "во дворе многоэтажек", suburb: "в частном секторе", industry: "в промзоне", lot: "на парковке", bigpark: "в городском парке", old: "в старом городе", square: "на соборной площади", island: "на круглой площади", green: "в сквере", glacis: "на бульварном кольце" }[k] || "на улице";
 }
 function causeText(a) {
   if (a.vapor) return "испарился в ядерном взрыве";
@@ -5435,7 +5676,7 @@ function evictRect(x0, y0, x1, y1) {
 function unblock(cells) { for (const [i, c] of cells) if (grid[i] === 5) grid[i] = c; fieldT = 0; }
 /* ---------- ловушки: мины, растяжки, бочки, электрозабор с генератором ---------- */
 let traps = [], gens = [];
-const elecMask = new Uint8Array(GW * GH);
+const elecMask = new Uint8Array(GMAX);
 function addMine(x, y) { if (blocked(x, y)) return false; traps.push({ k: "mine", x, y, arm: 2 }); logT("mine", "Установлена мина", "", 10); return true; }
 function addWire(x0, y0, x1, y1) { const L = Math.hypot(x1 - x0, y1 - y0); if (L < 6) return false; traps.push({ k: "wire", x: x0, y: y0, x2: x1, y2: y1, arm: 2 }); logT("wire", "Поставлена растяжка", "", 10); return true; }
 function addBarrels(x, y) { for (let i = 0; i < 3; i++) { const [bx, by] = freeNear(x + rnd(-4, 4), y + rnd(-4, 4), 4); traps.push({ k: "barrel", x: bx, y: by, fuse: -1 }); fillCells(bx - 1, by - 1, bx + 1, by + 1, 5); evictRect(bx - 4, by - 4, bx + 4, by + 4); } fieldT = 0; logT("barrel", "Выставлены бочки с бензином", "", 10); return true; }
@@ -5530,7 +5771,7 @@ let cps = [];
    closeOut — из города): маршруты такое направление объезжают, а подъехавшие разворачиваются. shut — пост закрыт целиком
    (орда рядом): шлагбаумы опущены, проезд и проход заложены блоками. outDir: 1 — наружу из города по возрастанию t ребра,
    -1 — по убыванию, 0 — пост внутри города, направления не важны */
-const postMask = new Uint8Array(GW * GH);
+const postMask = new Uint8Array(GMAX);
 function postCell(cp, i, list) {
   if (i in cp.prev || !fenceable(grid[i])) return;
   cp.prev[i] = grid[i]; grid[i] = 6; bhp[i] = 400; wallMask[i] = 0; postMask[i] = 1; list.push(i);
@@ -6107,7 +6348,7 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
   if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
   // очередь у светофора не объезжаем; объезжаем стоящее, разбитое, брошенное
   const wide = l.e.hw >= 22 && !l.e.oneway;
-  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || ahead.park || (ahead.wait > 20 && !ahead.atLine) || wide; // стоящий у бордюра (автобус на остановке) — тоже
+  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine) || wide;
   if (!obstacle) return;
   if (!opp) return;
   // широкая улица (две полосы в каждую сторону): объезжаем по своей левой полосе, встречную не трогаем, можно и у перекрёстка
@@ -6765,203 +7006,6 @@ function threatLabel() {
   return s;
 }
 
-/* ---------- маршрутные автобусы: кольцевые маршруты через остановки, посадка и высадка пассажиров ----------
-   При генерации города, когда расставлены остановки (placeProps в layout.js) и готов граф дорог, строятся 3–5 замкнутых
-   маршрутов: каждый — последовательность остановок, между соседними автобус едет по кратчайшему пути (busRoute вместо
-   routeTo в chooseNext), приезжая к остановке только по её полосе. Городской автобус (c.bus из spawnTraffic) получает
-   маршрут и едет от остановки к остановке; у остановки прижимается к бордюру (curbShift) за павильоном и стоит 8–15 с:
-   пассажиры, кому пора, выходят по одному, ждущие на остановке садятся. Горожанин без дел иногда идёт на ближайшую
-   остановку, ждёт автобус до минуты, едет 2–4 остановки и выходит. В панике автобус ведёт себя как любая машина: бежит
-   из города с пассажирами или брошен водителем — пассажиры выбегают (abandonCar). Маршруты не сохраняются, а строятся
-   заново из графа и остановок; автобус после загрузки берёт маршрут с ближайшей остановкой */
-let busLines = [], busStops = [];
-const BUS_STOP_T = [8, 15], BUS_WAIT_MAX = 60, BUS_STOP_AHEAD = 17; // стоянка у остановки, ожидание на ней, центр автобуса за павильоном
-// у остановки автобус встаёт правым бортом чуть за бордюр (на 2 единицы на тротуар), а не наполовину на тротуаре (curbShift):
-// иначе кузов шириной 10 накрывает весь тротуар вместе с ждущими и павильоном. На широкой улице так остаётся свободной
-// правая полоса (машины видят стоящего дальше двух ширин кузова), на узкой его объезжают по встречной
-function busCurb(l) { return -Math.max(0, l.e.hw - 2.6 - l.off); }
-
-// остановки из пропсов: павильон стоит на тротуаре справа по ходу своей полосы; s — положение на ней
-function busStopsFromProps() {
-  busStops = [];
-  props.forEach((p, i) => {
-    if (p.k !== "stop") return;
-    let e = p.e !== undefined ? RE[p.e] : null, t = p.t;
-    if (!e || e.dead || edgeNearest(e, p.x, p.y).d > e.hw + 12) { const q = gEdgeNear(p.x, p.y, 40); if (!q) return; e = q.e; t = q.t; }
-    if (e.rural || e.kind === "ring") return;
-    const g = edgePos(e, t), side = (p.x - g.x) * -g.ty + (p.y - g.y) * g.tx > 0 ? 1 : -1, l = side > 0 ? e.L[0] : e.L[1];
-    if (!l || l.to.exit) return; // с полосы к выезду за карту автобус уже не вернётся
-    const s = laneSOfT(l, t); if (s < laneStart(l) + 20 || s > laneEnd(l) - 30) return;
-    const nx = -g.ty * side, ny = g.tx * side, off = e.hw + 3.2; // ждут под навесом павильона, в стороне от борта
-    busStops.push({ k: busStops.length, prop: i, x: p.x, y: p.y, e, t, l, s, wx: g.x + nx * off, wy: g.y + ny * off, tx: g.tx * l.d, ty: g.ty * l.d, lines: [], bus: null, visits: 0 });
-  });
-}
-// поле расстояний до остановки по направленным полосам; встречная полоса её улицы не считается — к остановке подъезжают
-// только по её стороне. Кэш на 20 с, как у routeTo (перекрытия и пробки меняют стоимость рёбер)
-const busDistCache = new Map();
-function busDist(st) {
-  const old = busDistCache.get(st.k); if (old && simT - old.t >= 0 && simT - old.t < 20) return old.dist;
-  const dist = dijkstraTo([[st.l.from, st.s]], oppLane(st.l));
-  busDistCache.set(st.k, { t: simT, dist }); return dist;
-}
-// сколько ехать от остановки a до остановки b (1e12 — не доехать)
-function busLeg(a, b) { const d = busDist(b)[a.l.to.id]; return d < 1e11 ? laneEnd(a.l) - a.s + d : 1e12; }
-// рёбра пути между остановками: спуск по полю расстояний, как едет chooseNext (для проверок и отладки)
-function busPathEdges(a, b) {
-  const out = [a.l.e.id], dist = busDist(b); let l = a.l;
-  if (l === b.l && b.s >= a.s) return out;
-  for (let k = 0; k < 120 && l !== b.l; k++) {
-    const opts = exitsOf(l); let best = opts.length ? null : oppLane(l), bd = 1e18;
-    for (const m of opts) { const d = m === b.l ? b.s : m.e === b.e ? 1e9 : edgeCost(m.e) + dist[m.to.id]; if (d < bd) { bd = d; best = m; } }
-    if (!best) break; l = best; out.push(l.e.id);
-  }
-  return out;
-}
-// маршруты: 3–5 колец (меньше, если остановок мало). Начала — остановки подальше друг от друга; от каждой цепочка к ближайшей
-// по дороге ещё не взятой остановке (чужие остановки дороже, чтобы маршруты расходились по районам), потом кольцо замыкается
-function buildBusLines() {
-  busLines = []; busDistCache.clear(); busStopsFromProps();
-  const S = busStops; if (S.length < 3) return;
-  const K = S.length < 9 ? Math.max(1, Math.floor(S.length / 3)) : clamp(Math.round(S.length / 7), 3, 5), M = clamp(Math.round(S.length / K) + 1, 4, 9);
-  const seeds = [pick(S)];
-  while (seeds.length < K) { let best = null, bd = -1; for (const s of S) { let d = 1e9; for (const q of seeds) d = Math.min(d, Math.hypot(s.x - q.x, s.y - q.y)); if (d > bd) { bd = d; best = s; } } seeds.push(best); }
-  for (const seed of seeds) {
-    const line = [seed], used = new Set([seed]); let cur = seed;
-    while (line.length < M) {
-      let best = null, bs = 1e12;
-      for (const s of S) { if (used.has(s)) continue; const d = busLeg(cur, s); if (d > 1100) continue; const sc = d + (s.lines.length ? 350 : 0) + rnd(0, 120); if (sc < bs) { bs = sc; best = s; } }
-      if (!best) break;
-      line.push(best); used.add(best); cur = best;
-    }
-    while (line.length > 2 && busLeg(line[line.length - 1], line[0]) >= 1e11) line.pop();
-    if (line.length < 3) continue;
-    const li = busLines.length; for (const s of line) s.lines.push(li);
-    busLines.push({ stops: line.map(s => s.k), edges: [] });
-  }
-  for (const L of busLines) { const e = []; for (let i = 0; i < L.stops.length; i++) e.push(...busPathEdges(busStops[L.stops[i]], busStops[L.stops[(i + 1) % L.stops.length]])); L.edges = e; }
-  busDistCache.clear(); // при загрузке simT ещё старый — поля посчитаются заново в игре
-}
-// в каждом маршруте хотя бы один автобус: городские автобусы из spawnTraffic разбираются по маршрутам, на пустой ставится свой
-function spawnLineBuses() {
-  if (!busLines.length) return;
-  for (const c of cars) if (c.bus && !c.service && !c.gone && c.line === undefined) busAssign(c);
-  busLines.forEach((L, li) => {
-    if (cars.some(c => c.bus && !c.service && !c.gone && c.line === li)) return;
-    const st = busStops[L.stops[0]], s = Math.max(laneStart(st.l) + 14, st.s - 40);
-    if (laneBusy(st.l, s, null, 24)) return;
-    const c = newCar(); c.bus = true; c.model = "bus"; c.len = 2.3; c.vlen = 2.45; c.col = pick(BUS_COLS); c.spd *= .8;
-    placeOnLane(c, st.l, s); if (blocked(c.x, c.y)) return;
-    c.v = 10; c.line = li; c.stopI = 0; c.stopK = L.stops[0]; cars.push(c);
-  });
-}
-// автобус без маршрута (новый или после загрузки): маршрут с ближайшей остановкой, из близких — где автобусов меньше
-function busAssign(c) {
-  if (!busLines.length) { c.line = -1; return; }
-  const n = busLines.map(() => 0); for (const o of cars) if (o.bus && !o.service && !o.gone && o.line >= 0 && o.line < n.length) n[o.line]++;
-  let best = -1, bk = -1, bs = 1e18;
-  busLines.forEach((L, li) => { for (const k of L.stops) { const st = busStops[k], d = Math.hypot(st.x - c.x, st.y - c.y) + n[li] * 500; if (d < bs) { bs = d; best = li; bk = k; } } });
-  c.line = best; c.stopK = bk; c.stopI = busLines[best].stops.indexOf(bk); c.goal = null;
-}
-function busSetGoal(c) {
-  const L = busLines[c.line]; if (!L) { c.line = undefined; c.goal = null; return; }
-  c.stopI = (((c.stopI | 0) % L.stops.length) + L.stops.length) % L.stops.length; c.stopK = L.stops[c.stopI];
-  const st = busStops[c.stopK], p = lanePos(st.l, st.s); c.goal = { x: p.x, y: p.y }; c.stopT0 = simT;
-}
-function busNextStop(c, why) { c.stopI = (c.stopI | 0) + 1; busSetGoal(c); c.skipWhy = why; }
-// маршрут для chooseNext: ребро и полоса остановки, поле расстояний до неё
-function busRoute(c) { const st = busStops[c.stopK]; return st ? { e: st.e, et: st.t, lane: st.l, dist: busDist(st) } : null; }
-// каждый кадр из stepRoadCar (после стоянки, до выбора поездки): цель — следующая остановка; на её полосе — к бордюру и стоянка
-function busLineStep(c, l) {
-  if (c.panic || c.flee || c.park) return;
-  if (c.line === undefined) busAssign(c);
-  if (!(c.line >= 0) || !busLines[c.line]) return;
-  if (!c.goal) busSetGoal(c);
-  const st = busStops[c.stopK]; if (!st) { busNextStop(c, "nostop"); return; }
-  if (simT - c.stopT0 > 300) { busNextStop(c, "late"); return; } // пять минут не можем подъехать (перекрыто, пробка) — следующая
-  if (l !== st.l) return;
-  const sc = st.s + Math.min(BUS_STOP_AHEAD, laneEnd(l) - 13 - st.s), d = sc - c.s;
-  if (d > 60) return;
-  if (d < -12) { busNextStop(c, "passed"); return; } // проскочили — остановка пропущена
-  // в обгоне (стоящая машина перед остановкой) к бордюру не прижимаемся, но у остановки всё равно встаём: стоянка сама подтянет к бордюру
-  if (!c.over) c.latTgt = busCurb(l);
-  if (c.s >= sc - c.v * c.v / 80 - 1) busArrive(c, l, st);
-}
-function busArrive(c, l, st) {
-  c.park = { t: rnd(BUS_STOP_T[0], BUS_STOP_T[1]), stop: st.k, t0: simT, doorT: 1.2 }; c.latTgt = busCurb(l); c.goal = null; c.next = null; c.over = 0; c.contra = false;
-  c.stopI = (c.stopI | 0) + 1; st.bus = c; st.visits++; c.stopsMade = (c.stopsMade || 0) + 1;
-  // погибший в салоне (взрыв рядом) остаётся на остановке; остальным считаем остановки
-  for (const p of (c.passengers || []).slice()) { if (p.state === "alive") { if (p.ride) p.ride.left--; } else { c.passengers.splice(c.passengers.indexOf(p), 1); p.hidden = false; p.onBus = null; p.x = c.x; p.y = c.y; } }
-}
-// автобус стоит у остановки: раз в полсекунды выходит один, кому пора; пока к дверям идут ждущие, стоянка тянется (не дольше 35 с)
-function busStopTick(c, dt) {
-  const P = c.park, st = busStops[P.stop]; if (!st) return;
-  if (st.bus !== c && !(st.bus && st.bus.park && st.bus.park.stop === st.k && !st.bus.gone)) st.bus = c;
-  if (c.v > .5) return;
-  P.doorT -= dt; if (P.doorT > 0) return; P.doorT = .6;
-  const out = (c.passengers || []).find(p => p.ride && p.ride.left <= 0);
-  if (out) { busAlight(c, out, st); P.t = Math.max(P.t, 1.5); return; }
-  if (simT - P.t0 > 35 || (c.passengers || []).length >= BUS_CAP) return;
-  let walking = 0; near(c.x, c.y, 50, a => { if (a.busWait && a.busWait.k === st.k && a.state === "alive" && !a.hidden && a.panic < .5) walking++; });
-  if (walking) P.t = Math.max(P.t, 1.2);
-}
-function busBoardLine(a, c, st) {
-  a.hidden = true; a.onBus = c; a.busWait = null; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; a.ride = { line: c.line, left: 2 + Math.floor(Math.random() * 3) };
-  (c.passengers || (c.passengers = [])).push(a); c.boarded = (c.boarded || 0) + 1; st.boarded = (st.boarded || 0) + 1;
-  logT("busride", "Горожане ездят на автобусах по маршрутам", "", 600);
-}
-function busAlight(c, p, st) {
-  const i = c.passengers.indexOf(p); if (i >= 0) c.passengers.splice(i, 1);
-  p.hidden = false; p.onBus = null; p.ride = null; const [x, y] = freeNear(st.wx, st.wy, 7); p.x = x; p.y = y; p.vx = p.vy = 0; p.dest = null; p.idleT = rnd(3, 12);
-  c.alighted = (c.alighted || 0) + 1; st.alighted = (st.alighted || 0) + 1;
-}
-// водитель бросил автобус: пассажиры выбегают (из abandonCar)
-// остановка на этой полосе ближе 45 по ходу или 30 позади: здесь не паркуются (иначе автобус обгоняет стоящих и проезжает мимо)
-function nearBusStop(l, s) { for (const st of busStops) if (st.l === l && st.s - s > -30 && st.s - s < 45) return true; return false; }
-function busUnload(c) {
-  const n = c.passengers.length;
-  for (const p of c.passengers) { p.hidden = false; p.onBus = null; p.ride = null; const [x, y] = freeNear(c.x, c.y, 14); p.x = x; p.y = y; p.panic = 1; p.vx = p.vy = 0; }
-  c.passengers = []; c.unloaded = true;
-  if (n) logT("bus", `Пассажиры выбегают из автобуса: ${n} чел.`, "bad", 20);
-}
-
-/* ---------- пассажиры: горожанин идёт на остановку, ждёт автобус и садится; выходит через 2–4 остановки ---------- */
-// в новом городе на остановках уже кто-то ждёт: по одному-два ближайших горожанина к каждой остановке с маршрутом
-function seedBusWaiters() {
-  for (const st of busStops) {
-    if (!st.lines.length) continue;
-    const n = 1 + Math.floor(Math.random() * 2), cand = [];
-    near(st.x, st.y, 160, a => { if (a.role === "civ" && a.state === "alive" && !a.hidden && !a.busWait) cand.push(a); });
-    cand.sort((a, b) => Math.hypot(a.x - st.x, a.y - st.y) - Math.hypot(b.x - st.x, b.y - st.y));
-    for (const a of cand.slice(0, n)) { const u = rnd(-6, 6); a.busWait = { k: st.k, t0: simT, arrT: 0, x: st.wx + st.tx * u, y: st.wy + st.ty * u }; a.x = a.busWait.x; a.y = a.busWait.y; a.dest = null; }
-  }
-}
-function busWaitStart(a) {
-  let best = null, bd = 260;
-  for (const st of busStops) { if (!st.lines.length) continue; const d = Math.hypot(st.x - a.x, st.y - a.y); if (d > 25 && d < bd) { bd = d; best = st; } }
-  if (!best) return false;
-  let n = 0; near(best.x, best.y, 40, b => { if (b.busWait && b.busWait.k === best.k) n++; }); if (n >= 5) return false; // на остановке и так толпа
-  const u = rnd(-6, 6); a.busWait = { k: best.k, t0: simT, arrT: 0, x: best.wx + best.tx * u, y: best.wy + best.ty * u };
-  return true;
-}
-// шаг ждущего (из thinkHuman): к остановке, стоять, к подъехавшему автобусу; устал ждать или опасность — по своим делам
-function busWaitStep(a, dt, zn) {
-  const Wt = a.busWait, st = busStops[Wt.k];
-  if (!st || zn || a.panic > .5 || simT - Wt.t0 > 150 || settings.curfew) { a.busWait = null; return null; }
-  const c = st.bus;
-  // автобус встал — к передней двери (справа по ходу, чуть позади центра); пока катится, с тротуара не сходят
-  if (c && c.park && c.park.stop === st.k && !c.panic && !c.gone && c.v < .5 && (c.passengers || []).length < BUS_CAP) {
-    const tx = Math.cos(c.ang), ty = Math.sin(c.ang), dx = c.x - tx * 6 - ty * 5, dy = c.y - ty * 6 + tx * 5;
-    if (Math.hypot(dx - a.x, dy - a.y) < 8) { busBoardLine(a, c, st); return [0, 0, 0]; }
-    return goTo(a, dx, dy, 9);
-  }
-  if (Math.hypot(Wt.x - a.x, Wt.y - a.y) < 4) {
-    if (!Wt.arrT) Wt.arrT = simT;
-    else if (simT - Wt.arrT > BUS_WAIT_MAX) { a.busWait = null; a.idleT = rnd(10, 30); st.gaveUp = (st.gaveUp || 0) + 1; return null; }
-    return [0, 0, 0];
-  }
-  return goTo(a, Wt.x, Wt.y, 6);
-}
-
 /* ---------- 3D-сцена: город ---------- */
 const X = x => x - W / 2, Z = y => y - H / 2;
 if (THREE.ColorManagement) THREE.ColorManagement.legacyMode = false; // цвета в sRGB, иначе всё выглядит выцветшим
@@ -7003,7 +7047,7 @@ function canvasTex(w, h, paint, srgb = true) {
 function speckle(g, x, y, w, h, n, cols, s = 2) { for (let i = 0; i < n; i++) { g.fillStyle = pick(cols); g.fillRect(x + Math.random() * w, y + Math.random() * h, s, s); } }
 
 /* ---------- земля: асфальт, тротуары, разметка ---------- */
-const GS = Math.min(1.5, 4500 / W); // пикселей текстуры на единицу мира: на большой карте чуть грубее, иначе текстура земли съест видеопамять
+let GS = Math.min(1.5, 4500 / W); // пикселей текстуры на единицу мира: на большой карте чуть грубее, иначе текстура земли съест видеопамять
 const FIELD = ["#c9a85a", "#7a9a40", "#7a5a3a", "#a8b860"], RUBBLE_COL = ["#7b746a", "#857d72", "#706960"];
 // цвет клетки земли; завал — серо-бурая крошка поверх чего угодно, по ней видно, докуда дошли экскаваторы
 function groundColOf(i) {
@@ -7014,12 +7058,12 @@ function groundColOf(i) {
   const r = regionOf[i], b = r >= 0 ? blocks[r] : null, k = b ? b.kind : null;
   if (b && b.rural && c === 7) return "#9d9a92"; // бетон за городом: плац части, площадки
   if (b && b.rural && c === 0) return "#4c4e50"; // асфальт заправки у трассы
-  if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : FIELD[pt.crop]; }
+  if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : pt.kind === "orchard" ? "#67883f" : FIELD[pt.crop]; }
   if (c === 7) return k === "old" || k === "square" ? "#9a8f7e" : "#a8a092";
   if (c === 1) return "#8f8f8a";
   if (c === 0) return k === "industry" ? "#6d6c66" : "#3f4244";
   if (c === 3) return k === "suburb" ? "#56763d" : k === "old" || k === "square" ? "#9a8f7e" : k === "towers" || k === "plaza" ? "#a8a092" : "#8f8f8a";
-  return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" ? "#4b6e35" : "#56763d";
+  return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" || k === "lake" ? "#4b6e35" : "#56763d";
 }
 // перекрасить клетки в прямоугольнике мира (завал лёг или его вывезли); на видеокарту уходит только задетый кусок, не чаще раза в секунду
 let groundDirty = null, groundT = -9;
@@ -7070,12 +7114,13 @@ function paintGround(g) {
     if (b.paths) { g.strokeStyle = "#c2b493"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round"; for (const path of b.paths) { g.beginPath(); path.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); } }
   }
   for (const p of ponds) { g.fillStyle = "#b8ab8a"; g.beginPath(); g.ellipse(p.x, p.y, p.rx + 4, p.ry + 4, 0, 0, TAU); g.fill(); g.fillStyle = "#24404f"; g.beginPath(); g.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, TAU); g.fill(); }
+  paintLakes(g);
   drawLandmarkGround(g);
   paintContactShadows(g);
   edPaintGround(g);
   // дорожки от крыльца частного дома к тротуару
   g.strokeStyle = "#9b958a"; g.lineWidth = 4; g.lineCap = "butt";
-  for (const b of buildings) if (b.kind === "house" && b.front) { const f = b.front; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(f.x + f.nx * (f.set + 4), f.y + f.ny * (f.set + 4)); g.stroke(); }
+  for (const b of buildings) if ((b.kind === "house" || b.kind === "cottage" || b.kind === "farmhouse" || b.kind === "manor") && b.front) { const f = b.front; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(f.x + f.nx * (f.set + 4), f.y + f.ny * (f.set + 4)); g.stroke(); }
   // дороги: тротуар, бордюр, асфальт — сначала у всех рёбер, потом поверх
   const path = e => { g.beginPath(); e.pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
   g.lineJoin = "round"; g.lineCap = "round";
@@ -7189,12 +7234,24 @@ function markingWear(g) {
   }
   g.restore();
 }
-const groundCv = document.createElement("canvas"); groundCv.width = W * GS; groundCv.height = H * GS;
-const groundTex = new THREE.CanvasTexture(groundCv);
+const groundCv = document.createElement("canvas"); groundCv.width = Math.round(W * GS); groundCv.height = Math.round(H * GS);
+let groundTex = new THREE.CanvasTexture(groundCv);
 groundTex.encoding = THREE.sRGBEncoding; groundTex.anisotropy = Math.min(16, R3.capabilities.getMaxAnisotropy());
+const groundWorldSize = { value: new THREE.Vector2(W, H) }; // размер мира для шейдера земли и воды, обновляется при смене карты
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(W, H, GW, GH), new THREE.MeshStandardMaterial({ map: groundTex, roughness: .93, metalness: 0, envMapIntensity: .45 }));
-ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.userData.W = W; ground.userData.H = H;
 scene.add(ground);
+// карта другого размера: холст и текстура земли, сетка вершин, размер мира в шейдерах и мини-карта перестраиваются под новые W и H
+function syncWorldSize() {
+  if (ground.userData.W === W && ground.userData.H === H) return;
+  GS = Math.min(1.5, 4500 / W); groundCv.width = Math.round(W * GS); groundCv.height = Math.round(H * GS);
+  groundTex.dispose(); groundTex = new THREE.CanvasTexture(groundCv); groundTex.encoding = THREE.sRGBEncoding; groundTex.anisotropy = Math.min(16, R3.capabilities.getMaxAnisotropy());
+  ground.material.map = groundTex; ground.material.needsUpdate = true;
+  ground.geometry.dispose(); ground.geometry = new THREE.PlaneGeometry(W, H, GW, GH);
+  groundWorldSize.value.set(W, H); if (typeof waterU !== "undefined") waterU.mapSize.value.set(W, H);
+  ground.userData.W = W; ground.userData.H = H;
+  if (typeof miniResize === "function") miniResize();
+}
 const grassTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#4a5a37"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#55663e", "#405030", "#5d6d44", "#3b4a2c", "#6a6a48"], 2); });
 grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(280, 280);
 const outskirts = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
@@ -7274,6 +7331,14 @@ const STYLES = [
   { wall: "#8a3a2a", glass: "#3a4650", frame: "#e8e2d4", win: .2, house: true }, // амбар
   { wall: "#f1ede3", glass: "#2c3a48", frame: "#e0d2b0", win: .32, arch: true, house: true }, // храм: белёные стены, арочные окна, без витрин
   { wall: "#6c7050", glass: "#33404a", frame: "#c7c6b4", win: .42 }, // воинская часть: казармы и штаб
+  { wall: "#c9c4b6", glass: "#3c4a55", frame: "#e6e2d8", win: .5 }, { wall: "#b9b4a4", glass: "#3c4a55", frame: "#ece8e0", win: .5 }, // панельные дома спального района (29, 30)
+  { wall: "#e9d7a8", glass: "#4a5a66", frame: "#f6f2e8", win: .5 }, // детский сад
+  { wall: "#6b7378", glass: "#3a4650", frame: "#9fa5a8", win: .3, metal: true }, // автосервис
+  { wall: "#c9b48a", glass: "#4b6a82", frame: "#7a6a4a", win: .6 }, // рынок
+  { wall: "#d8a878", glass: "#3a4650", frame: "#f4ecd8", win: .5, house: true }, // кафе
+  { wall: "#d8d0b8", glass: "#3c4a55", frame: "#8a6a48", win: .36, house: true }, // дом фермера
+  { wall: "#f0e6d0", glass: "#33414c", frame: "#ffffff", win: .4, arch: true, house: true }, // усадьба
+  { wall: "#8f8a80", metal: true, blank: true }, // гаражи
 ];
 // кирпичные — красные и рыжие стены
 function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && r > g + 25 && r > b + 30 && r < 200; }
@@ -7379,6 +7444,7 @@ function boxUV(geo, w, d, floors, uOff) {
 }
 const instBoxes = []; // мелочи на крышах собираются в один InstancedMesh
 function buildCity() {
+  syncWorldSize();
   while (cityGroup.children.length) { const c = cityGroup.children.pop(); c.traverse?.(o => { if (o.geometry) o.geometry.dispose(); }); }
   for (const b of buildings) { if (b.scaf) { scene.remove(b.scaf); cityGroup.remove(b.scaf); } b.scaf = null; b.mound = null; b.sign = null; b.hid = b.ruinDone = b.detached = b.moundDone = b.broke = b.scorched = false; b.scorchK = 0; b.lastStep = -1; }
   for (const t of trees) t.shownBurnt = false;
@@ -7401,6 +7467,7 @@ function buildCity() {
     if (topY - b.baseY > .25) { const fh = topY - b.baseY + 2.4; const fnd = new THREE.Mesh(new THREE.BoxGeometry(w + .6, fh, d + .6), parapetMat); fnd.position.y = fh / 2 - 2.2; fnd.receiveShadow = fnd.castShadow = true; obj.add(fnd); }
     const cx = obj.position.x, cz = obj.position.z, by = b.baseY;
     if (landmarkMesh(b, obj, mesh, w, d)) { if (b.anim) cityGroup.add(obj); obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
+    if (districtMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (b.kind === "cathedral") {
       // собор: неф, барабан с куполом, две башни со шпилями
       const stone = facadeMats[21], gold = new THREE.MeshStandardMaterial({ color: 0xc9a14a, roughness: .25, metalness: .9 }), dark = new THREE.MeshStandardMaterial({ color: 0x3f5a4e, roughness: .5, metalness: .4 });
@@ -10185,6 +10252,182 @@ function updateThreatMarks(dt) {
   for (const [k, el] of tmEls) if (!el._seen) { el.remove(); tmEls.delete(k); }
 }
 
+/* ---------- здания районов и ферм, озёра на земле, сельские пропсы ----------
+   districtMesh — формы новых видов зданий (layout2.js): коттеджи разных форм, дачи, дома фермеров, усадьбы, рынок с рядами
+   прилавков, гаражи с воротами, автосервис, кафе с террасой, детский сад. Вызывается из buildCity после landmarkMesh.
+   paintLakes — пляж и набережная на текстуре земли. PROP_PARTS пополняются силосом, трактором, сеном, скотом, пирсом и зонтиками. */
+const hayMat = new THREE.MeshStandardMaterial({ color: 0xc9a85a, roughness: 1 }), tractorMats = [new THREE.MeshStandardMaterial({ color: 0x2f7a3a, roughness: .5 }), new THREE.MeshStandardMaterial({ color: 0xc8381e, roughness: .5 })];
+const tyreMat18 = new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: .9 }), siloMat = new THREE.MeshStandardMaterial({ color: 0xb8bcbe, roughness: .4, metalness: .6 });
+const cowMats = [[0xf0ece4, 0x2a2622], [0x7a4a2a, 0x5a3a22], [0x3a3230, 0xf0ece4]].map(([a, b]) => [new THREE.MeshStandardMaterial({ color: a, roughness: .9 }), new THREE.MeshStandardMaterial({ color: b, roughness: .9 })]);
+const plankMat18 = new THREE.MeshStandardMaterial({ color: 0x9a7a52, roughness: .9 }), gateMats = [0x4a5a6a, 0x6a4a3a, 0x3f5a46, 0x5a5a5a, 0x7a3a2a].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: .6, metalness: .3 }));
+const V2 = (x, y) => new THREE.Vector2(x, y);
+// двускатная крыша над прямоугольником w × d (ridge вдоль x, если along)
+function gableRoof(obj, w, d, h, rh, along, mat, over = 1.2, cx = 0, cz = 0) {
+  const span = along ? d : w, len = along ? w : d;
+  const sh = new THREE.Shape([V2(-span / 2 - over, 0), V2(span / 2 + over, 0), V2(0, rh)]);
+  const rg = new THREE.ExtrudeGeometry(sh, { depth: len + 2 * over, bevelEnabled: false }); rg.translate(0, 0, -(len + 2 * over) / 2); if (along) rg.rotateY(Math.PI / 2);
+  const roof = new THREE.Mesh(rg, mat); roof.position.set(cx, h, cz); roof.castShadow = roof.receiveShadow = true; obj.add(roof); return roof;
+}
+function facadeBox(b, w, h, d, x, y, z, fm, top) { const geo = new THREE.BoxGeometry(w, h, d); boxUV(geo, w, d, b.floors * 1.6, Math.floor(rnd(0, 8)) / TBX); const m = new THREE.Mesh(geo, [fm, fm, top || roofMat, top || roofMat, fm, fm]); m.position.set(x, y, z); return m; }
+function chimney(obj, w, d, y) { lmAdd(obj, new THREE.BoxGeometry(2.2, 5, 2.2), parapetMat, rnd(-w / 4, w / 4), y, rnd(-d / 4, d / 4)); }
+function porch(obj, x, z, wide = 5) {
+  lmAdd(obj, new THREE.BoxGeometry(wide, .9, 2.4), porchMat, x, .45, z + 1.2);
+  lmAdd(obj, new THREE.BoxGeometry(wide + 1, .35, 3.2), whiteTrim, x, 8.4, z + 1.5).rotation.x = .15;
+  for (const s of [-1, 1]) lmAdd(obj, new THREE.BoxGeometry(.4, 7.8, .4), whiteTrim, x + s * (wide / 2 + .1), 4.3, z + 2.8);
+}
+function districtMesh(b, obj, box, w, d) {
+  const k = b.kind, fm = facadeMats[b.style] || facadeMats[11], tile = pick(tileMats);
+  if (k === "cottage") {
+    const shape = b.shape || "plain";
+    if (shape === "L") {
+      // Г-образный: основной объём и крыло под своей крышей, в вырезе — терраса с перилами
+      obj.remove(box); box.geometry.dispose();
+      const aw = w - 8, bd = d - 7;
+      obj.add(facadeBox(b, aw, b.h, d, -4, b.h / 2, 0, fm)); obj.add(facadeBox(b, 8, b.h, bd, w / 2 - 4, b.h / 2, -3.5, fm));
+      gableRoof(obj, aw, d, b.h, d * .36, true, tile, 1.2, -4, 0); gableRoof(obj, 8, bd, b.h, 8 * .5, false, tile, 1, w / 2 - 4, -3.5);
+      lmAdd(obj, new THREE.BoxGeometry(7, .5, 6), porchMat, w / 2 - 4, .25, d / 2 - 3);
+      for (const [x, z, sx, sz] of [[w / 2 - .5, d / 2 - 3, .2, 6], [w / 2 - 4, d / 2 - .4, 7, .2]]) lmAdd(obj, new THREE.BoxGeometry(sx, 1.1, sz), whiteTrim, x, 1, z);
+      b.h += d * .36 * .6; return true;
+    }
+    if (shape === "garage") {
+      // дом с пристроенным гаражом: низкий бокс с воротами справа
+      obj.remove(box); box.geometry.dispose();
+      const hw = w - 9;
+      obj.add(facadeBox(b, hw, b.h, d, -4.5, b.h / 2, 0, fm)); gableRoof(obj, hw, d, b.h, d * .38, true, tile, 1.2, -4.5, 0);
+      const g = facadeBox(b, 9, 9, d - 2, w / 2 - 4.5, 4.5, -1, fm, roofMat); obj.add(g);
+      lmAdd(obj, new THREE.BoxGeometry(7, 6.4, .3), pick(gateMats), w / 2 - 4.5, 3.4, d / 2 - 1 + .15);
+      lmAdd(obj, new THREE.BoxGeometry(9.6, .5, d - 1.4), parapetMat, w / 2 - 4.5, 9.2, -1);
+      porch(obj, -4.5 + rnd(-hw / 4, hw / 4), d / 2); chimney(obj, hw, d, b.h + 2.5);
+      b.h += d * .38 * .6; return true;
+    }
+    if (shape === "mansard") {
+      // мансарда: крутая крыша с двумя слуховыми окнами над первым этажом
+      const rh = Math.min(w, d) * .62; gableRoof(obj, w, d, b.h, rh, true, tile, 1.4);
+      for (const x of [-w / 4, w / 4]) { lmAdd(obj, new THREE.BoxGeometry(3.4, 3.2, 3), whiteTrim, x, b.h + 2.4, d / 2 - 2.2); lmAdd(obj, new THREE.BoxGeometry(2.2, 2, .2), darkGlassMat, x, b.h + 2.5, d / 2 - .6); gableRoof(obj, 3.4, 3, b.h + 4, 1.4, false, tile, .4, x, d / 2 - 2.2); }
+      porch(obj, rnd(-w / 4, w / 4), d / 2); chimney(obj, w, d, b.h + rh * .5);
+      b.h += rh * .6; return true;
+    }
+    const rh = Math.min(w, d) * .38; gableRoof(obj, w, d, b.h, rh, b.ridge === "x", tile, 1.2);
+    porch(obj, rnd(-w / 4, w / 4), d / 2); if (Math.random() < .5) chimney(obj, w, d, b.h + rh * .6);
+    if (Math.random() < .5) { lmAdd(obj, new THREE.BoxGeometry(6, 1.2, 3), whiteTrim, rnd(-w / 3, w / 3), b.h - 4, d / 2 + 1.5); } // балкон
+    b.h += rh * .6; return true;
+  }
+  if (k === "dacha") {
+    // дачный домик: крутая крыша, застеклённая веранда, бочка для воды
+    const rh = Math.min(w, d) * .5; gableRoof(obj, w, d, b.h, rh, b.ridge === "x", tile, 1);
+    lmAdd(obj, new THREE.BoxGeometry(Math.min(w - 2, 5), 6.5, 3), verandaMat, w / 2 - Math.min(w - 2, 5) / 2 - 1, 3.25, d / 2 + 1.5);
+    lmAdd(obj, new THREE.CylinderGeometry(1.1, 1.1, 2.6, 10), steelPostMat, -w / 2 - 1.6, 1.3, d / 2 - 1);
+    b.h += rh * .6; return true;
+  }
+  if (k === "farmhouse") {
+    // дом фермера: длинное крыльцо-веранда вдоль фасада под навесом, печная труба
+    const rh = Math.min(w, d) * .42; gableRoof(obj, w, d, b.h, rh, b.ridge === "x", tile, 1.4);
+    lmAdd(obj, new THREE.BoxGeometry(w - 2, .7, 4), plankMat18, 0, .35, d / 2 + 2);
+    lmAdd(obj, new THREE.BoxGeometry(w, .4, 5), tile, 0, b.h - 1.2, d / 2 + 2.3).rotation.x = .22;
+    for (let x = -w / 2 + 2; x <= w / 2 - 2; x += (w - 4) / 3) lmAdd(obj, new THREE.BoxGeometry(.5, b.h - 1.5, .5), whiteTrim, x, (b.h - 1.5) / 2, d / 2 + 4);
+    lmAdd(obj, new THREE.BoxGeometry(2.4, rh + 4, 2.4), parapetMat, w / 4, b.h + rh * .4, -d / 6);
+    b.h += rh * .6; return true;
+  }
+  if (k === "manor") {
+    // усадьба: портик на четырёх колоннах, балкон над входом, вальмовая крыша
+    const rh = Math.min(w, d) * .34; gableRoof(obj, w, d, b.h, rh, true, tile, 1.6);
+    for (const x of [-6, -2, 2, 6]) lmAdd(obj, new THREE.CylinderGeometry(.55, .6, b.h - 1, 10), whiteTrim, x, (b.h - 1) / 2, d / 2 + 4.5);
+    lmAdd(obj, new THREE.BoxGeometry(16, 1, 6.5), whiteTrim, 0, b.h - .5, d / 2 + 2.8);
+    gableRoof(obj, 16, 6.5, b.h, 2.4, true, tile, .8, 0, d / 2 + 2.8);
+    lmAdd(obj, new THREE.BoxGeometry(17, .5, 2.4), porchMat, 0, .25, d / 2 + 1.5);
+    lmAdd(obj, new THREE.BoxGeometry(15, 1.1, .3), whiteTrim, 0, b.h / 2 + 1.4, d / 2 + 6);
+    b.h += rh * .6; return true;
+  }
+  if (k === "garages") {
+    // ряд гаражей: ворота разных цветов через каждые шесть метров, плоская крыша
+    const rr = b.rot !== undefined ? b.rot : 0, rc = Math.cos(rr), rs = Math.sin(rr), cx = obj.position.x, cz = obj.position.z, by = b.baseY || 0;
+    for (const sgn of [1, -1]) for (let x = -w / 2 + 3; x < w / 2 - 2; x += 6) { const z = sgn * (d / 2 + .16), qx = cx + x * rc - z * rs, qz = cz + x * rs + z * rc; instBoxes.push([qx, by + 3.3, qz, 5.2, 6.4, .3, pick([0x4a5a6a, 0x6a4a3a, 0x3f5a46, 0x5a5a5a, 0x7a3a2a, 0x2a4a7a]), b, -rr]); } // ворота с обеих сторон: ряды стоят лицом к проездам
+    lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
+    return true;
+  }
+  if (k === "autoservice") {
+    // автосервис: широкие ворота, вывеска, стопка шин у стены
+    lmAdd(obj, new THREE.BoxGeometry(11, 9, .3), gateMats[3], -w / 2 + 8, 4.6, d / 2 + .16);
+    landSign(obj, "АВТОСЕРВИС · ШИНОМОНТАЖ", "#2a2d30", "#f2c846", Math.min(26, w - 2), b.h - 1.4, d / 2 + .35);
+    for (let i = 0; i < 4; i++) lmAdd(obj, new THREE.CylinderGeometry(1.3, 1.3, .7, 14), tyreMat18, w / 2 + 2.2, .35 + i * .7, d / 2 - 3 + (i % 2) * .4);
+    lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
+    return true;
+  }
+  if (k === "cafe") {
+    // кафе: вывеска, маркиза над витриной, столики с зонтиками на террасе
+    landSign(obj, pick(["КАФЕ", "КОФЕЙНЯ", "ПЕКАРНЯ", "ПИЦЦА · КАФЕ"]), pick(["#5a2a1a", "#2e6a3c", "#1d3566"]), "#f4d9a0", Math.min(14, w - 2), b.h - 1.5, d / 2 + .35);
+    const aw = lmAdd(obj, new THREE.BoxGeometry(w - 2, .3, 3), pick(AWNING_MATS), 0, b.h - 3.6, d / 2 + 1.4); aw.rotation.x = .35;
+    for (const x of [-w / 3, 0, w / 3]) {
+      lmAdd(obj, new THREE.CylinderGeometry(1.4, 1.4, .2, 12), whiteMat, x, 2.2, d / 2 + 5); lmAdd(obj, new THREE.CylinderGeometry(.12, .12, 2.2, 6), steelPostMat, x, 1.1, d / 2 + 5);
+      lmAdd(obj, new THREE.CylinderGeometry(.08, .08, 6, 6), steelPostMat, x, 3, d / 2 + 5); lmAdd(obj, new THREE.ConeGeometry(2.6, 1.2, 10), pick(AWNING_MATS), x, 6.4, d / 2 + 5);
+    }
+    lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
+    return true;
+  }
+  if (k === "kinder") {
+    // детский сад: цветные панели между окнами, вывеска, низкий козырёк над входом
+    const rr = b.rot !== undefined ? b.rot : 0, rc = Math.cos(rr), rs = Math.sin(rr), cx = obj.position.x, cz = obj.position.z, by = b.baseY || 0, cols = [0xe8603a, 0x3a8ad8, 0xe8c040, 0x5ab04a];
+    for (const s of [1, -1]) for (let x = -w / 2 + 3; x < w / 2 - 2; x += 7) for (let f = 0; f < b.floors; f++) { const z = s * (d / 2 + .14), qx = cx + x * rc - z * rs, qz = cz + x * rs + z * rc; instBoxes.push([qx, by + f * 12 + 3, qz, 2.6, 5.5, .25, cols[(Math.round(x) + f) & 3], b, -rr]); }
+    landSign(obj, "ДЕТСКИЙ САД «СОЛНЫШКО»", "#f6f2e8", "#d8502a", Math.min(22, w - 2), b.h - 1.6, d / 2 + .35);
+    lmAdd(obj, new THREE.BoxGeometry(7, .4, 3.2), whiteTrim, 0, 9, d / 2 + 1.4);
+    lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
+    return true;
+  }
+  if (k === "market") {
+    // рынок: павильон под пологой крышей с вывеской, перед ним ряды прилавков под полосатыми навесами
+    gableRoof(obj, w, d, b.h, d * .18, true, metalRoofMat, 1.5);
+    landSign(obj, "РЫНОК", "#1f6a3a", "#fff", Math.min(18, w - 2), b.h - 1.6, d / 2 + .35);
+    if (b.lotRect && b.front) {
+      const rr = b.rot !== undefined ? b.rot : 0, rc = Math.cos(rr), rs = Math.sin(rr), cx = obj.position.x, cz = obj.position.z, by = b.baseY || 0;
+      const back = (b.lotRect.d - d) / 2 - 4, z0 = d / 2 + 6, z1 = back + b.lotRect.d / 2 - 8, cols = [0xc8382a, 0x2e6a3c, 0x24507a, 0xc98a2a];
+      for (let z = z0, row = 0; z < z1; z += 10, row++) for (let x = -b.lotRect.w / 2 + 6; x < b.lotRect.w / 2 - 6; x += 8) {
+        if (Math.abs(x) < 5) continue; // проход посередине
+        const qx = cx + x * rc - z * rs, qz = cz + x * rs + z * rc, c = cols[(row + Math.round(x / 8)) & 3];
+        instBoxes.push([qx, by + 1.1, qz, 6, .5, 2.4, 0x9a8a6a, b, -rr]); instBoxes.push([qx, by + .5, qz, 5.4, 1, 2, 0x6a5a48, b, -rr]);
+        instBoxes.push([qx, by + 3.6, qz, 6.6, .3, 3.2, 0xf0ece4, b, -rr]); instBoxes.push([qx, by + 3.9, qz, 6.2, .3, 2.8, c, b, -rr]); // навес: цветной верх на белой подкладке
+        for (const s of [-1, 1]) instBoxes.push([cx + (x + s * 2.9) * rc - (z - 1.4) * rs, by + 1.9, cz + (x + s * 2.9) * rs + (z - 1.4) * rc, .18, 3.8, .18, 0x5a5a5a, b, -rr]);
+      }
+    }
+    b.h += d * .18 * .6; return true;
+  }
+  return false;
+}
+// пляж и набережная на текстуре земли: песок по клеткам пляжа, дорожка по контуру озера
+function paintLakes(g) {
+  for (const l of lakes) {
+    if (l.beach) {
+      g.fillStyle = "#d8c48e";
+      for (let gy = Math.max(0, Math.floor((l.y - l.ry * 1.4 - 20) / CS)); gy < Math.min(GH, Math.ceil((l.y + l.ry * 1.4 + 20) / CS)); gy++)
+        for (let gx = Math.max(0, Math.floor((l.x - l.rx * 1.4 - 20) / CS)); gx < Math.min(GW, Math.ceil((l.x + l.rx * 1.4 + 20) / CS)); gx++) {
+          const i = gy * GW + gx; if (grid[i] !== 7) continue;
+          const x = gx * CS + 4, y = gy * CS + 4, d = lakeD(x, y);
+          if (d >= 0 && d < 15 && Math.abs(Math.atan2(Math.sin(Math.atan2(y - l.y, x - l.x) - l.beach.a0), Math.cos(Math.atan2(y - l.y, x - l.x) - l.beach.a0))) < l.beach.half) g.fillRect(gx * CS, gy * CS, CS + .4, CS + .4);
+        }
+      speckle(g, l.x - l.rx * 1.4, l.y - l.ry * 1.4, l.rx * 2.8, l.ry * 2.8, 600, ["rgba(255,255,255,.08)", "rgba(120,100,60,.08)"], .8);
+    }
+    if (l.walk) { g.strokeStyle = "#c2b493"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); l.walk.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); }
+  }
+}
+Object.assign(PROP_PARTS, {
+  // силос: цилиндр с конусом и лесенкой
+  silo: () => [{ geo: new THREE.CylinderGeometry(3.2, 3.2, 16, 16), mat: siloMat, x: 0, y: 8, z: 0 }, { geo: new THREE.ConeGeometry(3.4, 3, 16), mat: siloMat, x: 0, y: 17.5, z: 0 }, P_BOX(.3, 16, 1.2, 3.3, 8, 0, steelPostMat)],
+  // трактор: капот, кабина, большие задние колёса
+  tractor: v => [P_BOX(5, 2.6, 2.4, 1, 2.4, 0, tractorMats[v % 2]), P_BOX(2.8, 2.8, 2.6, -2.2, 4.2, 0, tractorMats[v % 2]), P_BOX(2.4, 2, .1, -2.2, 4.4, 1.32, darkGlassMat), P_BOX(2.4, 2, .1, -2.2, 4.4, -1.32, darkGlassMat), P_BOX(.25, 3, .25, 2.2, 5, .8, steelPostMat),
+    { geo: new THREE.CylinderGeometry(1.9, 1.9, .9, 14).rotateX(Math.PI / 2), mat: tyreMat18, x: -2.2, y: 1.9, z: 1.7 }, { geo: new THREE.CylinderGeometry(1.9, 1.9, .9, 14).rotateX(Math.PI / 2), mat: tyreMat18, x: -2.2, y: 1.9, z: -1.7 },
+    { geo: new THREE.CylinderGeometry(1, 1, .7, 12).rotateX(Math.PI / 2), mat: tyreMat18, x: 2.4, y: 1, z: 1.5 }, { geo: new THREE.CylinderGeometry(1, 1, .7, 12).rotateX(Math.PI / 2), mat: tyreMat18, x: 2.4, y: 1, z: -1.5 }],
+  // рулон сена
+  hay: () => [{ geo: new THREE.CylinderGeometry(1.7, 1.7, 2.4, 12).rotateX(Math.PI / 2), mat: hayMat, x: 0, y: 1.7, z: 0 }],
+  // корова: туловище, голова, ноги; v — масть
+  cow: v => { const [a, b] = cowMats[v % 3]; return [P_BOX(3.4, 1.7, 1.5, 0, 2.2, 0, a), P_BOX(1.2, 1, 1.2, 0, 1.9, .3, b), P_BOX(1.1, .9, .9, 2.1, 2.5, 0, a), P_BOX(.9, .35, .3, 2.5, 2.9, 0, b), ...[[-1.2, .5], [-1.2, -.5], [1.2, .5], [1.2, -.5]].map(([x, z]) => P_BOX(.35, 1.4, .35, x, .7, z, b))]; },
+  // кормушка
+  trough: () => [P_BOX(5, .9, 1.6, 0, .6, 0, plankMat18), P_BOX(4.6, .2, 1.2, 0, 1, 0, darkGlassMat), P_BOX(.3, 1.2, 1.6, -2.3, .6, 0, plankMat18), P_BOX(.3, 1.2, 1.6, 2.3, .6, 0, plankMat18)],
+  // пирс: настил на сваях уходит в воду (+z), перила по бокам
+  pier: () => [P_BOX(5, .35, 26, 0, 1.3, 13, plankMat18), ...[3, 11, 19, 25].flatMap(z => [-2, 2].map(x => ({ geo: new THREE.CylinderGeometry(.3, .3, 4, 8), mat: plankMat18, x, y: -.5, z }))),
+    ...[-2.4, 2.4].flatMap(x => [P_BOX(.2, .2, 24, x, 2.6, 13, plankMat18), ...[4, 12, 20].map(z => P_BOX(.2, 1.3, .2, x, 2, z, plankMat18))])],
+  // пляжный зонтик с полотенцем
+  umbrella: v => [{ geo: new THREE.CylinderGeometry(.1, .1, 5.2, 6), mat: steelPostMat, x: 0, y: 2.6, z: 0 }, { geo: new THREE.ConeGeometry(2.8, 1.1, 10), mat: seatMats[v % 3], x: 0, y: 5.4, z: 0 }, P_BOX(3, .1, 1.6, 1.4, .06, 1.2, seatMats[(v + 1) % 3])],
+});
+
 /* ---------- обработка картинки: свечение, затенение, цветокоррекция ---------- */
 // финальный проход: тональная кривая ACES, насыщенность, контраст, тёплый оттенок, виньетка, плёночное зерно, перевод в sRGB
 const GRADE = {
@@ -10514,7 +10757,7 @@ const groundDet = { gOn: { value: 0 } };
 for (const [k, n] of [["gA", "asphalt"], ["gP", "pavement"], ["gG", "grass"]]) { const s = rtSlot(n); groundDet[k + "D"] = s.diff; groundDet[k + "N"] = s.nor; groundDet[k + "M"] = s.mean; }
 ground.material.extensions = { derivatives: true };
 ground.material.onBeforeCompile = sh => {
-  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = { value: new THREE.Vector2(W, H) }; Object.assign(sh.uniforms, groundDet);
+  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = groundWorldSize; Object.assign(sh.uniforms, groundDet);
   sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
     vec3 bc0 = diffuseColor.rgb; vec2 gWP = vUv * worldSize; vec3 gK = vec3(0.);
     diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28 * (1. - .6 * gOn));
@@ -11631,8 +11874,8 @@ const SAVE_SLOTS = 3;
 const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
-const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown"];
-const A_SKIP = new Set(["busGoal", "onBus", "busWait", "ride", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
+const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown", "shape", "farm", "faceSgn"];
+const A_SKIP = new Set(["busGoal", "onBus", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
 function serializeGame() {
   const bi = new Map(buildings.map((b, i) => [b, i]));
   const inCar = new Set(); for (const c of cars) if (c.service && !c.gone) for (const a of c.crew || []) if (a.unit === c) inCar.add(a);
@@ -11642,46 +11885,47 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park", "passengers", "line", "stopI", "stopK", "stopT0", "yieldTo"].includes(k)) // yieldTo — ссылка на машину: при сохранении в момент уступки получался цикл o[k] = c[k];
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park"].includes(k)) o[k] = c[k];
     // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
     if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
   });
   return {
-    v: 3, date: Date.now(), layoutKey, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
-    wallJobs: wallJobs.map(j => ({ ...j, cp: cps.indexOf(j.cp) })), zones: b64(zoneOf), zoneSeq,
-    grid: b64(grid), bhp16: b64(Uint16Array.from(bhp, v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask),
+    v: 3, date: Date.now(), layoutKey, mapSize, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
+    wallJobs: wallJobs.map(j => ({ ...j, cp: cps.indexOf(j.cp) })), zones: b64(zoneOf.subarray(0, GW * GH)), zoneSeq,
+    grid: b64(grid.subarray(0, GW * GH)), bhp16: b64(Uint16Array.from(bhp.subarray(0, GW * GH), v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask.subarray(0, GW * GH)),
     buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
     roads: { nodes: RN.map(n => [n.x, n.y, n.off || 0, n.cul ? 1 : 0]), edges: RE.map(e => [e.a.id, e.b.id, e.pts, e.hw, e.kind, e.oneway ? 1 : 0, e.rural ? 1 : 0, e.boulevard ? 1 : 0, e.trees ? 1 : 0, e.sw]), rounds },
-    roadMask: b64(roadMask), regionOf: b64(Int16Array.from(regionOf, v => v)), patchOf: b64(patchOf), patches,
-    blocks: blocks.map(b => ({ id: b.id, n: b.n, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, cx: b.cx, cy: b.cy, kind: b.kind, d: b.d, lot: b.lot, rural: b.rural, city: b.city, paths: b.paths, pond: b.pond })),
+    roadMask: b64(roadMask.subarray(0, GW * GH)), regionOf: b64(Int16Array.from(regionOf.subarray(0, GW * GH), v => v)), patchOf: b64(patchOf.subarray(0, GW * GH)), patches,
+    blocks: blocks.map(b => ({ id: b.id, n: b.n, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, cx: b.cx, cy: b.cy, kind: b.kind, ch: b.ch, d: b.d, lot: b.lot, rural: b.rural, city: b.city, paths: b.paths, pond: b.pond, lake: b.lake, farm: b.farm })),
     trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), hydrants, lamps, fountains, fences, props, entries, threat: threat && { ...threat, cols: threat.cols.map(c => ({ ...c, cp: cps.indexOf(c.cp) })) }, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
     special: Object.fromEntries(Object.entries(special).map(([k, v]) => [k, { x: v.x, y: v.y, b: bi.get(v.b) }])),
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
-    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
-    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
+    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask.subarray(0, GW * GH)), quarMask: Array.from(quarMask.subarray(0, GW * GH)), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
+    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH.subarray(0, GW * GH), v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
 function loadGame(S) {
   if (!S.roads) { warn("<b>Сохранение старой версии</b> — карта с прежними улицами больше не загружается."); return false; }
   if (fps.on) stopFps();
   layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
+  mapSize = S.mapSize || "normal"; setMapSize(mapSize);
+  grid.fill(2); bhp.fill(0); wallMask.fill(0); roadMask.fill(0); regionOf.fill(-1); patchOf.fill(-1);
   grid.set(unb64(S.grid, Uint8Array)); bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
   // сеть дорог: узлы, рёбра, полосы заново из сохранённой геометрии
   RN = []; RE = []; rounds = S.roads.rounds || [];
   for (const [x, y, off, cul] of S.roads.nodes) { const n = rnNew(x, y); n.off = off; n.cul = !!cul; }
   for (const [a, b, pts, hw, kind, ow, rur, bv, tr, sw] of S.roads.edges) reNew(RN[a], RN[b], pts, hw, kind, !!ow, { rural: !!rur, boulevard: !!bv, trees: !!tr, sw: sw || SW });
   prepareGraph(); routeCache.clear(); exitRoute = null; turnCache.clear();
-  roadMask.set(unb64(S.roadMask, Uint8Array)); { const r = unb64(S.regionOf, Int16Array); for (let i = 0; i < regionOf.length; i++) regionOf[i] = r[i]; } buildCrossMask();
+  roadMask.set(unb64(S.roadMask, Uint8Array)); { const r = unb64(S.regionOf, Int16Array); for (let i = 0; i < r.length; i++) regionOf[i] = r[i]; } buildCrossMask();
   patchOf.set(unb64(S.patchOf, Int16Array)); patches = S.patches || [];
   blocks = S.blocks; computeDistRoad();
-  buildings = S.buildings.map(b => ({ ...b, h: b.floors * (b.kind === "house" ? 11 : 12), occ: [] }));
+  buildings = S.buildings.map(b => ({ ...b, h: b.floors * floorH(b.kind), occ: [] }));
   siteMask.fill(0); for (const b of buildings) if (b.siteCells) for (let k = 0; k < b.siteCells.length; k += 2) siteMask[b.siteCells[k]] = 1;
   trees = S.trees; hydrants = S.hydrants || []; lamps = S.lamps; fountains = S.fountains; fences = S.fences; props = S.props || []; entries = S.entries || []; threat = S.threat || null; hordeFields.clear(); waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
   special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));
-  buildBusLines(); // маршруты автобусов — заново из графа и остановок; автобусы возьмут ближайший
   agents = S.agents.filter(o => !o.inCar || ["army", "police", "medic"].includes(o.role)).map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; a.squad = 0; a.unit = null; a.job = null; if (o.inCar) { delete a.inCar; if (a.role !== "army") { a.standDown = true; a.standT = 0; a.order = a.role === "police" ? { x: special.police.x, y: special.police.y } : { x: special.hospital.x, y: special.hospital.y }; } } if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
   cars = S.cars.map(o => { const c = { ...newCar(), ...o, turn: null, next: null }; c.lane = o.lane >= 0 && RL[o.lane] ? RL[o.lane] : null; if (!c.lane) { c.moving = false; if (!c.stopped) c.lane = null; } return c; });
   tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
@@ -11719,7 +11963,7 @@ function renderSaves() {
   const rows = [];
   for (let i = 1; i <= SAVE_SLOTS; i++) {
     let meta = null; try { const m = localStorage.getItem(slotKey(i) + "-meta"); if (m) meta = JSON.parse(m); else { const raw = localStorage.getItem(slotKey(i)); if (raw && raw[0] === "{") meta = JSON.parse(raw); } } catch (e) {}
-    const desc = meta ? `${(SCENARIOS[meta.scen] || {}).n || "Свободная игра"} · ${(LAYOUTS[meta.layoutKey] || {}).n || ""} · ${mmss(meta.simT)} игры · ${new Date(meta.date).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Пусто";
+    const desc = meta ? `${(SCENARIOS[meta.scen] || {}).n || "Свободная игра"} · ${(LAYOUTS[meta.layoutKey] || {}).n || ""}${meta.mapSize === "big" ? " · большая карта" : ""} · ${mmss(meta.simT)} игры · ${new Date(meta.date).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Пусто";
     rows.push(`<li><div><b>Слот ${i}</b><small>${desc}</small></div><div class="slotbtns"><button class="btn" data-save="${i}">Сохранить</button><button class="btn" data-load="${i}"${meta ? "" : " disabled"}>Загрузить</button><button class="btn" data-del="${i}"${meta ? "" : " disabled"}>Удалить</button></div></li>`);
   }
   $("saveList").innerHTML = rows.join("");
@@ -11745,7 +11989,7 @@ $("saveList").addEventListener("click", async e => {
     if (b.dataset.save) {
       const S = serializeGame(), data = await packSave(JSON.stringify(S, (k, v) => typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 100) / 100 : v));
       localStorage.removeItem(slotKey(i)); localStorage.removeItem(slotKey(i) + "-meta");
-      localStorage.setItem(slotKey(i), data); localStorage.setItem(slotKey(i) + "-meta", JSON.stringify({ scen: S.scen, layoutKey: S.layoutKey, simT: S.simT, date: S.date }));
+      localStorage.setItem(slotKey(i), data); localStorage.setItem(slotKey(i) + "-meta", JSON.stringify({ scen: S.scen, layoutKey: S.layoutKey, mapSize: S.mapSize, simT: S.simT, date: S.date }));
       $("saveNote").textContent = `Сохранено в слот ${i}.`;
     }
     if (b.dataset.load) { const S = JSON.parse(await unpackSave(localStorage.getItem(slotKey(i)))); loadGame(S); $("saves").hidden = true; setPaused(false); }
@@ -11766,10 +12010,10 @@ function miniResize() {
   miniDpr = Math.min(2, window.devicePixelRatio || 1);
   const cw = miniBig ? 480 : 240, ch = miniBig ? 320 : 160;
   document.body.classList.toggle("miniBig", miniBig);
-  mini.width = Math.round(cw * miniDpr); mini.height = Math.round(ch * miniDpr); MS = mini.width / W; gridDirtyMini = true; miniDirtyT = 0;
+  mini.width = Math.round(cw * miniDpr); mini.height = Math.round(ch * miniDpr); MS = Math.min(mini.width / W, mini.height / H); gridDirtyMini = true; miniDirtyT = 0;
 }
 const MINI_CELL = [[92, 96, 100], [98, 101, 104], [63, 95, 52], [150, 145, 135], [44, 74, 38], [92, 96, 100], [184, 154, 60], [118, 114, 106], [107, 95, 80], [31, 64, 87], [122, 114, 104]];
-const MINI_KIND = { hospital: "#eef0f0", police: "#4f7fe0", fire: "#d8503a", mall: "#c9a070", power: "#8a8070", water: "#7fa7c7", radio: "#9a9a90", church: "#d9b44a", station: "#b9a07a", school: "#d9c27a", gas: "#e8c040", basehq: "#7b8a4f", barracks: "#6f7d48", hangar: "#6a7068", warehouse: "#8d8579", factory: "#857d70" };
+const MINI_KIND = { hospital: "#eef0f0", police: "#4f7fe0", fire: "#d8503a", mall: "#c9a070", power: "#8a8070", water: "#7fa7c7", radio: "#9a9a90", church: "#d9b44a", station: "#b9a07a", school: "#d9c27a", gas: "#e8c040", market: "#d9a060", autoservice: "#8d8579", cafe: "#c88a5a", kinder: "#e0c070", garages: "#8a8a80", barn: "#8a5a3a", farmhouse: "#b49a6c", manor: "#c8b48c", cottage: "#b8a890", dacha: "#a8a07a", basehq: "#7b8a4f", barracks: "#6f7d48", hangar: "#6a7068", warehouse: "#8d8579", factory: "#857d70" };
 function paintMiniBase() {
   miniBase.width = mini.width; miniBase.height = mini.height;
   const g = miniBase.getContext("2d");
@@ -12014,7 +12258,7 @@ const LAYOUT_INFO = {
   park: "огромный парк с озером в середине", mega: "плотная сетка, бродвей и центральный парк", suburb: "петли улиц, тупики-разъезды, частные дома",
   industry: "склады и стоянки на полгорода", river: "река и мосты", port: "море вдоль края", mountain: "горы", valley: "долина",
 };
-const wiz = { step: 0, scen: "sandbox", layout: "random", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true, threats: true };
+const wiz = { step: 0, scen: "sandbox", layout: "random", map: "normal", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true, threats: true };
 function cardHTML(name, value, title, sub, checked) {
   return `<label class="card"><input type="radio" name="${name}" value="${value}"${checked ? " checked" : ""}><b>${title}</b><small>${sub}</small></label>`;
 }
@@ -12032,6 +12276,7 @@ $("wizard").addEventListener("change", e => {
   const t = e.target;
   if (t.name === "wScen") { wiz.scen = t.value; renderWizard(); }
   if (t.name === "wLayout") wiz.layout = t.value;
+  if (t.name === "wMap") wiz.map = t.value;
   if (t.id === "wPop") { wiz.pop = +t.value; $("wPopO").textContent = t.value; }
   if (t.name === "wZ") wiz.fast = t.value === "fast";
   if (t.id === "wInc") { wiz.inc = +t.value; $("wIncO").textContent = t.value + " с"; }
@@ -12052,6 +12297,7 @@ function startGame() {
   $("fast").checked = wiz.fast; $("inc").value = wiz.inc; $("incO").textContent = wiz.inc + " с"; $("arm").value = wiz.armed; $("armO").textContent = wiz.armed + "%"; $("services").checked = wiz.services; $("threats").checked = wiz.threats;
   $("pop").value = wiz.pop; $("popO").textContent = wiz.pop;
   $("layout").value = SCENARIOS[wiz.scen].layout || wiz.layout;
+  mapSize = wiz.map;
   world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);
@@ -12115,7 +12361,7 @@ $("resStay").addEventListener("click", () => { $("result").hidden = true; setPau
 
 /* ---------- обучение при первом запуске ---------- */
 const TUT = [
-  { el: "stage", text: "Это город на 600 × 400 метров. Где-то в нём нулевой пациент — он ещё не знает, что заражён. Правая кнопка мыши вращает камеру, колесо приближает, WASD двигает." },
+  { el: "stage", text: "Это город среди полей, ферм и озёр (обычная карта 900 × 600 метров, большая — 1300 × 900). Где-то в нём нулевой пациент — он ещё не знает, что заражён. Правая кнопка мыши вращает камеру, колесо приближает, WASD двигает." },
   { el: "tools", text: "Инструменты собраны по разделам: заражение, оборона, службы, удары. Наведи на кнопку — внизу появится подсказка. Клавиши 1–0 выбирают первые инструменты." },
   { el: "camCine", text: "Кнопки камеры: обзор города, вид с улицы, третье лицо и «Кино» — камера сама летит туда, где интереснее всего." },
   { el: "nH", text: "Сводка. Клик по плашке подсвечивает всех этого типа на карте и показывает одного; повторный клик — следующего." },

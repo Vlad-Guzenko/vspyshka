@@ -8,10 +8,10 @@ function miniResize() {
   miniDpr = Math.min(2, window.devicePixelRatio || 1);
   const cw = miniBig ? 480 : 240, ch = miniBig ? 320 : 160;
   document.body.classList.toggle("miniBig", miniBig);
-  mini.width = Math.round(cw * miniDpr); mini.height = Math.round(ch * miniDpr); MS = mini.width / W; gridDirtyMini = true; miniDirtyT = 0;
+  mini.width = Math.round(cw * miniDpr); mini.height = Math.round(ch * miniDpr); MS = Math.min(mini.width / W, mini.height / H); gridDirtyMini = true; miniDirtyT = 0;
 }
 const MINI_CELL = [[92, 96, 100], [98, 101, 104], [63, 95, 52], [150, 145, 135], [44, 74, 38], [92, 96, 100], [184, 154, 60], [118, 114, 106], [107, 95, 80], [31, 64, 87], [122, 114, 104]];
-const MINI_KIND = { hospital: "#eef0f0", police: "#4f7fe0", fire: "#d8503a", mall: "#c9a070", power: "#8a8070", water: "#7fa7c7", radio: "#9a9a90", church: "#d9b44a", station: "#b9a07a", school: "#d9c27a", gas: "#e8c040", basehq: "#7b8a4f", barracks: "#6f7d48", hangar: "#6a7068", warehouse: "#8d8579", factory: "#857d70" };
+const MINI_KIND = { hospital: "#eef0f0", police: "#4f7fe0", fire: "#d8503a", mall: "#c9a070", power: "#8a8070", water: "#7fa7c7", radio: "#9a9a90", church: "#d9b44a", station: "#b9a07a", school: "#d9c27a", gas: "#e8c040", market: "#d9a060", autoservice: "#8d8579", cafe: "#c88a5a", kinder: "#e0c070", garages: "#8a8a80", barn: "#8a5a3a", farmhouse: "#b49a6c", manor: "#c8b48c", cottage: "#b8a890", dacha: "#a8a07a", basehq: "#7b8a4f", barracks: "#6f7d48", hangar: "#6a7068", warehouse: "#8d8579", factory: "#857d70" };
 function paintMiniBase() {
   miniBase.width = mini.width; miniBase.height = mini.height;
   const g = miniBase.getContext("2d");

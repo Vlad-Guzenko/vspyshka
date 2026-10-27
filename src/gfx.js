@@ -327,7 +327,7 @@ const groundDet = { gOn: { value: 0 } };
 for (const [k, n] of [["gA", "asphalt"], ["gP", "pavement"], ["gG", "grass"]]) { const s = rtSlot(n); groundDet[k + "D"] = s.diff; groundDet[k + "N"] = s.nor; groundDet[k + "M"] = s.mean; }
 ground.material.extensions = { derivatives: true };
 ground.material.onBeforeCompile = sh => {
-  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = { value: new THREE.Vector2(W, H) }; Object.assign(sh.uniforms, groundDet);
+  sh.uniforms.detailMap = { value: detailTex }; sh.uniforms.worldSize = groundWorldSize; Object.assign(sh.uniforms, groundDet);
   sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
     vec3 bc0 = diffuseColor.rgb; vec2 gWP = vUv * worldSize; vec3 gK = vec3(0.);
     diffuseColor.rgb *= mix(1., texture2D(detailMap, vUv * 380.).r * 2., .28 * (1. - .6 * gOn));

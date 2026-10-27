@@ -18,7 +18,7 @@ function fillDisc(cx, cy, rx, ry, v, keep) {
 function addRotBuilding(cx, cy, w, d, rot, props) {
   const c = Math.abs(Math.cos(rot)), s = Math.abs(Math.sin(rot)), hx = (w * c + d * s) / 2, hy = (w * s + d * c) / 2;
   const bb = { x0: cx - hx, y0: cy - hy, x1: cx + hx, y1: cy + hy, rot, w, d, cx, cy, ...props };
-  bb.h = bb.floors * (bb.kind === "house" ? 11 : 12); bb.fire = 0; bb.scorch = 0; bb.hp = 100 + bb.floors * 6 + w * d / 400; bb.maxHp = bb.hp; bb.state = "ok"; bb.ruinH = 0; bb.cT = 0;
+  bb.h = bb.floors * floorH(bb.kind); bb.fire = 0; bb.scorch = 0; bb.hp = 100 + bb.floors * 6 + w * d / 400; bb.maxHp = bb.hp; bb.state = "ok"; bb.ruinH = 0; bb.cT = 0;
   buildings.push(bb); fillRotRect(cx, cy, w, d, rot, 3);
   return bb;
 }

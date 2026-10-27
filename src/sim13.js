@@ -17,7 +17,7 @@ function evictRect(x0, y0, x1, y1) {
 function unblock(cells) { for (const [i, c] of cells) if (grid[i] === 5) grid[i] = c; fieldT = 0; }
 /* ---------- ловушки: мины, растяжки, бочки, электрозабор с генератором ---------- */
 let traps = [], gens = [];
-const elecMask = new Uint8Array(GW * GH);
+const elecMask = new Uint8Array(GMAX);
 function addMine(x, y) { if (blocked(x, y)) return false; traps.push({ k: "mine", x, y, arm: 2 }); logT("mine", "Установлена мина", "", 10); return true; }
 function addWire(x0, y0, x1, y1) { const L = Math.hypot(x1 - x0, y1 - y0); if (L < 6) return false; traps.push({ k: "wire", x: x0, y: y0, x2: x1, y2: y1, arm: 2 }); logT("wire", "Поставлена растяжка", "", 10); return true; }
 function addBarrels(x, y) { for (let i = 0; i < 3; i++) { const [bx, by] = freeNear(x + rnd(-4, 4), y + rnd(-4, 4), 4); traps.push({ k: "barrel", x: bx, y: by, fuse: -1 }); fillCells(bx - 1, by - 1, bx + 1, by + 1, 5); evictRect(bx - 4, by - 4, bx + 4, by + 4); } fieldT = 0; logT("barrel", "Выставлены бочки с бензином", "", 10); return true; }
@@ -112,7 +112,7 @@ let cps = [];
    closeOut — из города): маршруты такое направление объезжают, а подъехавшие разворачиваются. shut — пост закрыт целиком
    (орда рядом): шлагбаумы опущены, проезд и проход заложены блоками. outDir: 1 — наружу из города по возрастанию t ребра,
    -1 — по убыванию, 0 — пост внутри города, направления не важны */
-const postMask = new Uint8Array(GW * GH);
+const postMask = new Uint8Array(GMAX);
 function postCell(cp, i, list) {
   if (i in cp.prev || !fenceable(grid[i])) return;
   cp.prev[i] = grid[i]; grid[i] = 6; bhp[i] = 400; wallMask[i] = 0; postMask[i] = 1; list.push(i);
