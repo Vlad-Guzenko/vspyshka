@@ -193,7 +193,9 @@ function addRoad(pts, hw, kind, opt = {}) {
 function finishGraph() {
   for (let pass = 0; pass < 3; pass++) {
     for (const e of RE) {
-      if (e.dead || e.len >= 9 || e.a === e.b || e.kind === "ring") continue;
+      if (e.dead || e.a === e.b || e.kind === "ring") continue;
+      // короткое ребро схлопывается; между двумя перекрёстками — и до 24: иначе между ними не помещается машина, и оба запираются
+      if (e.len >= (e.a.ed.length >= 3 && e.b.ed.length >= 3 && !e.a.round && !e.b.round ? 24 : 9)) continue;
       const keep = e.a.exit || e.a.round ? e.a : e.b, gone = keep === e.a ? e.b : e.a;
       if (gone.exit || gone.round) continue;
       reKill(e);
@@ -257,6 +259,14 @@ function prepareGraph() {
     const main = n.ed.reduce((a, e) => e.hw > a.hw ? e : a, n.ed[0]), ax = edgeDirFrom(main, n);
     n.grpA = new Set(n.ed.filter(e => { const v = edgeDirFrom(e, n); return Math.abs(ax[0] * v[1] - ax[1] * v[0]) < .5; }));
   }
+  // соседние светофоры (короткое ребро между ними, как на бульваре из двух проспектов) работают в один такт:
+  // ведущий — узел с меньшим номером, остальные повторяют его фазу, с переворотом, если главная ось у них поперёк
+  for (const n of RN) { n.sigLead = n.sig ? n : null; n.sigFlip = false; }
+  for (const n of RN) {
+    if (!n.sig || n.sigLead !== n) continue;
+    const q = [n];
+    while (q.length) { const a = q.pop(); for (const e of a.ed) { if (e.len > 110) continue; const b = e.a === a ? e.b : e.a; if (!b.sig || b.sigLead === n) continue; if (b.sigLead !== b) continue; b.sigLead = n; b.sigFlip = a.sigFlip !== (a.grpA.has(e) !== b.grpA.has(e)); q.push(b); } }
+  }
   // стоп-линии и начало застройки от каждого узла: зависят от ширины и угла соседних улиц
   for (const n of RN) {
     const deg = n.ed.length;
@@ -285,7 +295,7 @@ function prepareGraph() {
 function buildCrossMask() {
   crossMask.fill(0);
   const band = (e, t) => { const p = edgePos(e, t); for (let o = -e.hw; o <= e.hw; o += CS / 2) for (let s = -5; s <= 5; s += CS / 2) { const x = p.x - p.ty * o + p.tx * s, y = p.y + p.tx * o + p.ty * s, gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && roadMask[gy * GW + gx] === 1) crossMask[gy * GW + gx] = 1; } };
-  for (const n of RN) { if (n.ed.length < 3 || n.round) continue; for (const e of n.ed) { if (e.rural) continue; const r = e.a === n ? e.ra : e.rb; band(e, e.a === n ? r - 6 : e.len - r + 6); } }
+  for (const n of RN) { if (n.ed.length < 3) continue; for (const e of n.ed) { if (e.rural) continue; const r = e.a === n ? e.ra : e.rb; band(e, e.a === n ? r - 6 : e.len - r + 6); } }
   for (const e of RE) if (!e.rural && e.kind !== "ring" && e.len > 260) band(e, e.len / 2);
 }
 function laneFrom(e, n) { return e.a === n ? e.L[0] : e.L[1]; }
@@ -300,11 +310,31 @@ function lanePos(l, s) {
 }
 function edgeTOfLane(l, s) { return l.d > 0 ? s : l.e.len - s; }
 function laneSOfT(l, t) { return l.d > 0 ? t : l.e.len - t; }
-// светофор: зелёный 13 с по главной оси, жёлтый 2, потом поперечная
+// светофор: фазы 0 — зелёный по главной оси, 1 — жёлтый, 2 — зелёный поперечной, 3 — жёлтый; переключает signalTick (traffic.js)
+// по очередям: зелёный держится от 8 до 24 с и отдаётся поперечной, когда там ждут, а здесь пусто или очередь заметно короче
 function lightFor(n, e) {
   if (!n.sig) return "g";
-  const t = (simT + n.off) % 30, A = n.grpA.has(e);
-  return A ? (t < 13 ? "g" : t < 15 ? "y" : "r") : (t >= 15 && t < 28 ? "g" : t >= 28 ? "y" : "r");
+  const ph = n.ph === undefined ? ((simT + (n.off || 0)) % 30 < 15 ? 0 : 2) : n.ph, A = n.grpA.has(e);
+  return ph === 0 ? (A ? "g" : "r") : ph === 1 ? (A ? "y" : "r") : ph === 2 ? (A ? "r" : "g") : (A ? "r" : "y");
+}
+let sigT = 0;
+function signalTick(dt) {
+  sigT -= dt; if (sigT > 0) return; sigT = .5;
+  const q = new Map();
+  for (const c of cars) { if (c.gone || !c.moving || !c.lane || c.turn || c.v > 3) continue; const l = c.lane, n = l.to; if (!n.sig || laneEnd(l) - c.s > 70) continue; let a = q.get(n); if (!a) q.set(n, a = [0, 0]); a[n.grpA.has(l.e) ? 0 : 1]++; }
+  // очереди группы светофоров суммируются у ведущего (с учётом переворота осей)
+  const qq = new Map();
+  for (const [n, a] of q) { const L = n.sigLead || n, f = n.sigFlip; let b = qq.get(L); if (!b) qq.set(L, b = [0, 0]); b[0] += a[f ? 1 : 0]; b[1] += a[f ? 0 : 1]; }
+  for (const n of RN) {
+    if (!n.sig || (n.sigLead && n.sigLead !== n)) continue;
+    if (n.ph === undefined) { n.ph = Math.random() < .5 ? 0 : 2; n.phT = simT - rnd(0, 8); }
+    const t = simT - n.phT;
+    if (n.ph === 1 || n.ph === 3) { if (t >= 2) { n.ph = (n.ph + 1) % 4; n.phT = simT; } continue; }
+    if (t < 8) continue;
+    const a = qq.get(n) || [0, 0], own = a[n.ph === 0 ? 0 : 1], oth = a[n.ph === 0 ? 1 : 0];
+    if (t >= 24 || (oth > 0 && (own === 0 || oth > own + 2))) { n.ph = (n.ph + 1) % 4; n.phT = simT; }
+  }
+  for (const n of RN) if (n.sig && n.sigLead && n.sigLead !== n && n.sigLead.ph !== undefined) { n.ph = n.sigFlip ? (n.sigLead.ph + 2) % 4 : n.sigLead.ph; n.phT = n.sigLead.phT; }
 }
 
 /* ---------- клетки: проезжая часть, тротуары, кварталы ---------- */
@@ -353,7 +383,7 @@ function blockAt(x, y) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS);
 
 /* ---------- поиск пути по дорогам ---------- */
 // расстояние от каждого узла до цели по направленным полосам (с учётом перекрытых недавно рёбер)
-function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.hw >= 20 ? .85 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0) + (e.quar && e.quarGate !== e.quar ? 3000 : e.quarGate ? 400 : 0) + (e.narrow ? 150 : 0) + (e.jamN || 0) * 30; }
+function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.kind === "ring" ? 2 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0) + (e.quar && e.quarGate !== e.quar ? 3000 : e.quarGate ? 400 : 0) + (e.narrow ? 150 : 0) + (e.jamN || 0) * 110; }
 function dijkstraTo(seeds) {
   const dist = new Float64Array(RN.length).fill(1e12), done = new Uint8Array(RN.length);
   for (const [n, d] of seeds) dist[n.id] = Math.min(dist[n.id], d);

@@ -812,7 +812,9 @@ function addRoad(pts, hw, kind, opt = {}) {
 function finishGraph() {
   for (let pass = 0; pass < 3; pass++) {
     for (const e of RE) {
-      if (e.dead || e.len >= 9 || e.a === e.b || e.kind === "ring") continue;
+      if (e.dead || e.a === e.b || e.kind === "ring") continue;
+      // короткое ребро схлопывается; между двумя перекрёстками — и до 24: иначе между ними не помещается машина, и оба запираются
+      if (e.len >= (e.a.ed.length >= 3 && e.b.ed.length >= 3 && !e.a.round && !e.b.round ? 24 : 9)) continue;
       const keep = e.a.exit || e.a.round ? e.a : e.b, gone = keep === e.a ? e.b : e.a;
       if (gone.exit || gone.round) continue;
       reKill(e);
@@ -876,6 +878,14 @@ function prepareGraph() {
     const main = n.ed.reduce((a, e) => e.hw > a.hw ? e : a, n.ed[0]), ax = edgeDirFrom(main, n);
     n.grpA = new Set(n.ed.filter(e => { const v = edgeDirFrom(e, n); return Math.abs(ax[0] * v[1] - ax[1] * v[0]) < .5; }));
   }
+  // соседние светофоры (короткое ребро между ними, как на бульваре из двух проспектов) работают в один такт:
+  // ведущий — узел с меньшим номером, остальные повторяют его фазу, с переворотом, если главная ось у них поперёк
+  for (const n of RN) { n.sigLead = n.sig ? n : null; n.sigFlip = false; }
+  for (const n of RN) {
+    if (!n.sig || n.sigLead !== n) continue;
+    const q = [n];
+    while (q.length) { const a = q.pop(); for (const e of a.ed) { if (e.len > 110) continue; const b = e.a === a ? e.b : e.a; if (!b.sig || b.sigLead === n) continue; if (b.sigLead !== b) continue; b.sigLead = n; b.sigFlip = a.sigFlip !== (a.grpA.has(e) !== b.grpA.has(e)); q.push(b); } }
+  }
   // стоп-линии и начало застройки от каждого узла: зависят от ширины и угла соседних улиц
   for (const n of RN) {
     const deg = n.ed.length;
@@ -904,7 +914,7 @@ function prepareGraph() {
 function buildCrossMask() {
   crossMask.fill(0);
   const band = (e, t) => { const p = edgePos(e, t); for (let o = -e.hw; o <= e.hw; o += CS / 2) for (let s = -5; s <= 5; s += CS / 2) { const x = p.x - p.ty * o + p.tx * s, y = p.y + p.tx * o + p.ty * s, gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && roadMask[gy * GW + gx] === 1) crossMask[gy * GW + gx] = 1; } };
-  for (const n of RN) { if (n.ed.length < 3 || n.round) continue; for (const e of n.ed) { if (e.rural) continue; const r = e.a === n ? e.ra : e.rb; band(e, e.a === n ? r - 6 : e.len - r + 6); } }
+  for (const n of RN) { if (n.ed.length < 3) continue; for (const e of n.ed) { if (e.rural) continue; const r = e.a === n ? e.ra : e.rb; band(e, e.a === n ? r - 6 : e.len - r + 6); } }
   for (const e of RE) if (!e.rural && e.kind !== "ring" && e.len > 260) band(e, e.len / 2);
 }
 function laneFrom(e, n) { return e.a === n ? e.L[0] : e.L[1]; }
@@ -919,11 +929,31 @@ function lanePos(l, s) {
 }
 function edgeTOfLane(l, s) { return l.d > 0 ? s : l.e.len - s; }
 function laneSOfT(l, t) { return l.d > 0 ? t : l.e.len - t; }
-// светофор: зелёный 13 с по главной оси, жёлтый 2, потом поперечная
+// светофор: фазы 0 — зелёный по главной оси, 1 — жёлтый, 2 — зелёный поперечной, 3 — жёлтый; переключает signalTick (traffic.js)
+// по очередям: зелёный держится от 8 до 24 с и отдаётся поперечной, когда там ждут, а здесь пусто или очередь заметно короче
 function lightFor(n, e) {
   if (!n.sig) return "g";
-  const t = (simT + n.off) % 30, A = n.grpA.has(e);
-  return A ? (t < 13 ? "g" : t < 15 ? "y" : "r") : (t >= 15 && t < 28 ? "g" : t >= 28 ? "y" : "r");
+  const ph = n.ph === undefined ? ((simT + (n.off || 0)) % 30 < 15 ? 0 : 2) : n.ph, A = n.grpA.has(e);
+  return ph === 0 ? (A ? "g" : "r") : ph === 1 ? (A ? "y" : "r") : ph === 2 ? (A ? "r" : "g") : (A ? "r" : "y");
+}
+let sigT = 0;
+function signalTick(dt) {
+  sigT -= dt; if (sigT > 0) return; sigT = .5;
+  const q = new Map();
+  for (const c of cars) { if (c.gone || !c.moving || !c.lane || c.turn || c.v > 3) continue; const l = c.lane, n = l.to; if (!n.sig || laneEnd(l) - c.s > 70) continue; let a = q.get(n); if (!a) q.set(n, a = [0, 0]); a[n.grpA.has(l.e) ? 0 : 1]++; }
+  // очереди группы светофоров суммируются у ведущего (с учётом переворота осей)
+  const qq = new Map();
+  for (const [n, a] of q) { const L = n.sigLead || n, f = n.sigFlip; let b = qq.get(L); if (!b) qq.set(L, b = [0, 0]); b[0] += a[f ? 1 : 0]; b[1] += a[f ? 0 : 1]; }
+  for (const n of RN) {
+    if (!n.sig || (n.sigLead && n.sigLead !== n)) continue;
+    if (n.ph === undefined) { n.ph = Math.random() < .5 ? 0 : 2; n.phT = simT - rnd(0, 8); }
+    const t = simT - n.phT;
+    if (n.ph === 1 || n.ph === 3) { if (t >= 2) { n.ph = (n.ph + 1) % 4; n.phT = simT; } continue; }
+    if (t < 8) continue;
+    const a = qq.get(n) || [0, 0], own = a[n.ph === 0 ? 0 : 1], oth = a[n.ph === 0 ? 1 : 0];
+    if (t >= 24 || (oth > 0 && (own === 0 || oth > own + 2))) { n.ph = (n.ph + 1) % 4; n.phT = simT; }
+  }
+  for (const n of RN) if (n.sig && n.sigLead && n.sigLead !== n && n.sigLead.ph !== undefined) { n.ph = n.sigFlip ? (n.sigLead.ph + 2) % 4 : n.sigLead.ph; n.phT = n.sigLead.phT; }
 }
 
 /* ---------- клетки: проезжая часть, тротуары, кварталы ---------- */
@@ -972,7 +1002,7 @@ function blockAt(x, y) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS);
 
 /* ---------- поиск пути по дорогам ---------- */
 // расстояние от каждого узла до цели по направленным полосам (с учётом перекрытых недавно рёбер)
-function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.hw >= 20 ? .85 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0) + (e.quar && e.quarGate !== e.quar ? 3000 : e.quarGate ? 400 : 0) + (e.narrow ? 150 : 0) + (e.jamN || 0) * 30; }
+function edgeCost(e) { return e.len * (e.kind === "ln" ? 1.25 : e.kind === "ring" ? 2 : 1) + (simT - e.blockT < 90 ? 4000 : 0) + (e.closed ? 3000 : 0) + (e.quar && e.quarGate !== e.quar ? 3000 : e.quarGate ? 400 : 0) + (e.narrow ? 150 : 0) + (e.jamN || 0) * 110; }
 function dijkstraTo(seeds) {
   const dist = new Float64Array(RN.length).fill(1e12), done = new Uint8Array(RN.length);
   for (const [n, d] of seeds) dist[n.id] = Math.min(dist[n.id], d);
@@ -1912,6 +1942,9 @@ function placeSpecialFallback(kind) {
 }
 
 /* ---------- машины на дорогах: полоса вдоль ребра, дуга поворота через перекрёсток ---------- */
+// настройки потока: tripShare — доля машин, которые едут по делам (остальные катаются); при 1 на планировках с кольцом и с частыми
+// перекрёстками («Живой город», «Пригород») поток за несколько минут запирается сам собой, при .3 ожидания как в случайной езде
+const TRAFFIC_TUNE = { bonus: true, park0: 12, park1: 30, park: true, exitShare: .12, localShare: .5, density: 1, tripShare: .3 };
 // c.lane — полоса, c.s — пройдено от её начала; у стоп-линии машина решает, куда дальше, и едет по кривой Безье на следующую полосу
 function dirOf(tx, ty) { return Math.abs(tx) > Math.abs(ty) ? (tx > 0 ? 0 : 2) : (ty > 0 ? 1 : 3); }
 function placeOnLane(c, l, s) {
@@ -1952,14 +1985,20 @@ function exitsOf(l) { const n = l.to, out = []; for (const e of n.ed) { const m 
 function chooseNext(c) {
   const l = c.lane, n = l.to;
   if (n.exit) return null;
+  if (c.trip && (c.flee || c.panic)) { c.trip = null; c.goal = null; } // бегущему не до дел
   const opts = exitsOf(l);
   if (!opts.length) return oppLane(l);
   const R = c.goal ? routeTo(c.goal.x, c.goal.y) : null;
-  if (R || c.flee || c.leaving) {
+  if (R || c.flee || c.leaving || (c.trip && c.trip.exit)) {
     const dist = R ? R.dist : exitDist();
-    let best = null, bd = 1e18;
-    for (const m of opts) { const d = R && m.e === R.e ? (m.d > 0 ? R.et : m.e.len - R.et) : edgeCost(m.e) + dist[m.to.id]; if (d < bd) { bd = d; best = m; } }
-    if (best && bd < 1e11) return best;
+    let best = null, bd = 1e18; const ds = [];
+    for (const m of opts) { const d = R && m.e === R.e ? (m.d > 0 ? R.et : m.e.len - R.et) : edgeCost(m.e) + dist[m.to.id]; ds.push(d); if (d < bd) { bd = d; best = m; } }
+    if (best && bd < 1e11) {
+      // горожане между почти равными путями выбирают случайно (службы и бегущие — строго кратчайший): поток расходится по параллельным улицам
+      if (!c.service && !c.flee && !c.leaving) { let tot = 0; const w = ds.map(d => { const k = d - bd < bd * .2 + 40 ? Math.exp(-(d - bd) / (bd * .08 + 20)) : 0; tot += k; return k; }); let r = Math.random() * tot; for (let i = 0; i < opts.length; i++) { r -= w[i]; if (r <= 0) return opts[i]; } }
+      return best;
+    }
+    if (c.trip) pickTrip(c); // цель отсюда недостижима — новая
   }
   let tot = 0;
   const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
@@ -1972,11 +2011,14 @@ function rankAt(e) { return e.kind === "ring" ? 3 : e.hw >= 22 ? 2 : e.hw >= 15 
 function canEnter(c, l, m) {
   const n = l.to, sig = n.sig && !settings.dark; // без света светофоры гаснут — едут по старшинству
   // долго ждёт у «уступи дорогу» — проезжает, но не на красный, не через завал и не туда, где за перекрёстком нет места
-  const force = c.wait > 40;
+  const force = c.wait > 40 || (c.stallT || 0) > 40;
   if (sig && !c.panic && !(c.service && c.siren)) {
     const st = lightFor(n, l.e);
     if (st === "r" || (st === "y" && c.v < 6)) return false;
   }
+  // короткий отрезок до следующего светофора (бульвар): не въезжаем, пока там не зелёный, иначе встанем между ними и запрём перекрёсток
+  // (только едущим прямо: их светофоры согласованы; поворачивающим на отрезок ждать дальнего зелёного нельзя — своего они уже не дождутся)
+  if (sig && !c.panic && !(c.service && c.siren) && m.e.len < 90 && m.to.sig && !force && n.grpA.has(l.e) === n.grpA.has(m.e) && lightFor(m.to, m.e) !== "g") return false;
   if (!force && !sig && n.ed.length >= 3) {
     const my = rankAt(l.e);
     for (const e of n.ed) {
@@ -1987,15 +2029,28 @@ function canEnter(c, l, m) {
       if (busy) return false;
     }
   }
+  // налево (и на разворот) — пропустив встречных, которые подъезжают к перекрёстку, ещё у стоп-линии, а не стоя посреди коробки
+  if (!force && n.ed.length >= 3 && turnAngle(l, m) < -.45 && oncomingNear(c, l)) return false;
   // на перекрёстке уже кто-то едет и наши пути пересекаются — пропускаем
   if (!force && n.occ.length) { const mine = makeTurn(l, m); for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false; }
   // на следующей полосе нет завала
   for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6) return false; }
-  // на следующей полосе есть место
-  const s1 = laneStart(m); let room = true;
-  const p = lanePos(m, s1 + 6);
-  nearCars(p.x, p.y, 20, o => { if (room && o !== c && !o.gone && o.lane === m && !o.turn && o.s < s1 + 15 && o.v < 6 && (o.moving || o.stopped)) room = false; });
-  return room;
+  // за перекрёстком есть место для всего кузова: очередь на следующей полосе не доходит до её начала
+  return nextLaneGap(c, m, laneStart(m), TRAFFIC_TUNE.bonus) > 2;
+}
+// встречные, которые подъезжают к тому же перекрёстку по продолжению нашей улицы (для левого поворота)
+function oncomingNear(c, l) {
+  const n = l.to, u = edgeDirFrom(l.e, n); let busy = false;
+  for (const e of n.ed) {
+    if (e === l.e || busy) continue;
+    const v = edgeDirFrom(e, n); if (u[0] * v[0] + u[1] * v[1] > -.6) continue; // не напротив
+    const inL = e.b === n ? e.L[0] : e.L[1]; if (!inL) continue;
+    if (n.sig && !settings.dark && lightFor(n, e) === "r") continue; // у них красный
+    const p = lanePos(inL, Math.max(laneStart(inL), laneEnd(inL) - 30));
+    // считаем тех, кто едет, и тех, кто только что подъехал к линии; давно стоящий у линии встречный сам чего-то ждёт — его не ждём
+    nearCars(p.x, p.y, 42, o => { if (busy || o === c || o.gone || o.lane !== inL || o.turn || !o.moving) return; const d = laneEnd(inL) - o.s; if (d < 60 && d > -2 && (o.v > 2 || (d < 16 && (o.stallT || 0) < 3)) && !(o.next && turnAngle(inL, o.next) < -.45)) busy = true; });
+  }
+  return busy;
 }
 // дуга через перекрёсток: кубическая кривая от стоп-линии до начала следующей полосы (геометрия не меняется — кэш)
 const turnCache = new Map();
@@ -2019,7 +2074,7 @@ function makeTurn(l, m) {
 }
 // пересекает ли наш путь через перекрёсток ещё не пройденную часть чужого (или подходит вплотную)
 function turnsCross(A, B, uB) {
-  let i0 = 1; while (i0 < B.cum.length - 1 && B.cum[i0] < uB) i0++;
+  let i0 = 1; while (i0 < B.cum.length - 1 && B.cum[i0] < uB - 12) i0++; // с учётом кузова за центром: иначе въедем ему в хвост
   for (let i = 1; i < A.pts.length; i++) {
     const a = A.pts[i - 1], b = A.pts[i];
     for (let j = i0; j < B.pts.length; j++) {
@@ -2030,14 +2085,108 @@ function turnsCross(A, B, uB) {
   }
   return false;
 }
+// место на следующей полосе: от нашего носа (sv — наше положение в координатах полосы m, на дуге оно отрицательное)
+// до хвоста ближайшей машины впереди; едущая быстро машина освободит место сама
+function nextLaneGap(c, m, sv, bonus) {
+  const p = lanePos(m, laneStart(m) + 22), myL = 10 * (c.len || 1) + 3; let gap = 1e9;
+  nearCars(p.x, p.y, 50, o => {
+    if (o === c || o.gone || o.towedBy || o.lane !== m || o.turn || o.park || !(o.moving || o.stopped)) return;
+    if (Math.abs((o.latOff || 0) - (c.latOff || 0)) >= 9.1) return; // стоит у бордюра — проезжаем мимо
+    if (o.s + 10 * (o.len || 1) < sv - myL) return; // целиком позади нас
+    const g = o.s - 10 * (o.len || 1) - sv - myL + (bonus && o.moving && o.v > 3 ? Math.min(30, o.v * 2) : 0); if (g < gap) gap = g; // у стоп-линии: едущий впереди за время дуги уйдёт дальше
+  });
+  return gap;
+}
+// кто из двух машин на перекрёстке прошёл больше, тот едет; второй ждёт
+function turnProg(c) { return c.turn.u / Math.max(1, c.turn.len) + (c._i || 0) * 1e-6; }
+// клетка проезжей части (тротуар у самой кромки — нет)
+function onRoadway(x, y) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return false; return roadMask[gy * GW + gx] === 1; }
+// люди на самой дуге поворота впереди (касательная их не видит); тротуар у угла не считается
+function peopleOnArc(c) {
+  const T = c.turn; let clear = 1e9;
+  for (let k = 12; k < 36 && k < clear; k += 6) { // от носа; тех, кто ближе, видит обычная проверка перед носом
+    const p = plPos(T.pts, T.cum, T.u + k); let hit = false;
+    near(p.x, p.y, 4, a => { if (!hit && a.state === "alive" && !a.hidden && a.z <= .5 && (a.role !== "zombie" || !c.panic) && onRoadway(a.x, a.y)) hit = true; });
+    if (hit) clear = Math.max(0, k - 2);
+  }
+  return clear;
+}
+
+/* ---------- зебры: машина пропускает тех, кто идёт по переходу или шагает на него с тротуара ---------- */
+// зебра у перекрёстка лежит на 6 дальше стоп-линии (crossMask в roads.js), посреди длинной улицы — на половине ребра
+const zebraCache = new Map();
+// сколько людей на переходе в точке t ребра e; side — сторона дороги нашей полосы (l.d), 0 — считать весь переход
+function zebraPeople(e, t, hw, side) {
+  const key = (e.id * 8192 + Math.round(t)) * 3 + side + 1, old = zebraCache.get(key); if (old && old.t === simT) return old.n;
+  const p = edgePos(e, t); let n = 0;
+  near(p.x, p.y, hw + 7, a => {
+    if (a.state !== "alive" || a.hidden || a.role === "zombie" || a.z > .5) return;
+    const dx = a.x - p.x, dy = a.y - p.y; if (Math.abs(dx * p.tx + dy * p.ty) > 7) return;
+    const lt = -dx * p.ty + dy * p.tx, d = Math.abs(lt);
+    if (side && lt * side < -2) return; // на светофоре смотрим только свою половину дороги
+    if (d < hw + 1 && onRoadway(a.x, a.y)) n++; // идёт по переходу (а не по тротуару вдоль кромки)
+    else if (d < hw + 5 && (-(a.vx || 0) * p.ty + (a.vy || 0) * p.tx) * -Math.sign(lt) > 1.5) n++; // шагает с тротуара на переход
+  });
+  if (zebraCache.size > 4000) zebraCache.clear();
+  zebraCache.set(key, { t: simT, n }); return n;
+}
+// переходы на полосе: [s по полосе, сторона]
+function zebrasOnLane(l) {
+  const e = l.e; if (e.rural) return null;
+  const out = []; if (e.kind !== "ring" && e.len > 260) out.push([e.len / 2, 0]);
+  const n = l.to; if (n.ed.length >= 3) out.push([laneEnd(l) + 6, n.sig && !settings.dark ? l.d : 0]);
+  return out;
+}
+// перед переходом с людьми машина встаёт так, чтобы нос не заходил на зебру (полоса зебры ±5 от центра, полкузова 10);
+// если нос уже на зебре, ждать поздно — дальше машину держит обычная проверка людей перед носом. Бегущие и сирена не ждут
+function zebraStop(c, l, clear) {
+  if (c.panic || c.flee || (c.service && c.siren)) return clear;
+  const zs = zebrasOnLane(l); if (!zs) return clear;
+  for (const [sz, side] of zs) {
+    const d = sz - c.s; if (d < 15 || d > 48) continue;
+    if (zebraPeople(l.e, edgeTOfLane(l, sz), l.e.hw, side)) clear = Math.min(clear, Math.max(0, d - 17));
+  }
+  return clear;
+}
+// то же на дуге поворота для перехода в начале следующей полосы (переход у своей стоп-линии нос уже занял)
+function zebraStopTurn(c, clear) {
+  if (c.panic || c.flee || (c.service && c.siren)) return clear;
+  const T = c.turn, n = T.n; if (n.ed.length < 3) return clear;
+  const m = T.to, dOut = T.len - T.u - 6;
+  if (dOut >= 15 && dOut < 48 && !m.e.rural && zebraPeople(m.e, edgeTOfLane(m, laneStart(m) - 6), m.e.hw, n.sig && !settings.dark ? m.d : 0)) clear = Math.min(clear, Math.max(0, dOut - 17));
+  return clear;
+}
+// спокойный пешеход перед проезжей частью смотрит по сторонам: машина близко и едет на него — ждёт у бордюра
+function zebraWait(a, m) {
+  const L = Math.hypot(m[0], m[1]); if (!L) return m;
+  const ci = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const hi = ci(a.x, a.y); if (grid[hi] === 0 && roadMask[hi] === 1) return m; // уже на дороге — не стоять
+  const nx = a.x + m[0] / L * 7, ny = a.y + m[1] / L * 7, ni = ci(nx, ny); if (!(grid[ni] === 0 && roadMask[ni] === 1)) return m;
+  // у светофора переход открыт, когда машинам на этой улице красный
+  const q = gEdgeNear(nx, ny, 40);
+  if (q && !q.e.rural) { const n = q.t < q.e.len / 2 ? q.e.a : q.e.b; if (n.sig && !settings.dark && Math.hypot(n.x - nx, n.y - ny) < q.e.hw * 2.5 + 20 && lightFor(n, q.e) !== "r") return [0, 0, 0]; }
+  // ждёт, если машина едет на него, или если у перехода уже стоит и ждёт своей очереди машина (по очереди, а не вечный поток людей)
+  let car = false;
+  nearCars(a.x, a.y, 48, c => {
+    if (car || c.gone || c.tank || !c.moving) return;
+    const dx = a.x - c.x, dy = a.y - c.y, d = Math.hypot(dx, dy); if (d > 48 || d < 1) return;
+    const fw = (dx * Math.cos(c.ang) + dy * Math.sin(c.ang)) / d;
+    if (c.v >= 5 ? fw > .35 && d < 16 + c.v * 1.5 : fw > 0 && d < 40 && c.wait > 1) car = true;
+  });
+  return car ? [0, 0, 0] : m;
+}
 function startTurn(c, m) {
   const l = c.lane, T = makeTurn(l, m);
+  // по левой полосе широкой улицы перекрёсток проходим, не сливаясь вправо, если дальше тоже широкая
+  c.keepLat = c.over === 3 && m.e.hw >= 22 && !m.e.oneway && m.e !== l.e ? c.latOff : 0;
+  if (!c.keepLat && c.latOff) { const a0 = T.pts[0]; c.offx = (c.offx || 0) + c.x - a0[0]; c.offy = (c.offy || 0) + c.y - a0[1]; c.latOff = c.latTgt = 0; c.over = 0; } // с левой полосы на дугу: сдвиг гаснет по ходу
   c.turn = { pts: T.pts, cum: T.cum, len: T.len, u: 0, to: m, n: l.to, from: l.e, sharp: T.sharp, T };
   l.to.occ.push(c); c.next = null; c.atLine = false;
 }
 function endTurn(c, extra) {
-  const T = c.turn, i = T.n.occ.indexOf(c); if (i >= 0) T.n.occ.splice(i, 1);
-  const v = c.v, ox = c.x, oy = c.y, ang = c.ang; placeOnLane(c, T.to, laneStart(T.to) + Math.max(0, extra || 0)); c.v = v; c.ang = ang;
+  const T = c.turn, i = T.n.occ.indexOf(c); if (i >= 0) T.n.occ.splice(i, 1); c.yieldTo = null;
+  const v = c.v, ox = c.x, oy = c.y, ang = c.ang, keep = c.keepLat || 0; placeOnLane(c, T.to, laneStart(T.to) + Math.max(0, extra || 0)); c.v = v; c.ang = ang;
+  if (keep) { c.latOff = c.latTgt = keep; c.over = 3; c.overT = 0; c.keepLat = 0; const q = lanePos(c.lane, c.s); c.x = q.x + q.ty * keep; c.y = q.y - q.tx * keep; }
   c.offx = (c.offx || 0) + ox - c.x; c.offy = (c.offy || 0) + oy - c.y; if (Math.hypot(c.offx, c.offy) > 6) c.offx = c.offy = 0;
 }
 // машина уехала за край карты
@@ -2053,24 +2202,29 @@ function leaveMap(c) {
   const cnt = lastCounts || null;
   if (cnt && cnt.Z > 6) { c.gone = true; c.moving = false; return; }
   const e = edgeLanePoint(); if (laneBusy(e.l, e.s, c)) { c.gone = true; c.moving = false; return; }
-  cancelGas(c); c.fuel = rnd(.2, 1);
+  cancelGas(c); c.fuel = rnd(.2, 1); c.trip = null; c.goal = null; c.park = null;
   placeOnLane(c, e.l, e.s); c.v = c.spd * .6; c.wait = 0; c.offx = c.offy = 0;
 }
 // что впереди по ходу: машины, люди, препятствия в клетках
-function scanAhead(c, x, y, tx, ty, l) {
+function scanAhead(c, x, y, tx, ty, l, ignore) {
   let clear = 1e9, ahead = null, people = false, zNear = 0, zAhead = false;
   nearCars(x + tx * 25, y + ty * 25, 34, o => {
-    if (o === c || o.gone || o.towedBy || (!o.moving && !o.stopped && !o.tank)) return;
-    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
+    if (o === c || o === ignore || o.gone || o.towedBy || (!o.moving && !o.stopped && !o.tank)) return;
+    if (o.yieldTo === c && simT < o.yieldT) return; // он уступает нам — не ждём его
+    // оба давно топчемся, и один из нас на дуге: не ждём друг друга, иначе кольцо ожидания через несколько перекрёстков
+    if ((c.turn || o.turn) && (c.stallT || 0) > 12 && (o.stallT || 0) > 8 && o.moving && !o.stopped && !o.park) return;
+    // дистанция до стоп-точки: встаём в двух единицах от хвоста передней машины (carTarget тормозит в ноль при 13)
+    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s - 10 * ((o.len || 1) + (c.len || 1)) + 11; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
     const al = (o.x - x) * tx + (o.y - y) * ty, lat = Math.abs((o.x - x) * ty - (o.y - y) * tx);
-    if (al > 0 && lat < 5.5 && al < clear) { clear = al; ahead = o; }
+    // стоп-точка — в двух единицах от его хвоста (по центрам машины заезжали друг в друга на полкузова)
+    if (al > 0 && lat < 5.5 && al - 10 * ((o.len || 1) + (c.len || 1)) + 11 < clear) { clear = Math.max(0, al - 10 * ((o.len || 1) + (c.len || 1)) + 11); ahead = o; }
     else if (al > 2 && al < 22 && lat < 9 && o.moving && o.v > 2 && al + 6 < clear) clear = al + 6;
   });
   near(x + tx * 18, y + ty * 18, 30, a => {
     if (a.state !== "alive" || a.hidden) return;
     const al = (a.x - x) * tx + (a.y - y) * ty, lat = Math.abs((a.x - x) * ty - (a.y - y) * tx);
     if (a.role === "zombie" && Math.hypot(a.x - x, a.y - y) < 30) zNear++;
-    if (al > 4 && al < 34 && lat < 5.5) {
+    if (al > 4 && al < 34 && lat < (al < 11 ? 4 : 5.5)) { // у переднего крыла — только тот, кто перед самым кузовом
       if (a.role === "zombie") zAhead = true; else people = true;
       if (a.role !== "zombie" || !c.panic) { clear = Math.min(clear, al + 2); if (al < 12 && !c.panic) c.v = Math.min(c.v, 2); }
     }
@@ -2078,11 +2232,13 @@ function scanAhead(c, x, y, tx, ty, l) {
   return { clear, ahead, people, zNear, zAhead };
 }
 function carTarget(c, clear, slow) {
-  let target = clear < 13 ? 0 : clear < 40 ? c.spd * (clear - 13) / 27 : c.spd;
+  let target = clear < 13 ? 0 : clear < 32 ? c.spd * (clear - 13) / 19 : c.spd;
   if (slow) target = Math.min(target, slow);
   c.v += clamp(target - c.v, -70 * (c.dt || .033), 22 * (c.dt || .033));
   // стоим — или нас в этом кадре упёрло в соседа (скорость тогда срезается уже после разгона)
   if (c.v < 1 || c.jam) c.wait += c.dt || .033; else c.wait = 0;
+  c.jamS = c.jam ? (c.jamS || 0) + (c.dt || .033) : 0; // сколько подряд упираемся в чужой кузов
+  c.stallT = c.v < 3 ? (c.stallT || 0) + (c.dt || .033) : 0; // сколько подряд топчемся на месте (wait сбрасывает даже рывок до 1)
   c.jam = false;
 }
 function stepRoadCar(c, dt) {
@@ -2092,6 +2248,8 @@ function stepRoadCar(c, dt) {
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
   if (c.gas) { if (c.panic || c.flee) cancelGas(c); else if (gasArrive(c, l)) return stepGas(c, dt); }
   if (c.pulled && !c.deployed) { c.pulled = false; if (!c.over) c.latTgt = 0; }
+  if (c.park && stepPark(c, l, dt)) return;
+  if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas) pickTrip(c);
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && !c.leaving && !c.deployed) {
@@ -2101,6 +2259,8 @@ function stepRoadCar(c, dt) {
     // на нужном ребре: встаём у цели или сразу за ней (въехав с перекрёстка, можно оказаться уже дальше точки)
     if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }
   }
+  // поездка: доехали до нужной улицы — к бордюру; слишком долго в пути — новая цель
+  if (c.trip && !c.trip.exit) { if (simT - c.trip.t0 > 420) pickTrip(c); else if (c.trip.e && l.e === c.trip.e) { const sG = laneSOfT(l, c.trip.et); if (c.s > sG - 8 && c.s < sG + 30) arriveTrip(c, l); } }
   if (!c.next && sE - c.s < 70 && !l.to.exit) c.next = chooseNext(c);
   const A = scanAhead(c, c.x, c.y, tx, ty, l);
   let clear = A.clear, cellClear = 1e9;
@@ -2110,12 +2270,14 @@ function stepRoadCar(c, dt) {
     if (cc === 5 && !c.over) { clear = Math.min(clear, k - 6); cellClear = k - 6; break; }
     if (cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9) { clear = Math.min(clear, k); cellClear = k; break; }
   }
+  if ((c.stallT || 0) < 5) clear = zebraStop(c, l, clear);
   if (c.panic && A.ahead && A.clear < 11 && c.v > 16) { carCollide(c, A.ahead, c.v); return; }
   if (c.panic) clear += 7;
   // стоп-линия: светофор, уступи дорогу, нет места дальше
   c.atLine = false;
-  if (!l.to.exit && sE - c.s < 34 && (!c.next || !canEnter(c, l, c.next))) { clear = Math.min(clear, sE - c.s + 13); c.atLine = sE - c.s < 6; }
-  if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.next = null; }
+  // стоим так, чтобы нос был у стоп-линии, а не на полкузова в перекрёстке: там проходят дуги поперечных машин
+  if (!l.to.exit && sE - c.s < 34 && (!c.next || !canEnter(c, l, c.next))) { const back = Math.abs(c.latOff || 0) > 5 ? 10 : 0; clear = Math.min(clear, sE - c.s + 3 - back); c.atLine = sE - c.s < 16 + back; }
+  if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.next = null; c.trip = null; c.goal = null; c.park = null; }
   let slow = c.next && sE - c.s < 30 && (c.next.e === l.e || Math.abs(turnAngle(l, c.next)) > .45) ? 10 : 0;
   if (c.over === 2) { slow = 8; sidewalkScatter(c, tx, ty); }
   // пост пропуска карантина: перед шлагбаумом машина встаёт на досмотр (службы — коротко, с сиреной — без остановки);
@@ -2168,7 +2330,7 @@ function stepRoadCar(c, dt) {
   // бак пустеет по пройденному пути; почти пуст — на заправку
   if (c.fuel !== undefined && !c.service && !c.bus && !c.tanker && !c.refugee) {
     c.fuel -= ds / FUEL_RANGE;
-    if (c.fuel < .1 && !c.gas && !c.panic && !c.flee && !c.goal && simT > c.gasTry) pickGas(c);
+    if (c.fuel < .1 && !c.gas && !c.panic && !c.flee && (!c.goal || c.trip) && simT > c.gasTry) pickGas(c);
   }
   poseOnLane(c, dt);
 }
@@ -2181,27 +2343,37 @@ function poseOnLane(c, dt) {
   c.dir = dirOf(q.tx, q.ty);
 }
 function stepTurnCar(c, dt) {
-  const T = c.turn, p = plPos(T.pts, T.cum, T.u);
-  const A = scanAhead(c, c.x, c.y, p.tx, p.ty, null);
-  if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; }
-  carTarget(c, A.clear, T.sharp ? 12 : 0);
+  const T = c.turn, p = plPos(T.pts, T.cum, T.u), m = T.to;
+  let A = scanAhead(c, c.x, c.y, p.tx, p.ty, null);
+  // двое на одном перекрёстке упёрлись друг в друга: едет тот, кто прошёл больше, второй ждёт
+  // (на одном перекрёстке — кто прошёл больше; на соседних — младший по списку, иначе стоят вечно, видя друг друга перед носом)
+  if (A.ahead && A.ahead.turn && (c.stallT || 0) > 4 && (A.ahead.stallT || 0) > 4 && (A.ahead.turn.n === T.n ? turnProg(c) > turnProg(A.ahead) : c._i < A.ahead._i)) A = scanAhead(c, c.x, c.y, p.tx, p.ty, null, A.ahead);
+  if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.trip = null; c.goal = null; }
+  // место за перекрёстком считается по очереди на следующей полосе: машина не влезает в чужой кузов и не прыгает
+  let clear = Math.min(A.clear, nextLaneGap(c, m, laneStart(m) - (T.len - T.u)));
+  // людей на дуге и на переходе ждём, но не вечно: после 5 с водитель подаётся вперёд, и дальше его держит только проверка перед носом
+  if ((c.stallT || 0) < 5) clear = zebraStopTurn(c, Math.min(clear, peopleOnArc(c)));
+  if (c.yieldTo && simT < c.yieldT && !c.yieldTo.gone) clear = 0; // уступаем тому, с кем упёрлись
+  // совсем застряли посреди перекрёстка (очередь за ним не двигается, потому что ждёт нас же) — медленно протискиваемся к выезду,
+  // смотря только на тех, кто прямо перед носом; раньше здесь машину телепортировало на выезд
+  if ((c.stallT || 0) > 12) { clear = Math.max(clear, Math.min(20, peopleOnArc(c))); c.ghostT = simT + 1; } // ползком к выезду сквозь упор, людей всё же пропуская
+  carTarget(c, clear, T.sharp ? 12 : 0);
   carHitPeople(c, p.tx, p.ty, dt);
   if (!c.moving) return;
-  if (c.wait > 15) T.u = T.len; // застрял посреди перекрёстка — протискивается
   T.u += c.v * dt;
   stepTurnPose(c, dt);
 }
 function stepTurnPose(c, dt) {
   const T = c.turn;
   if (T.u >= T.len) { endTurn(c, T.u - T.len); poseOnLane(c, dt); return; }
-  const p = plPos(T.pts, T.cum, T.u);
+  const p = plPos(T.pts, T.cum, T.u), kl = c.keepLat || 0;
   if (c.offx || c.offy) { const k = Math.min(1, dt * 2.5); c.offx *= 1 - k; c.offy *= 1 - k; }
-  c.x = p.x + (c.offx || 0); c.y = p.y + (c.offy || 0);
+  c.x = p.x + p.ty * kl + (c.offx || 0); c.y = p.y - p.tx * kl + (c.offy || 0);
   let da = Math.atan2(p.ty, p.tx) - c.ang; da -= Math.round(da / TAU) * TAU; c.ang += clamp(da * Math.min(1, dt * 9), -dt * 4.5, dt * 4.5);
   c.dir = dirOf(p.tx, p.ty);
 }
 // сколько машин нужно городу: по суммарной длине полос
-function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.len; return Math.round(L / 700); }
+function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.len; return Math.round(L / 700 * TRAFFIC_TUNE.density); }
 // городские машины: кузов, длина (в долях седана) и цвета; припаркованным во дворах не достаются фургоны
 const CIV_CARS = [
   { k: "sedan", w: 30, len: 1 }, { k: "hatch", w: 18, len: .86 }, { k: "lada", w: 14, len: .92, cols: ["#d8cfa8", "#e8e6dc", "#a8322a", "#3f6b4a", "#3a5f8a", "#c9b47a", "#7a2a2a"] },
@@ -2260,7 +2432,7 @@ function pickGas(c) {
   }
   if (!best) return;
   const g = gasGeo(best), [ex, ey] = gasPt(g, 0, g.edge);
-  gasState(best).stalls[bk] = c; c.gas = { b: best, k: bk, t0: simT, tanker: false, pts: null }; c.goal = { x: ex, y: ey };
+  gasState(best).stalls[bk] = c; c.trip = null; c.park = null; c.gas = { b: best, k: bk, t0: simT, tanker: false, pts: null }; c.goal = { x: ex, y: ey };
 }
 function cancelGas(c) {
   const g = c.gas; if (!g) return;
@@ -2310,7 +2482,7 @@ function stepGas(c, dt) {
   if (g.phase === "out" && g.u >= g.len - .05) {
     // в полосу — когда за спиной в ней свободно (или уже долго ждём)
     g.wait += dt; c.v = 0;
-    if (laneBusy(g.l, g.sOut, c, 14) && g.wait < 8) return;
+    if (laneBusy(g.l, g.sOut, c, 14) && g.wait < 30) return;
     const l = g.l, s = g.sOut; c.gas = null; c.goal = null;
     placeOnLane(c, l, s); c.v = 8; c.wait = 0;
   }
@@ -2337,8 +2509,58 @@ function gasTick(dt) {
     if (!tk || st.stalls[2]) continue;
     // бензовоз встаёт в ближний к улице ряд; пока он едет, легковые туда не заезжают
     const [ex, ey] = gasPt(G, 0, G.edge);
-    st.tanker = tk; st.stalls[2] = tk; tk.gas = { b, k: 2, t0: simT, tanker: true, pts: null }; tk.goal = { x: ex, y: ey }; st.needT = 0;
+    st.tanker = tk; st.stalls[2] = tk; tk.trip = null; tk.park = null; tk.gas = { b, k: 2, t0: simT, tanker: true, pts: null }; tk.goal = { x: ex, y: ey }; st.needT = 0;
   }
+}
+
+/* ---------- поездки: гражданские машины едут по делам ----------
+   У каждой машины есть цель — дом, работа, магазин или выезд из города, с весами по часу суток: утром поток к работе,
+   вечером домой. Маршрут считает routeTo (как у служб); у нужной улицы машина встаёт у бордюра на полминуты, если ширина
+   позволяет разойтись с проезжающими, и выбирает новую цель. Недостижимая или слишком долгая цель меняется */
+let tripPools = null, tripPoolT = -1e9;
+const TRIP_HOME = new Set(["house", "apt", "oldhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral"]);
+function tripPool() {
+  if (tripPools && simT - tripPoolT < 30) return tripPools;
+  const P = { home: [], work: [], shop: [] };
+  for (const b of buildings) { if (!b.door || b.state !== "ok") continue; if (TRIP_HOME.has(b.kind)) P.home.push(b); else if (TRIP_WORK.has(b.kind)) P.work.push(b); else if (TRIP_SHOP.has(b.kind)) P.shop.push(b); }
+  tripPoolT = simT; return tripPools = P;
+}
+function pickTrip(c) {
+  c.trip = null; c.goal = null;
+  if (Math.random() >= TRAFFIC_TUNE.tripShare) { c.trip = { wander: true, t0: simT }; return; } // часть машин просто катается по городу
+  const P = tripPool(), h = world.hour, r = Math.random();
+  let pool = h >= 6 && h < 10 ? (r < .6 ? P.work : r < .8 ? P.shop : P.home)
+    : h >= 16 && h < 21 ? (r < .55 ? P.home : r < .8 ? P.shop : P.work)
+    : h >= 21 || h < 6 ? (r < .7 ? P.home : P.shop)
+    : r < .4 ? P.shop : r < .7 ? P.work : P.home;
+  if (!pool.length) pool = P.home.length ? P.home : P.work.length ? P.work : P.shop;
+  // примерно каждая восьмая поездка — за город; там машина уезжает с карты, а на другом въезде появляется новая
+  if ((Math.random() < TRAFFIC_TUNE.exitShare || !pool.length) && entryLanes().length) { c.trip = { exit: true, t0: simT }; return; }
+  // половина поездок — по соседству (ближайшая из нескольких случайных), чтобы не все ехали через центр
+  const local = Math.random() < TRAFFIC_TUNE.localShare;
+  for (let k = 0; k < 6 && pool.length; k++) {
+    let b = pick(pool); if (!b.door || b.state !== "ok") { tripPoolT = -1e9; continue; } // дом разрушен после составления списка
+    if (local) for (let j = 0; j < 5; j++) { const o = pick(pool); if (o.door && o.state === "ok" && Math.hypot(o.door[0] - c.x, o.door[1] - c.y) < Math.hypot(b.door[0] - c.x, b.door[1] - c.y)) b = o; }
+    const q = gEdgeNear(b.door[0], b.door[1], 400); if (!q || q.e.rural || q.e.kind === "ring") continue;
+    if (c.lane && q.e === c.lane.e) continue; // не туда, где уже едем
+    c.trip = { e: q.e, et: q.t, t0: simT }; c.goal = { x: q.x, y: q.y }; return;
+  }
+}
+// доехали: к бордюру, если ширина улицы позволяет разойтись с проезжающими; на узкой улочке — просто дальше по делам
+function arriveTrip(c, l) {
+  c.trip = null; c.goal = null;
+  const sh = curbShift(l); let taken = !TRAFFIC_TUNE.park;
+  nearCars(c.x, c.y, 44, o => { if (!taken && o !== c && !o.gone && o.lane === l && !o.turn && Math.abs(o.s - c.s) < 30) taken = true; }); // рядом кто-то стоит или едет — не встаём
+  if (taken) return;
+  if (-sh >= 9.6 && !l.e.oneway && laneEnd(l) - c.s > 24 && c.s - laneStart(l) > 30 && !c.over && !c.bus && !c.tanker) { c.park = { t: rnd(TRAFFIC_TUNE.park0, TRAFFIC_TUNE.park1) }; c.latTgt = sh; }
+}
+// стоянка у бордюра: докатываемся, стоим, выезжаем, когда в полосе за спиной свободно
+function stepPark(c, l, dt) {
+  if (c.panic || c.flee) { c.park = null; c.latTgt = 0; return false; }
+  c.v = Math.max(0, c.v - 40 * dt); c.s = Math.min(laneEnd(l) - 4, c.s + c.v * dt); c.wait = 0;
+  if (c.v <= 0) c.park.t -= dt;
+  if (c.park.t <= 0 && (c.park.t < -12 || !laneBusy(l, c.s + 6, c, 18))) { c.park = null; c.latTgt = 0; return false; }
+  poseOnLane(c, dt); return true;
 }
 
 /* ---------- мир: рельеф, извилистая река, изрезанный берег, озёра, пятно города ---------- */
@@ -2724,7 +2946,7 @@ function wander(a, dt) {
   if (a.idleT > 0) { a.idleT -= dt; if (here) a.idleT = 0; else return [0, 0, 0]; }
   if (a.wanderT <= 0 || ahead || (a.wx === 0 && a.wy === 0)) {
     if (!ahead && !here && a.wanderT <= 0 && Math.random() < .18 && a.role === "civ") { a.idleT = rnd(2, 7); a.wanderT = rnd(3, 8); return [0, 0, 0]; }
-    let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9);
+    let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9 && !vehicleAt(a.x + dx * 8, a.y + dy * 8));
     // мирные не лезут на завалы и пепелища, если стоят не на них
     if (a.role === "civ" && cellAt(a.x, a.y) !== 8) { const safe = opts.filter(([dx, dy]) => cellAt(a.x + dx * 12, a.y + dy * 12) !== 8 && cellAt(a.x + dx * 24, a.y + dy * 24) !== 8); if (safe.length) opts = safe; }
     // спокойный пешеход идёт по тротуару и редко переходит дорогу
@@ -2921,6 +3143,7 @@ function move(a, mx, my, sp, dt) {
     else a.stam = Math.min(1, a.stam + dt / 45);
   }
   if (a.role !== "zombie") sp *= a.age === "old" ? .68 : a.age === "kid" ? .9 : 1;
+  if (a.role === "civ" && sp > 0 && !a.hidden && onRoadway(a.x, a.y)) sp *= 1.5; // через дорогу торопятся
   const l = Math.hypot(mx, my);
   let tx = 0, ty = 0;
   if (l > 1e-3 && sp > 0) { tx = mx / l * sp; ty = my / l * sp; }
@@ -2936,8 +3159,15 @@ function move(a, mx, my, sp, dt) {
   if (hasHills) slow *= slopeK(a.x, a.y, a.x + a.vx * dt, a.y + a.vy * dt); // в гору медленнее
   const nx = a.x + a.vx * dt * slow, ny = a.y + a.vy * dt * slow;
   const noRub = a.role !== "zombie" && cellAt(a.x, a.y) !== 8;
-  if (!blocked(nx, a.y) && !vehicleAt(nx, a.y) && cellAt(nx, a.y) !== 9 && !(noRub && cellAt(nx, a.y) === 8)) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
-  if (!blocked(a.x, ny) && !vehicleAt(a.x, ny) && cellAt(a.x, ny) !== 9 && !(noRub && cellAt(a.x, ny) === 8)) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
+  let car = null;
+  if (!blocked(nx, a.y) && !(car = vehicleAt(nx, a.y)) && cellAt(nx, a.y) !== 9 && !(noRub && cellAt(nx, a.y) === 8)) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
+  if (!blocked(a.x, ny) && !(car = car || vehicleAt(a.x, ny)) && cellAt(a.x, ny) !== 9 && !(noRub && cellAt(a.x, ny) === 8)) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
+  // упёрся в стоящую машину (нос на зебре) — обходит её вдоль кузова к ближнему концу, а не стоит перед ней
+  if (car && a.role !== "zombie" && car.v < 4) {
+    const cx = Math.cos(car.ang), cy = Math.sin(car.ang), al = (a.x - car.x) * cx + (a.y - car.y) * cy, sg = al >= 0 ? 1 : -1;
+    a.vx = cx * sg * 5; a.vy = cy * sg * 5; const sx = a.x + a.vx * dt, sy = a.y + a.vy * dt;
+    if (!blocked(sx, sy) && !vehicleAt(sx, sy)) { a.x = sx; a.y = sy; }
+  }
   a.speed = Math.hypot(a.vx, a.vy);
   a.stuck = sp > 2 && a.speed < 1.5 ? (a.stuck || 0) + dt : 0;
   if (a.stuck > 2 && !a.hidden && !a.onRoof && blocked(a.x, a.y)) { const [fx, fy] = freeNear(a.x, a.y, 12); a.x = fx; a.y = fy; a.stuck = 0; }
@@ -3000,7 +3230,7 @@ function step(dt) {
       if (a.player) {
         if (a.reload > 0) { a.reload -= dt; if (a.reload <= 0) { const n = Math.min(a.magMax - a.mag, a.ammo); a.mag += n; a.ammo -= n; } }
         if (a.grabT > 0) { a.grabT -= dt; m = [0, 0, 0]; } else m = playerMove(a, dt);
-      } else m = thinkHuman(a, dt);
+      } else { m = thinkHuman(a, dt); if (a.role === "civ" && a.panic < .3 && !a.unit && m[2] > 0) m = zebraWait(a, m); }
       if (a.post) { m = [0, 0, 0]; a.x = a.post.x; a.y = a.post.y; }
       if (a.state !== "alive") continue;
       if (a.bitten) {
@@ -3177,7 +3407,7 @@ function abandonCar(c, why) {
 }
 let carsCompactT = 20;
 function stepTraffic(dt) {
-  gasTick(dt);
+  gasTick(dt); signalTick(dt);
   carsCompactT -= dt; if (carsCompactT <= 0) { carsCompactT = 20; if (cars.some(c => c.gone)) cars = cars.filter(c => !c.gone); for (const n of RN) if (n.occ.length) n.occ = n.occ.filter(o => !o.gone && o.turn && o.turn.n === n); }
   for (const c of cars) {
     if (c.gone) { c.moving = false; continue; }
@@ -5740,12 +5970,13 @@ function carHalf(c) { return [10 * (c.len || 1), c.tank ? 7 : 4.6]; }
 // наезд: человек или зомби внутри прямоугольника кузова (с учётом пути за шаг)
 function carHitPeople(c, tx, ty, dt) {
   if (c.v < 3) return;
-  const [hl, hw] = carHalf(c), reach = hl + c.v * dt + .6;
+  const [hl, hw] = carHalf(c), reach = hl + c.v * dt + .6, soft = c.v < 8 && !c.panic; // на малом ходу машина встаёт, человек отступает
   near(c.x + tx * hl * .5, c.y + ty * hl * .5, reach + 4, a => {
     if (a.state !== "alive" || a.hidden || a.z > 0.5 || a.grabT > 0) return;
     const dx = a.x - c.x, dy = a.y - c.y, al = dx * tx + dy * ty, lt = -dx * ty + dy * tx;
     if (al < -hl + 2 || al > reach || Math.abs(lt) > hw + .4) return;
     const k = c.v / 40, side = Math.sign(lt) || (Math.random() < .5 ? 1 : -1);
+    if (soft && a.role !== "zombie") { c.v = 0; c.jam = true; a.vx += -ty * side * 5; a.vy += tx * side * 5; a.panic = Math.max(a.panic, .25); return; }
     if (a.role === "zombie") { a.zhp -= 1.2 * k + .4; a.riseT = 1.2; if (a.zhp <= 0) destroyZombie(a, false); }
     else { a.hp -= c.v < 10 ? 6 : 60 * k + 18; if (a.hp <= 0) kill(a, false, "car"); else a.grabT = 1; }
     // отлетает вперёд и в сторону от бампера
@@ -5786,8 +6017,25 @@ function resolveCarOverlaps(dt) {
       const cm = c.moving && !c.tank, om = o.moving && !o.tank;
       if (!cm && !om) return;
       const h = obbOverlap(c, o); if (!h) return;
+      // шесть секунд упираемся в чужой едущий кузов (у стоп-линии, на соседней дуге, в очереди на кольце) — протискиваемся мимо,
+      // иначе получается кольцо ожидания: каждый ждёт того, кто ждёт его. Через брошенные и разбитые машины не протискиваемся.
+      // Протискивание держится три секунды, иначе через кадр снова упор, и машина дёргается на месте
+      if (c.jamS > 6 && om) c.ghostT = simT + 3;
+      if (o.jamS > 6 && cm) o.ghostT = simT + 3;
+      if (simT < c.ghostT || simT < o.ghostT) return;
       const push = Math.min(h.depth, 2.5);
       if (cm && om) {
+        // двое на одном перекрёстке упёрлись: сдаёт назад по своей дуге тот, кому это проще по курсу (нормаль упора
+        // ближе к его оси), и несколько секунд уступает; второй ждёт, пока его не отпустят, и едет
+        if (c.turn && o.turn && c.turn.n === o.turn.n && c.turn.from !== o.turn.from) { // с одной улицы — просто едут друг за другом
+          const rc = Math.abs(h.nx * Math.cos(c.ang) + h.ny * Math.sin(c.ang)), ro = Math.abs(h.nx * Math.cos(o.ang) + h.ny * Math.sin(o.ang));
+          const y = rc >= ro ? c : o, w = y === c ? o : c, sg = y === c ? 1 : -1;
+          // уступающий восемь секунд не может ни отъехать, ни дождаться — протискивается сам (иначе кольцо из трёх ждущих стоит вечно)
+          if ((y.stallT || 0) > 8) { y.ghostT = simT + 3; y.yieldTo = null; return; }
+          nudgeBack(y, h.nx * sg, h.ny * sg, push); y.v = 0; y.jam = true; y.yieldTo = w; y.yieldT = simT + 1; // пока касаются и секунду после
+          if (w.yieldTo === y) w.yieldTo = null; if ((y.stallT || 0) < 4) w.v = Math.min(w.v, 2); // уступающий не может отъехать — второй протискивается мимо
+          return;
+        }
         const rel = Math.abs((c.v || 0) - (o.v || 0));
         if (rel > 22 && (c.panic || o.panic)) { const heavy = x => x.service === "bus" || x.service === "ambulance" || x.service === "fire" || x.service === "army" || x.service === "dump" || x.service === "supply"; let f = (c.v || 0) >= (o.v || 0) ? c : o; if (heavy(f) && !heavy(f === c ? o : c)) f = f === c ? o : c; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }
         nudgeBack(c, h.nx, h.ny, push * .5); nudgeBack(o, -h.nx, -h.ny, push * .5);
@@ -5817,6 +6065,12 @@ function oppClear(c, opp, dx, dy) {
   for (let k = 6; k < 90; k += 6) { const q = lanePos(opp, Math.max(0, so - k)), cc = cellAt(q.x, q.y); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4) return false; }
   return true;
 }
+// в своей полосе на нашем месте никого: ни впереди, ни сзади ближе длины кузовов
+function laneFree(c, l) {
+  let free = true; const myL = 10 * (c.len || 1);
+  nearCars(c.x, c.y, 50, o => { if (free && o !== c && !o.gone && o.lane === l && !o.turn && Math.abs(o.latOff || 0) < 9.1 && Math.abs(o.s - c.s) < myL + 10 * (o.len || 1) + 3 && (o.moving || o.stopped)) free = false; });
+  return free;
+}
 // в своей полосе впереди ещё стоит препятствие
 function ownLaneBlocked(c) {
   const l = c.lane;
@@ -5832,14 +6086,19 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
     c.overT += dt;
     // встречная появилась или впереди перекрёсток — возвращаемся и тормозим
     let oncoming = false; nearCars(c.x + dx * 30, c.y + dy * 30, 40, o => { if (oncoming || o === c || o.gone || !o.moving) return; const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = Math.abs((o.x - c.x) * dy - (o.y - c.y) * dx); if (al > 4 && al < 50 && lt < 5 && Math.cos(o.ang) * dx + Math.sin(o.ang) * dy < -.3) oncoming = true; });
-    if ((oncoming && c.over === 1) || (!c.contra && c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > (c.contra ? 40 : 14) || laneEnd(l) - c.s < (c.over === 3 ? 8 : 26)) { c.over = 0; c.contra = false; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
+    // по левой полосе широкой улицы въезжаем в перекрёсток, не сливаясь вправо: дальше либо тоже широкая (едем левой), либо
+    // машина съезжает на дугу со сдвигом, который гаснет по ходу поворота (startTurn)
+    const back = (oncoming && c.over === 1) || (!c.contra && c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > (c.contra ? 40 : 14) || (c.over !== 3 && laneEnd(l) - c.s < 26);
+    // в свою полосу — только в просвет между машинами (навстречу едут — возвращаемся в любом случае); пока его нет, ждём рядом
+    if (back) { if ((oncoming && c.over === 1) || laneFree(c, l)) { c.over = 0; c.contra = false; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); } else c.v = Math.min(c.v, 1.5); }
     return;
   }
   // реверс: при эвакуации (тревога 3+) бегущие по трассам и проспектам к выезду занимают и встречную полосу, если она пуста на 110 м
   if (c.flee && alert >= 3 && opp && (l.e.rural || l.e.kind === "hw" || l.e.kind === "av") && clear < 40 && laneEnd(l) - c.s > 60 && c.s - laneStart(l) > 8 && oppClear(c, opp, dx, dy)) { c.over = 1; c.contra = true; c.overT = 0; c.latTgt = 2 * l.off; logT("contra", "Бегущие из города заняли и встречную полосу", "", 60); return; }
   if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
   // очередь у светофора не объезжаем; объезжаем стоящее, разбитое, брошенное
-  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine);
+  const wide = l.e.hw >= 22 && !l.e.oneway;
+  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine) || wide;
   if (!obstacle) return;
   if (!opp) return;
   // широкая улица (две полосы в каждую сторону): объезжаем по своей левой полосе, встречную не трогаем, можно и у перекрёстка
@@ -11177,7 +11436,7 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas"].includes(k)) o[k] = c[k];
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "route", "gas", "trip", "park"].includes(k)) o[k] = c[k];
     // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
     if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;

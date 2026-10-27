@@ -200,7 +200,7 @@ function wander(a, dt) {
   if (a.idleT > 0) { a.idleT -= dt; if (here) a.idleT = 0; else return [0, 0, 0]; }
   if (a.wanderT <= 0 || ahead || (a.wx === 0 && a.wy === 0)) {
     if (!ahead && !here && a.wanderT <= 0 && Math.random() < .18 && a.role === "civ") { a.idleT = rnd(2, 7); a.wanderT = rnd(3, 8); return [0, 0, 0]; }
-    let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9);
+    let opts = NB4.filter(([dx, dy]) => !blocked(a.x + dx * 12, a.y + dy * 12) && !blocked(a.x + dx * 24, a.y + dy * 24) && cellAt(a.x + dx * 24, a.y + dy * 24) !== 9 && !vehicleAt(a.x + dx * 8, a.y + dy * 8));
     // мирные не лезут на завалы и пепелища, если стоят не на них
     if (a.role === "civ" && cellAt(a.x, a.y) !== 8) { const safe = opts.filter(([dx, dy]) => cellAt(a.x + dx * 12, a.y + dy * 12) !== 8 && cellAt(a.x + dx * 24, a.y + dy * 24) !== 8); if (safe.length) opts = safe; }
     // спокойный пешеход идёт по тротуару и редко переходит дорогу
@@ -397,6 +397,7 @@ function move(a, mx, my, sp, dt) {
     else a.stam = Math.min(1, a.stam + dt / 45);
   }
   if (a.role !== "zombie") sp *= a.age === "old" ? .68 : a.age === "kid" ? .9 : 1;
+  if (a.role === "civ" && sp > 0 && !a.hidden && onRoadway(a.x, a.y)) sp *= 1.5; // через дорогу торопятся
   const l = Math.hypot(mx, my);
   let tx = 0, ty = 0;
   if (l > 1e-3 && sp > 0) { tx = mx / l * sp; ty = my / l * sp; }
@@ -412,8 +413,15 @@ function move(a, mx, my, sp, dt) {
   if (hasHills) slow *= slopeK(a.x, a.y, a.x + a.vx * dt, a.y + a.vy * dt); // в гору медленнее
   const nx = a.x + a.vx * dt * slow, ny = a.y + a.vy * dt * slow;
   const noRub = a.role !== "zombie" && cellAt(a.x, a.y) !== 8;
-  if (!blocked(nx, a.y) && !vehicleAt(nx, a.y) && cellAt(nx, a.y) !== 9 && !(noRub && cellAt(nx, a.y) === 8)) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
-  if (!blocked(a.x, ny) && !vehicleAt(a.x, ny) && cellAt(a.x, ny) !== 9 && !(noRub && cellAt(a.x, ny) === 8)) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
+  let car = null;
+  if (!blocked(nx, a.y) && !(car = vehicleAt(nx, a.y)) && cellAt(nx, a.y) !== 9 && !(noRub && cellAt(nx, a.y) === 8)) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
+  if (!blocked(a.x, ny) && !(car = car || vehicleAt(a.x, ny)) && cellAt(a.x, ny) !== 9 && !(noRub && cellAt(a.x, ny) === 8)) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
+  // упёрся в стоящую машину (нос на зебре) — обходит её вдоль кузова к ближнему концу, а не стоит перед ней
+  if (car && a.role !== "zombie" && car.v < 4) {
+    const cx = Math.cos(car.ang), cy = Math.sin(car.ang), al = (a.x - car.x) * cx + (a.y - car.y) * cy, sg = al >= 0 ? 1 : -1;
+    a.vx = cx * sg * 5; a.vy = cy * sg * 5; const sx = a.x + a.vx * dt, sy = a.y + a.vy * dt;
+    if (!blocked(sx, sy) && !vehicleAt(sx, sy)) { a.x = sx; a.y = sy; }
+  }
   a.speed = Math.hypot(a.vx, a.vy);
   a.stuck = sp > 2 && a.speed < 1.5 ? (a.stuck || 0) + dt : 0;
   if (a.stuck > 2 && !a.hidden && !a.onRoof && blocked(a.x, a.y)) { const [fx, fy] = freeNear(a.x, a.y, 12); a.x = fx; a.y = fy; a.stuck = 0; }
@@ -476,7 +484,7 @@ function step(dt) {
       if (a.player) {
         if (a.reload > 0) { a.reload -= dt; if (a.reload <= 0) { const n = Math.min(a.magMax - a.mag, a.ammo); a.mag += n; a.ammo -= n; } }
         if (a.grabT > 0) { a.grabT -= dt; m = [0, 0, 0]; } else m = playerMove(a, dt);
-      } else m = thinkHuman(a, dt);
+      } else { m = thinkHuman(a, dt); if (a.role === "civ" && a.panic < .3 && !a.unit && m[2] > 0) m = zebraWait(a, m); }
       if (a.post) { m = [0, 0, 0]; a.x = a.post.x; a.y = a.post.y; }
       if (a.state !== "alive") continue;
       if (a.bitten) {

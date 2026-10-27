@@ -3,12 +3,13 @@ function carHalf(c) { return [10 * (c.len || 1), c.tank ? 7 : 4.6]; }
 // наезд: человек или зомби внутри прямоугольника кузова (с учётом пути за шаг)
 function carHitPeople(c, tx, ty, dt) {
   if (c.v < 3) return;
-  const [hl, hw] = carHalf(c), reach = hl + c.v * dt + .6;
+  const [hl, hw] = carHalf(c), reach = hl + c.v * dt + .6, soft = c.v < 8 && !c.panic; // на малом ходу машина встаёт, человек отступает
   near(c.x + tx * hl * .5, c.y + ty * hl * .5, reach + 4, a => {
     if (a.state !== "alive" || a.hidden || a.z > 0.5 || a.grabT > 0) return;
     const dx = a.x - c.x, dy = a.y - c.y, al = dx * tx + dy * ty, lt = -dx * ty + dy * tx;
     if (al < -hl + 2 || al > reach || Math.abs(lt) > hw + .4) return;
     const k = c.v / 40, side = Math.sign(lt) || (Math.random() < .5 ? 1 : -1);
+    if (soft && a.role !== "zombie") { c.v = 0; c.jam = true; a.vx += -ty * side * 5; a.vy += tx * side * 5; a.panic = Math.max(a.panic, .25); return; }
     if (a.role === "zombie") { a.zhp -= 1.2 * k + .4; a.riseT = 1.2; if (a.zhp <= 0) destroyZombie(a, false); }
     else { a.hp -= c.v < 10 ? 6 : 60 * k + 18; if (a.hp <= 0) kill(a, false, "car"); else a.grabT = 1; }
     // отлетает вперёд и в сторону от бампера
@@ -49,8 +50,25 @@ function resolveCarOverlaps(dt) {
       const cm = c.moving && !c.tank, om = o.moving && !o.tank;
       if (!cm && !om) return;
       const h = obbOverlap(c, o); if (!h) return;
+      // шесть секунд упираемся в чужой едущий кузов (у стоп-линии, на соседней дуге, в очереди на кольце) — протискиваемся мимо,
+      // иначе получается кольцо ожидания: каждый ждёт того, кто ждёт его. Через брошенные и разбитые машины не протискиваемся.
+      // Протискивание держится три секунды, иначе через кадр снова упор, и машина дёргается на месте
+      if (c.jamS > 6 && om) c.ghostT = simT + 3;
+      if (o.jamS > 6 && cm) o.ghostT = simT + 3;
+      if (simT < c.ghostT || simT < o.ghostT) return;
       const push = Math.min(h.depth, 2.5);
       if (cm && om) {
+        // двое на одном перекрёстке упёрлись: сдаёт назад по своей дуге тот, кому это проще по курсу (нормаль упора
+        // ближе к его оси), и несколько секунд уступает; второй ждёт, пока его не отпустят, и едет
+        if (c.turn && o.turn && c.turn.n === o.turn.n && c.turn.from !== o.turn.from) { // с одной улицы — просто едут друг за другом
+          const rc = Math.abs(h.nx * Math.cos(c.ang) + h.ny * Math.sin(c.ang)), ro = Math.abs(h.nx * Math.cos(o.ang) + h.ny * Math.sin(o.ang));
+          const y = rc >= ro ? c : o, w = y === c ? o : c, sg = y === c ? 1 : -1;
+          // уступающий восемь секунд не может ни отъехать, ни дождаться — протискивается сам (иначе кольцо из трёх ждущих стоит вечно)
+          if ((y.stallT || 0) > 8) { y.ghostT = simT + 3; y.yieldTo = null; return; }
+          nudgeBack(y, h.nx * sg, h.ny * sg, push); y.v = 0; y.jam = true; y.yieldTo = w; y.yieldT = simT + 1; // пока касаются и секунду после
+          if (w.yieldTo === y) w.yieldTo = null; if ((y.stallT || 0) < 4) w.v = Math.min(w.v, 2); // уступающий не может отъехать — второй протискивается мимо
+          return;
+        }
         const rel = Math.abs((c.v || 0) - (o.v || 0));
         if (rel > 22 && (c.panic || o.panic)) { const heavy = x => x.service === "bus" || x.service === "ambulance" || x.service === "fire" || x.service === "army" || x.service === "dump" || x.service === "supply"; let f = (c.v || 0) >= (o.v || 0) ? c : o; if (heavy(f) && !heavy(f === c ? o : c)) f = f === c ? o : c; carCollide(f, f === c ? o : c, Math.max(c.v || 0, o.v || 0)); return; }
         nudgeBack(c, h.nx, h.ny, push * .5); nudgeBack(o, -h.nx, -h.ny, push * .5);
@@ -80,6 +98,12 @@ function oppClear(c, opp, dx, dy) {
   for (let k = 6; k < 90; k += 6) { const q = lanePos(opp, Math.max(0, so - k)), cc = cellAt(q.x, q.y); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4) return false; }
   return true;
 }
+// в своей полосе на нашем месте никого: ни впереди, ни сзади ближе длины кузовов
+function laneFree(c, l) {
+  let free = true; const myL = 10 * (c.len || 1);
+  nearCars(c.x, c.y, 50, o => { if (free && o !== c && !o.gone && o.lane === l && !o.turn && Math.abs(o.latOff || 0) < 9.1 && Math.abs(o.s - c.s) < myL + 10 * (o.len || 1) + 3 && (o.moving || o.stopped)) free = false; });
+  return free;
+}
 // в своей полосе впереди ещё стоит препятствие
 function ownLaneBlocked(c) {
   const l = c.lane;
@@ -95,14 +119,19 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
     c.overT += dt;
     // встречная появилась или впереди перекрёсток — возвращаемся и тормозим
     let oncoming = false; nearCars(c.x + dx * 30, c.y + dy * 30, 40, o => { if (oncoming || o === c || o.gone || !o.moving) return; const al = (o.x - c.x) * dx + (o.y - c.y) * dy, lt = Math.abs((o.x - c.x) * dy - (o.y - c.y) * dx); if (al > 4 && al < 50 && lt < 5 && Math.cos(o.ang) * dx + Math.sin(o.ang) * dy < -.3) oncoming = true; });
-    if ((oncoming && c.over === 1) || (!c.contra && c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > (c.contra ? 40 : 14) || laneEnd(l) - c.s < (c.over === 3 ? 8 : 26)) { c.over = 0; c.contra = false; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); }
+    // по левой полосе широкой улицы въезжаем в перекрёсток, не сливаясь вправо: дальше либо тоже широкая (едем левой), либо
+    // машина съезжает на дугу со сдвигом, который гаснет по ходу поворота (startTurn)
+    const back = (oncoming && c.over === 1) || (!c.contra && c.overT > 1.5 && !ownLaneBlocked(c)) || c.overT > (c.contra ? 40 : 14) || (c.over !== 3 && laneEnd(l) - c.s < 26);
+    // в свою полосу — только в просвет между машинами (навстречу едут — возвращаемся в любом случае); пока его нет, ждём рядом
+    if (back) { if ((oncoming && c.over === 1) || laneFree(c, l)) { c.over = 0; c.contra = false; c.latTgt = 0; if (oncoming) c.v = Math.min(c.v, 4); } else c.v = Math.min(c.v, 1.5); }
     return;
   }
   // реверс: при эвакуации (тревога 3+) бегущие по трассам и проспектам к выезду занимают и встречную полосу, если она пуста на 110 м
   if (c.flee && alert >= 3 && opp && (l.e.rural || l.e.kind === "hw" || l.e.kind === "av") && clear < 40 && laneEnd(l) - c.s > 60 && c.s - laneStart(l) > 8 && oppClear(c, opp, dx, dy)) { c.over = 1; c.contra = true; c.overT = 0; c.latTgt = 2 * l.off; logT("contra", "Бегущие из города заняли и встречную полосу", "", 60); return; }
   if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
   // очередь у светофора не объезжаем; объезжаем стоящее, разбитое, брошенное
-  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine);
+  const wide = l.e.hw >= 22 && !l.e.oneway;
+  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || (ahead.wait > 20 && !ahead.atLine) || wide;
   if (!obstacle) return;
   if (!opp) return;
   // широкая улица (две полосы в каждую сторону): объезжаем по своей левой полосе, встречную не трогаем, можно и у перекрёстка
