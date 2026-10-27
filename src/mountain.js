@@ -155,17 +155,23 @@ function massifDs(x, y) { return massif.w + sideDs(massif.side, x, y); }
 // подножие трассы: от выезда внутрь по цепочке рёбер, пока массив не кончится; хвост за подножием убирается
 function mrFoot(n, side) {
   let e = n.ed[0], from = n, tFoot = -1; const chain = [];
-  for (let hop = 0; hop < 6 && tFoot < 0; hop++) {
+  for (let hop = 0; hop < 8 && tFoot < 0; hop++) {
     const fromA = e.a === from;
     for (let t = 24; t < e.len - 24; t += 8) { const p = edgePos(e, fromA ? t : e.len - t); if (mountainH(p.x, p.y) < 12 && cityK(p.x, p.y) < .5) { tFoot = fromA ? t : e.len - t; break; } }
     if (tFoot >= 0) break;
-    const far = fromA ? e.b : e.a; if (far.ed.length !== 2 || far.exit) break;
-    chain.push({ e, from }); from = far; e = far.ed.find(f => f !== chain[chain.length - 1].e && !f.dead); if (!e) break;
+    // дальше по курсу: на перекрёстке просёлков берём продолжение с наименьшим поворотом
+    const far = fromA ? e.b : e.a; if (far.exit) break;
+    const pe = edgePos(e, fromA ? e.len - 1 : 1), hx = far.x - pe.x, hy = far.y - pe.y, hl = Math.hypot(hx, hy) || 1;
+    let next = null, bestDot = .5;
+    for (const f of far.ed) { if (f === e || f.dead || !f.rural && cityK(far.x, far.y) > .3) continue; const q = edgePos(f, f.a === far ? 1 : f.len - 1), dx = q.x - far.x, dy = q.y - far.y, dl = Math.hypot(dx, dy) || 1, dot = (hx * dx + hy * dy) / (hl * dl); if (dot > bestDot) { bestDot = dot; next = f; } }
+    if (!next) break;
+    chain.push({ e, from }); from = far; e = next;
   }
   if (tFoot < 0 || !e) return null;
   const foot = gSplit(e, tFoot); if (!foot || foot === from) return null;
   const tail = foot.ed.find(f => (f.a === from || f.b === from) && !f.dead); if (!tail) return null;
-  reKill(tail); for (const c of chain) { reKill(c.e); c.from.dead = true; c.from.ed = []; } from.dead = true; from.ed = []; n.dead = true; n.ed = [];
+  reKill(tail); for (const c of chain) reKill(c.e);
+  for (const c of chain) if (!c.from.ed.length) { c.from.dead = true; } if (!from.ed.length) from.dead = true; n.dead = true; n.ed = [];
   return foot;
 }
 // Зигзаг по склону массива, как его чертят дорожники: средний уклон g между концами задаёт угол плеч к горизонталям
@@ -199,21 +205,30 @@ function mrZigzag(sx, sy, ex, ey, side) {
     for (let t = 0; t < run; t += 8) { pts.push(pt(a0 + sg * t, d0 + 36 * t / run)); wid.push(0); }
     return { pts: pts.concat(rest.pts), wid: wid.concat(rest.wid), hairpins: rest.hairpins };
   }
-  let a = a0, d = d0, hairpins = 0;
+  // живая трасса: плечи разной длины, петли разного радиуса, плечо чуть выгнуто по складке; последнее плечо идёт прямо в цель.
+  // Если такая трасса пересекла сама себя — строится ровная
+  const gen = jitter => {
+  const pts = [], wid = []; let a = a0, d = d0, hairpins = 0;
   pts.push(pt(a, d)); wid.push(0);
-  for (let k = 0; k < best.n; k++) {
-    const sk = k % 2 ? -best.s0 : best.s0, l = best.legs[k];
-    for (let t = 8; t <= l; t += 8) { pts.push(pt(a + sk * cs * t, d + sn * t)); wid.push(0); }
+  for (let k = 0; k < best.n - 1; k++) {
+    const sk = k % 2 ? -best.s0 : best.s0, l = best.legs[k] * (jitter ? rnd(.78, 1.22) : 1), Rk = jitter ? rnd(40, 60) : R, bow = jitter ? rnd(-14, 14) : 0;
+    for (let t = 8; t <= l; t += 8) { const w = Math.sin(t / l * Math.PI) * bow; pts.push(pt(a + sk * cs * t - sn * w, d + sn * t + cs * w)); wid.push(0); }
     a += sk * cs * l; d += sn * l;
-    if (k === best.n - 1) break;
     // петля: дуга на π−2θ вокруг центра выше по склону; конец на той же a, глубже на 2R·cos θ
-    const ca = a - sk * sn * R, cd = d + cs * R, ang0 = Math.atan2(d - cd, a - ca), turn = Math.PI - 2 * th, nseg = 14;
-    for (let j = 1; j <= nseg; j++) { const f = ang0 + sk * turn * j / nseg; pts.push(pt(ca + Math.cos(f) * R, cd + Math.sin(f) * R)); wid.push(1); }
-    a = ca; d = cd + cs * R; hairpins++;
+    const ca = a - sk * sn * Rk, cd = d + cs * Rk, ang0 = Math.atan2(d - cd, a - ca), turn = Math.PI - 2 * th, nseg = 14;
+    for (let j = 1; j <= nseg; j++) { const f = ang0 + sk * turn * j / nseg; pts.push(pt(ca + Math.cos(f) * Rk, cd + Math.sin(f) * Rk)); wid.push(1); }
+    a = ca; d = cd + cs * Rk; hairpins++;
     const last = pts[pts.length - 1], want = pt(a, d); last[0] = want[0]; last[1] = want[1];
+    if (d1 - d < 60) break; // перебрали подъём — дальше прямо
   }
-  const end = pt(a1, d1), last = pts[pts.length - 1]; if (Math.hypot(last[0] - end[0], last[1] - end[1]) > 2) pts.push(end), wid.push(0);
+  { const L = Math.hypot(a1 - a, d1 - d); if (L < 40) return null; for (let t = 8; t < L; t += 8) { pts.push(pt(a + (a1 - a) * t / L, d + (d1 - d) * t / L)); wid.push(0); } }
+  pts.push(pt(a1, d1)); wid.push(0);
   return { pts, wid, hairpins };
+  };
+  // трасса не должна ни пересекать себя, ни подходить к своему же плечу ближе ширины полки с откосами
+  const crosses = P => { for (let i = 0; i < P.length; i++) for (let j = 0; j < i - 30; j++) if (Math.abs(P[i][0] - P[j][0]) < 70 && Math.abs(P[i][1] - P[j][1]) < 70 && Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1]) < 70) return true; return false; };
+  let Rz = gen(true); if (!Rz || crosses(Rz.pts)) Rz = gen(false);
+  return Rz;
 }
 // серпантин между двумя точками: в массиве — зигзаг, если он не задевает воду; иначе пошаговый трассировщик
 function mrRoad(sx, sy, ex, ey, side, hw) {
@@ -226,62 +241,81 @@ function mrRoad(sx, sy, ex, ey, side, hw) {
   if (made) { for (const f of made.edges) f.mountain = true; mountainRoads.push({ side, hairpins: R.hairpins, pts: R.pts }); }
   return made;
 }
+// улицы курортного городка на полке: главная улица вдоль хребта, набережная вокруг озера, на нижней полке проулки к фермам
+function buildShelfStreets(S, lanes) {
+  const Lk = S.lake, half = S.pw * .75, main = [];
+  for (let a = S.a - half; a <= S.a + half; a += 40) main.push(massifPoint(S.d0 + 60 + (fbm(a / 260 + 2 + S.d0, 7.7) - .5) * 40, a));
+  if (!addRoad(main, 10, "st", { extra: { rural: true, sw: 3 } })) return null;
+  const lds = massifDs(Lk.x, Lk.y), prom = [massifPoint(S.d0 + 60, Lk.y - Lk.ry - 150), massifPoint(S.d0 + 110, Lk.y - Lk.ry - 120)];
+  for (let k = 0; k <= 14; k++) { const f = -Math.PI * .55 + Math.PI * 1.1 * k / 14; prom.push(massifPoint(lds + Math.cos(f) * (Lk.rx + 38), Lk.y + Math.sin(f) * (Lk.ry + 38))); }
+  prom.push(massifPoint(S.d0 + 110, Lk.y + Lk.ry + 120), massifPoint(S.d0 + 60, Lk.y + Lk.ry + 150));
+  addRoad(prom, 8, "st", { extra: { rural: true, sw: 3 } });
+  if (lanes) for (const a of [S.a - half * .8, S.a + half * .8]) addRoad([massifPoint(S.d0 + 60, a), massifPoint(S.d0 + 170, a + rnd(-30, 30)), massifPoint(S.d1 - 40, a + rnd(-50, 50))], 8, "st", { extra: { rural: true, sw: 3 } });
+  return { ends: [massifPoint(S.d0 + 60, S.a - half), massifPoint(S.d0 + 60, S.a + half)], far: massifPoint(lds + Lk.rx + 38, Lk.y) };
+}
 function buildMassifRoads() {
-  const M = massif, side = M.side, a0 = M.a0, Lk = M.lake;
-  // сначала трассы, упирающиеся в массив, обрезаются у подножия (пока их не разрезали улицы села)
+  const M = massif, side = M.side, a0 = M.a0, [A, B] = M.shelves;
+  // сначала трассы, упирающиеся в массив, обрезаются у подножия (пока их не разрезали улицы городков)
   const exits = RN.filter(n => n.ed.length === 1 && !n.dead && Math.abs(sideDs(side, n.x, n.y)) < 3 && n.ed[0].len >= 200 && !n.ed[0].dead);
   exits.sort((p, q) => Math.abs(sideAlong(side, p.x, p.y) - a0) - Math.abs(sideAlong(side, q.x, q.y) - a0));
   const feet = []; for (const n of exits) { const foot = mrFoot(n, side); if (foot) feet.push(foot); }
-  // главная улица села: по полке вдоль хребта, чуть извилистая
-  const main = []; for (let a = a0 - 500; a <= a0 + 500; a += 40) main.push(massifPoint(950 + (fbm(a / 260 + 2, 7.7) - .5) * 36, a));
-  if (!addRoad(main, 10, "st", { extra: { rural: true, sw: 3 } })) return;
-  // набережная: от улицы вокруг озера со стороны хребта и обратно к улице
-  const lds = massifDs(Lk.x, Lk.y), prom = [massifPoint(950, Lk.y - 230), massifPoint(1000, Lk.y - 200)];
-  for (let k = 0; k <= 14; k++) { const f = -Math.PI * .55 + Math.PI * 1.1 * k / 14; prom.push(massifPoint(lds + Math.cos(f) * (Lk.rx + 38), Lk.y + Math.sin(f) * (Lk.ry + 38))); }
-  prom.push(massifPoint(1000, Lk.y + 200), massifPoint(950, Lk.y + 230));
-  addRoad(prom, 8, "st", { extra: { rural: true, sw: 3 } });
-  // проулки к фермам: от улицы вглубь полки
-  for (const a of [a0 - 390, a0 + 390]) addRoad([massifPoint(950, a), massifPoint(1060, a + rnd(-30, 30)), massifPoint(1210, a + rnd(-50, 50))], 8, "st", { extra: { rural: true, sw: 3 } });
-  // серпантины из города: от подножий к концам улицы (не больше двух; лишние трассы кончаются у подножия)
-  const ends = [massifPoint(950, a0 - 500), massifPoint(950, a0 + 500)];
-  let made = 0;
+  if (!feet.length) {
+    // ни одна трасса не идёт к горам: от ближайшего к массиву узла загородной сети тянем просёлок к подножию
+    const tgt = massifPoint(-60, A.a); let best = null, bd = 1e9;
+    for (const n of RN) { if (n.dead || n.exit || !n.ed.length || cityK(n.x, n.y) > .6) continue; const d = Math.hypot(n.x - tgt[0], n.y - tgt[1]); if (d < bd) { bd = d; best = n; } }
+    if (best) { const foot = massifPoint(24, A.a + rnd(-80, 80)), mid = [(best.x + foot[0]) / 2 + rnd(-60, 60), (best.y + foot[1]) / 2 + rnd(-60, 60)];
+      const made = addRoad([[best.x, best.y], mid, foot], 14, "st", { extra: { rural: true, sw: 3 } });
+      const fn = made && gNodeNear(foot[0], foot[1], 30); if (fn) feet.push(fn); }
+  }
+  const sa = buildShelfStreets(A, true), sb = buildShelfStreets(B, false); if (!sa) return;
+  // серпантины из города: от подножий к концам улицы нижнего городка (не больше двух; лишние трассы кончаются у подножия)
+  const ends = sa.ends.slice(); let made = 0;
   for (const foot of feet) {
     if (made >= 2 || !ends.length) break;
     const fa = sideAlong(side, foot.x, foot.y); ends.sort((p, q) => Math.abs(sideAlong(side, p[0], p[1]) - fa) - Math.abs(sideAlong(side, q[0], q[1]) - fa));
     const E = ends.shift(); if (mrRoad(foot.x, foot.y, E[0], E[1], side, 14)) made++;
   }
-  // дорога на перевал: от дальней точки набережной вверх к самому низкому месту хребта
-  const pass = mrPass(side, Lk.y); if (pass) { const s0 = massifPoint(lds + Lk.rx + 38, Lk.y); mrRoad(s0[0], s0[1], pass[0], pass[1], side, 12); }
+  // от набережной нижнего городка — серпантин к ближнему концу улицы верхнего; от его набережной — дорога на перевал
+  if (sb) {
+    const fa = sideAlong(side, sa.far[0], sa.far[1]); sb.ends.sort((p, q) => Math.abs(sideAlong(side, p[0], p[1]) - fa) - Math.abs(sideAlong(side, q[0], q[1]) - fa));
+    mrRoad(sa.far[0], sa.far[1], sb.ends[0][0], sb.ends[0][1], side, 12);
+    const pass = mrPass(side, sb.far[1]); if (pass) mrRoad(sb.far[0], sb.far[1], pass[0], pass[1], side, 12);
+  } else { const pass = mrPass(side, sa.far[1]); if (pass) mrRoad(sa.far[0], sa.far[1], pass[0], pass[1], side, 12); }
 }
-// село на полке: дома вдоль улицы и набережной, церковь у озера, кафе и киоск; фермы и рощи по полке ставит buildRural
+// курортные городки на полках: гостиницы и кафе у набережной, церковь у озера, домики-шале вдоль улиц, фермы у проулков нижней полки
 function buildMountainVillage() {
   if (!massif) return;
-  const M = massif, a0 = M.a0;
-  const village = RE.filter(e => { if (e.dead || e.mountain || !e.rural) return false; const p = edgePos(e, e.len / 2), ds = massifDs(p.x, p.y); return ds > 930 && ds < 1250 && Math.abs(sideAlong(M.side, p.x, p.y) - a0) < 520; });
-  // полоса вдоль улиц села расчищается от леса: дома и дворы стоят на лугу
-  { const band = new Set(); for (const e of village) for (let t = 0; t <= e.len; t += 4) { const p = edgePos(e, t); for (let o = -64; o <= 64; o += 4) { const gx = Math.floor((p.x - p.ty * o) / CS), gy = Math.floor((p.y + p.tx * o) / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) band.add(gy * GW + gx); } }
-    for (const i of band) if (grid[i] === 4) grid[i] = 2;
-    trees = trees.filter(t => !band.has(Math.floor(t.y / CS) * GW + Math.floor(t.x / CS))); }
-  const isLane = e => { const pm = edgePos(e, e.len / 2); return e.len < 400 && Math.abs(sideAlong(M.side, pm.x, pm.y) - a0) > 300; }; // проулки к фермам: короткие, в стороне от озера
-  // сначала фермы у проулков: по ферме и ранчо на каждый, если место на полке найдётся
-  for (const e of village) {
-    if (!isLane(e)) continue;
-    for (const [t, sd, ranch] of [[e.len * .45, 1, false], [e.len * .6, -1, true]]) { const p = edgePos(e, t), x = p.x - p.ty * sd * 90, y = p.y + p.tx * sd * 90, b = blockAt(x, y); if (b && b.rural) buildFarm({ x, y, kind: ranch ? "meadow" : "field" }, b, ranch); }
-  }
-  // потом дома вдоль улицы и набережной, церковь у озера, кафе
-  let houses = 0, church = false, cafe = false;
-  for (const e of village) {
-    if (isLane(e)) continue;
-    const pm = edgePos(e, e.len / 2), lake = e.len < 400 && Math.abs(massifDs(pm.x, pm.y) - massifDs(M.lake.x, M.lake.y)) < 160; // набережная
-    for (let t = 36; t < e.len - 30; t += rnd(40, 52)) for (const side of [-1, 1]) {
-      if (Math.random() < .25) continue; const w = rnd(15, 21);
-      const kind = !church && lake && Math.random() < .3 ? "church" : !cafe && Math.random() < .08 ? "cafe" : "house";
-      const b = kind === "church" ? placeAlong(e, t, side, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 31, ridge: "x", village: true })
-        : kind === "cafe" ? placeAlong(e, t, side, 18, 12, 14, rnd(6, 9), { kind: "cafe", floors: 1, style: 12, village: true })
-        : placeAlong(e, t, side, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
-      if (!b) continue;
-      if (kind === "church") church = true; else if (kind === "cafe") cafe = true; else { houses++; suburbLot(e, t - 10, side, w + 20, b); }
+  const M = massif;
+  for (const S of M.shelves) {
+    const half = S.pw * .75 + 60;
+    const village = RE.filter(e => { if (e.dead || e.mountain || !e.rural) return false; const p = edgePos(e, e.len / 2), ds = massifDs(p.x, p.y); return ds > S.d0 + 20 && ds < S.d1 + 20 && Math.abs(sideAlong(M.side, p.x, p.y) - S.a) < half; });
+    if (!village.length) continue;
+    // полоса вдоль улиц расчищается от леса: дома и дворы стоят на лугу
+    { const band = new Set(); for (const e of village) for (let t = 0; t <= e.len; t += 4) { const p = edgePos(e, t); for (let o = -64; o <= 64; o += 4) { const gx = Math.floor((p.x - p.ty * o) / CS), gy = Math.floor((p.y + p.tx * o) / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) band.add(gy * GW + gx); } }
+      for (const i of band) if (grid[i] === 4) grid[i] = 2;
+      trees = trees.filter(t => !band.has(Math.floor(t.y / CS) * GW + Math.floor(t.x / CS))); }
+    const lds = massifDs(S.lake.x, S.lake.y);
+    const isLane = e => { const pm = edgePos(e, e.len / 2); return e.len < 400 && Math.abs(sideAlong(M.side, pm.x, pm.y) - S.a) > S.pw * .5; };
+    const isProm = e => { const pm = edgePos(e, e.len / 2); return !isLane(e) && Math.abs(massifDs(pm.x, pm.y) - lds) < S.lake.rx + 60 && Math.abs(sideAlong(M.side, pm.x, pm.y) - S.lake.y) < S.lake.ry + 200 && massifDs(pm.x, pm.y) > S.d0 + 80; };
+    // фермы у проулков (только нижняя полка)
+    for (const e of village) {
+      if (!isLane(e)) continue;
+      for (const [t, sd, ranch] of [[e.len * .45, 1, false], [e.len * .6, -1, true]]) { const p = edgePos(e, t), x = p.x - p.ty * sd * 90, y = p.y + p.tx * sd * 90, b = blockAt(x, y); if (b && b.rural) buildFarm({ x, y, kind: ranch ? "meadow" : "field" }, b, ranch); }
     }
+    let houses = 0, church = false, hotels = 0, cafes = 0;
+    for (const e of village) {
+      if (isLane(e)) continue; const prom = isProm(e);
+      for (let t = 36; t < e.len - 30; t += rnd(40, 54)) for (const side of [-1, 1]) {
+        if (Math.random() < .2) continue; const w = rnd(15, 21);
+        const kind = prom && hotels < 2 && Math.random() < .35 ? "hotel" : prom && !church && Math.random() < .3 ? "church" : cafes < 2 && Math.random() < .1 ? "cafe" : "house";
+        const b = kind === "hotel" ? placeAlong(e, t, side, rnd(30, 40), 16, 22, rnd(6, 10), { kind: "manor", floors: 3, style: 35, ridge: "x", village: true, hotel: true })
+          : kind === "church" ? placeAlong(e, t, side, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 31, ridge: "x", village: true })
+          : kind === "cafe" ? placeAlong(e, t, side, 18, 12, 14, rnd(6, 9), { kind: "cafe", floors: 1, style: 12, village: true })
+          : placeAlong(e, t, side, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
+        if (!b) continue;
+        if (kind === "hotel") hotels++; else if (kind === "church") church = true; else if (kind === "cafe") cafes++; else { houses++; suburbLot(e, t - 10, side, w + 20, b); }
+      }
+    }
+    if (houses >= 4) { const e = village[0], p = edgePos(e, e.len * .5); props.push({ k: "kiosk", x: p.x + (-p.ty) * (e.hw + 9), y: p.y + p.tx * (e.hw + 9), a: Math.atan2(-p.tx, p.ty), v: 0 }); }
   }
-  if (houses >= 4 && village.length) { const e = village[0], p = edgePos(e, e.len * .5); props.push({ k: "kiosk", x: p.x + (-p.ty) * (e.hw + 9), y: p.y + p.tx * (e.hw + 9), a: Math.atan2(-p.tx, p.ty), v: 0 }); }
 }

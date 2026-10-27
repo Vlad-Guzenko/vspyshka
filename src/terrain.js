@@ -63,11 +63,15 @@ function worldFlat() { return !river && !shore && !lakes.length && !ridgeSides.l
 function prepareWater() {
   terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = [];
   const mountains = relief === "mountains" && L.ridges !== 0;
-  // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире); на полке — озеро и место для села
+  // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Две полки лестницей: нижняя широкая
+  // с большим озером, верхняя поуже и выше, со своим озером; на каждой — курортный городок
   massif = null; ridgeSides = [];
   if (mountains) {
-    const side = pick([2, 3]), a0 = H / 2 + rnd(-150, 150), lx = side === 3 ? W - MOUNT_W + 1080 : MOUNT_W - 1080;
-    massif = { side, w: MOUNT_W, a0, pw: 600, lake: { x: side === 3 ? W - MOUNT_W + 1095 : MOUNT_W - 1095, y: a0 + rnd(-40, 40), rx: 100, ry: 80, level: 146 } };
+    const side = pick([2, 3]), a0 = H / 2 + rnd(-120, 120), P = (ds, along) => side === 3 ? [W - MOUNT_W + ds, along] : [MOUNT_W - ds, along];
+    const A = { d0: 820, d1: 1180, h: 135, a: a0, pw: 700, lake: null }, B = { d0: 1560, d1: 1900, h: 240, a: a0 + rnd(-220, 220), pw: 480, lake: null };
+    const la = P(1040, A.a + rnd(-60, 60)), lb = P(1760, B.a + rnd(-40, 40));
+    A.lake = { x: la[0], y: la[1], rx: 110, ry: 85, level: A.h - 4 }; B.lake = { x: lb[0], y: lb[1], rx: 70, ry: 55, level: B.h - 4 };
+    massif = { side, w: MOUNT_W, a0, shelves: [A, B], lakes: [A.lake, B.lake] };
     ridgeSides = [side];
   }
   if (WORLD_WATER && L.sea) { makeShore(); ridgeSides = ridgeSides.filter(s => s !== shore.side); }
@@ -87,17 +91,20 @@ function prepareWater() {
 // Складки гребневого шума сильнее на склонах и почти пропадают на полке; в полке — чаша озера
 function massifH(x, y) {
   const M = massif, ds = M.w + sideDs(M.side, x, y), along = sideAlong(M.side, x, y);
-  const d = ds + (fbm(along / 1100 + 5, 3.3) - .5) * 160;
-  if (d < -100) return 0;
+  const d = ds + (fbm(along / 1100 + 5, 3.3) - .5) * 220; // граница предгорий гуляет
+  if (d < -140) return 0;
   const wx = x + (fbm(x / 900 + 3, y / 900 + 1) - .5) * 260, wy = y + (fbm(x / 900 - 2, y / 900 + 5) - .5) * 260;
   const ridge = ridged(wx / 330, wy / 330) * .62 + fbm(wx / 140, wy / 140) * .26 + fbm(x / 48, y / 48) * .08;
-  const foot = 70 * smooth(-100, 520, d), pk = smooth(M.pw + 250, M.pw, Math.abs(along - M.a0));
-  const slope = 260 * smooth(520, 1720, d), shelf = 80 * smooth(520, 900, d) + 180 * smooth(1250, 1720, d);
-  let h = foot + slope + (shelf - slope) * pk + 140 * smooth(1700, 2200, d);
-  const flat = pk * smooth(760, 900, d) * (1 - smooth(1250, 1400, d)); // 1 на полке
-  h += (ridge - .5) * (6 + 54 * smooth(700, 1700, d)) * (1 - flat * .85); // складки: на предгорьях едва, на верхних склонах сильно
-  const Lk = M.lake, dl = Math.hypot((x - Lk.x) / Lk.rx, (y - Lk.y) / Lk.ry);
-  h -= 9 * smooth(1.9, 1, dl) * flat; // чаша озера
+  const [A, B] = M.shelves, s = smooth;
+  const foot = 70 * s(-140, 520, d), pkA = s(A.pw + 260, A.pw, Math.abs(along - A.a)), pkB = s(B.pw + 220, B.pw, Math.abs(along - B.a));
+  // три профиля: сплошной склон, склон с нижней полкой, лестница из двух полок; смешиваются по окнам вдоль края
+  const P0 = foot + 300 * s(520, 2200, d);
+  const PA = foot + (A.h - 70) * s(520, A.d0, d) + (370 - A.h) * s(A.d1, 2200, d);
+  const PAB = foot + (A.h - 70) * s(520, A.d0, d) + (B.h - A.h) * s(A.d1, B.d0, d) + (370 - B.h) * s(B.d1, 2200, d);
+  let h = P0 + pkA * (PA + pkB * (PAB - PA) - P0) + 140 * s(2200, 2700, d);
+  const flatA = pkA * s(A.d0 - 120, A.d0, d) * (1 - s(A.d1, A.d1 + 120, d)), flatB = pkA * pkB * s(B.d0 - 120, B.d0, d) * (1 - s(B.d1, B.d1 + 100, d)), flat = Math.max(flatA, flatB);
+  h += (ridge - .5) * (6 + 54 * s(700, 2200, d)) * (1 - flat * .85); // складки: на предгорьях едва, на склонах сильно, на полках почти нет
+  for (const Lk of M.lakes) { const dl = Math.hypot((x - Lk.x) / Lk.rx, (y - Lk.y) / Lk.ry); h -= 9 * s(1.9, 1, dl) * flat; } // чаши озёр
   return Math.max(0, h);
 }
 function mountainH(x, y) {
@@ -180,7 +187,7 @@ function levelTerraces() {
     let s = 0, n = 0; for (const i of T.cells) if (TH[i] > WATER_Y && grid[i] !== 9) { s += TH[i]; n++; } if (!n) continue;
     const h0 = s / n, inside = new Set(T.cells);
     for (const i of T.cells) if (TH[i] > WATER_Y) TH[i] = h0;
-    for (const i of T.cells) { const gx = i % GW, gy = (i / GW) | 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = gx + dx, y = gy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (inside.has(j) || TH[j] <= WATER_Y) continue; const lim = Math.hypot(dx, dy) * CS * .66; TH[j] = clamp(TH[j], h0 - lim, h0 + lim); } }
+    for (const i of T.cells) { const gx = i % GW, gy = (i / GW) | 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = gx + dx, y = gy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (inside.has(j) || TH[j] <= WATER_Y || grid[j] === 9 || (benchMask && benchMask[j])) continue; const lim = Math.hypot(dx, dy) * CS * .66; TH[j] = clamp(TH[j], h0 - lim, h0 + lim); } }
   }
 }
 function benchRoads() {
@@ -272,7 +279,7 @@ function smoothTerrain(passes) {
     TH.set(tmp);
   }
 }
-const SNOW_H = 270; // выше — снег: без деревьев и построек
+const SNOW_H = 300; // выше — снег: без деревьев и построек
 function finishTerrain() {
   for (let gy = 1; gy < GH - 1; gy++) for (let gx = 1; gx < GW - 1; gx++) {
     const i = gy * GW + gx; if (grid[i] !== 2 && grid[i] !== 4) continue;
@@ -280,7 +287,7 @@ function finishTerrain() {
     if (Math.hypot(sx, sy) > 1.1 && TH[i] > WATER_Y) grid[i] = 10;
   }
   // на скалах и выше снеговой линии леса нет
-  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && TH[i] < SNOW_H - 20; });
+  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && grid[i] !== 9 && TH[i] < SNOW_H - 20 && waterD(t.x, t.y) > 5; });
 }
 function slopeK(x0, y0, x1, y1) {
   const d = Math.hypot(x1 - x0, y1 - y0); if (d < .01) return 1;

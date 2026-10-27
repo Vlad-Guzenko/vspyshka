@@ -127,7 +127,7 @@ function cityLake(cx, cy, r0, r1) {
 }
 // озёра за городом: в полях, в стороне от дорог; на большой карте их больше
 function placeLakes() {
-  if (massif) { const Lk = massif.lake, l = addLake(Lk.x, Lk.y, Lk.rx, Lk.ry, false); l.level = Lk.level; l.mountain = true; } // озеро на полке
+  if (massif) for (const Lk of massif.lakes) { const l = addLake(Lk.x, Lk.y, Lk.rx, Lk.ry, false); l.level = Lk.level; l.mountain = true; } // озёра на полках
   if (!L.lakes) return;
   const want = (L.lakes === "rural" ? (Math.random() < .75 ? 1 : 0) : 0) + (mapSize === "big" ? 1 : 0);
   for (let n = 0, k = 0; n < want && k < 200; k++) {
@@ -188,7 +188,7 @@ function furnishLakes() {
 let farmSeq = 0;
 // ферма у загородной дороги: дом и амбар фасадом к дороге, за ними двор — силос, техника, сено; у ранчо вместо силоса загон со скотом
 function buildFarm(s, b, ranch) {
-  const q = gEdgeNear(s.x, s.y, 260); if (!q) return false;
+  const q = gEdgeNear(s.x, s.y, 260, f => f.mountain); if (!q) return false; // ферма стоит у просёлка, не у серпантина
   const e = q.e, p = edgePos(e, q.t), side = ((s.x - p.x) * -p.ty + (s.y - p.y) * p.tx) > 0 ? 1 : -1, nx = -p.ty * side, ny = p.tx * side;
   const ang = Math.atan2(p.ty, p.tx), ca = Math.cos(ang), sa = Math.sin(ang);
   const at = (u, v) => [p.x + ca * u + nx * (e.hw + v), p.y + sa * u + ny * (e.hw + v)]; // u вдоль дороги, v вглубь от обочины
