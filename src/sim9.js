@@ -1,5 +1,5 @@
 /* ---------- укрытия: люди прячутся в домах и на крышах, зомби ломают двери ---------- */
-const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire", "church", "station", "school"]);
+const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire", "church", "station", "school", "cottage", "dacha", "manor", "farmhouse", "barn", "hangar", "market", "garages", "autoservice", "cafe", "kinder"]);
 function computeDoors() {
   for (const b of buildings) {
     b.occ = []; b.door = null;
@@ -104,7 +104,7 @@ function stepTents(dt) {
 /* ---------- карантин: зона по кварталам, барьеры на въездах, пост пропуска, снятие после тишины ---------- */
 // зона — кварталы, задетые прямоугольником, и улицы между ними; граница идёт по краю кварталов (дома — часть стены),
 // улицы, уходящие из зоны, перекрываются барьером сразу, сетку по краям кварталов ставят строители; один въезд — пост пропуска
-const wallMask = new Uint8Array(GW * GH), quarMask = new Uint8Array(GW * GH), zoneOf = new Int16Array(GW * GH);
+const wallMask = new Uint8Array(GMAX), quarMask = new Uint8Array(GMAX), zoneOf = new Int16Array(GMAX);
 let wallJobs = [], zoneSeq = 0, zoneT = 0; // wallJobs — действующие зоны карантина
 const quarAt = (x, y) => zoneOf[clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1)];
 const fenceable = c => c === 0 || c === 1 || c === 2 || c === 7 || c === 8;

@@ -430,7 +430,7 @@ function stepTurnPose(c, dt) {
   c.dir = dirOf(p.tx, p.ty);
 }
 // сколько машин нужно городу: по суммарной длине полос
-function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.len; return Math.round(L / 700 * TRAFFIC_TUNE.density); }
+function trafficN() { let L = 0; for (const l of RL) if (!l.e.rural) L += l.e.len; return Math.round(L / 700 * TRAFFIC_TUNE.density * (MAP_SIZES[mapSize].traffic || 1)); } // на большой карте машин на километр меньше, чтобы кадры не дорожали
 // городские машины: кузов, длина (в долях седана) и цвета; припаркованным во дворах не достаются фургоны
 const CIV_CARS = [
   { k: "sedan", w: 30, len: 1 }, { k: "hatch", w: 18, len: .86 }, { k: "lada", w: 14, len: .92, cols: ["#d8cfa8", "#e8e6dc", "#a8322a", "#3f6b4a", "#3a5f8a", "#c9b47a", "#7a2a2a"] },
@@ -575,7 +575,7 @@ function gasTick(dt) {
    вечером домой. Маршрут считает routeTo (как у служб); у нужной улицы машина встаёт у бордюра на полминуты, если ширина
    позволяет разойтись с проезжающими, и выбирает новую цель. Недостижимая или слишком долгая цель меняется */
 let tripPools = null, tripPoolT = -1e9;
-const TRIP_HOME = new Set(["house", "apt", "oldhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral"]);
+const TRIP_HOME = new Set(["house", "apt", "oldhouse", "cottage", "dacha", "manor", "farmhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar", "barn", "garages", "autoservice", "kinder"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral", "market", "cafe"]);
 function tripPool() {
   if (tripPools && simT - tripPoolT < 30) return tripPools;
   const P = { home: [], work: [], shop: [] };

@@ -12,10 +12,11 @@ function nameFor(a, last) {
 const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", builder: "строитель", sanitar: "санитар", bandit: "мародёр", zombie: "зомби" };
 // семьи: 1–4 человека, общий дом; половина сейчас дома, остальные в городе
 let families = [], famMap = {};
+const HOME_KINDS = new Set(["apt", "house", "cottage", "manor", "farmhouse", "dacha"]), WORK_KINDS = new Set(["tower", "mall", "warehouse", "hospital", "police", "fire", "barn", "hangar", "autoservice", "kinder", "market", "cafe", "school"]);
 function assignHomes() {
   families = []; famMap = {};
-  const homes = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && (b.kind === "apt" || b.kind === "house"));
-  const works = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && ["tower", "mall", "warehouse", "hospital", "police", "fire"].includes(b.kind));
+  const homes = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && HOME_KINDS.has(b.kind));
+  const works = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && WORK_KINDS.has(b.kind));
   const civs = agents.filter(a => a.role === "civ");
   for (let i = civs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [civs[i], civs[j]] = [civs[j], civs[i]]; }
   let i = 0, fid = 1;
@@ -26,7 +27,9 @@ function assignHomes() {
     families.push(fam); famMap[fam.id] = fam;
     for (const m of members) {
       m.fam = fam.id; m.home = fam.home; nameFor(m, last);
-      if (works.length && !m.age && Math.random() < .7) m.work = pick(works)[1];
+      // семья с фермы работает на своей ферме: в амбаре или ангаре, а если их нет — дома
+      if (hp && hp[0].farm) { const wb = buildings.findIndex(x => x.farm === hp[0].farm && x.kind !== "farmhouse" && x.door); if (!m.age) m.work = wb >= 0 ? wb : hp[1]; }
+      else if (works.length && !m.age && Math.random() < .7) m.work = pick(works)[1];
       if (hp && Math.random() < .5) { const [x, y] = freeNear(hp[0].door[0], hp[0].door[1], 40); m.x = x; m.y = y; }
     }
     i += n;
@@ -281,7 +284,7 @@ function placeName(x, y) {
   if (!b) return "на окраине";
   let k = b.kind;
   if (b.rural) { const gi = Math.floor(y / CS) * GW + Math.floor(x / CS), pt = patchOf[gi] >= 0 ? patches[patchOf[gi]] : null; k = pt ? pt.kind : "field"; }
-  return { hill: "на холме", field: "в поле", meadow: "на лугу", forest: "в лесу", bank: "на берегу", park: "в парке", plaza: "на площади", towers: "в центре", apt: "во дворе многоэтажек", houses: "во дворе многоэтажек", suburb: "в частном секторе", industry: "в промзоне", lot: "на парковке", bigpark: "в городском парке", old: "в старом городе", square: "на соборной площади", island: "на круглой площади", green: "в сквере", glacis: "на бульварном кольце" }[k] || "на улице";
+  return { hill: "на холме", field: "в поле", meadow: "на лугу", forest: "в лесу", bank: "на берегу", park: "в парке", lake: "на берегу озера", garages: "в гаражах", orchard: "в саду", plaza: "на площади", towers: "в центре", apt: "во дворе многоэтажек", houses: "во дворе многоэтажек", suburb: "в частном секторе", industry: "в промзоне", lot: "на парковке", bigpark: "в городском парке", old: "в старом городе", square: "на соборной площади", island: "на круглой площади", green: "в сквере", glacis: "на бульварном кольце" }[k] || "на улице";
 }
 function causeText(a) {
   if (a.vapor) return "испарился в ядерном взрыве";

@@ -2,7 +2,7 @@
 // высота в единицах мира (1 ед. = 25 см). Город стоит на пологих холмах, за ним хребты со снегом.
 // Вода — ямы в рельефе под общей водной гладью. Клетка 10 — скала, по ней не пройти.
 let terrainSeed = 1, hasHills = true, ridgeSides = [], rocks = [], river = null, shore = null, lakes = [], cityBlob = null;
-const TH = new Float32Array(GW * GH); // высота по клеткам города
+const TH = new Float32Array(GMAX); // высота по клеткам города
 const MOUNT = { front: 320, span: 1000, hmax: 420 }, WATER_Y = -1.5, BED = -5.5, BANK = 10; // рельефа нет: земля ровная, у воды короткий откос
 function tHash(ix, iy) { let n = (ix * 374761393 + iy * 668265263 + terrainSeed * 1442695041) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967295; }
 function vnoise(x, y) {

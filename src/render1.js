@@ -39,7 +39,7 @@ function canvasTex(w, h, paint, srgb = true) {
 function speckle(g, x, y, w, h, n, cols, s = 2) { for (let i = 0; i < n; i++) { g.fillStyle = pick(cols); g.fillRect(x + Math.random() * w, y + Math.random() * h, s, s); } }
 
 /* ---------- земля: асфальт, тротуары, разметка ---------- */
-const GS = Math.min(1.5, 4500 / W); // пикселей текстуры на единицу мира: на большой карте чуть грубее, иначе текстура земли съест видеопамять
+let GS = Math.min(1.5, 4500 / W); // пикселей текстуры на единицу мира: на большой карте чуть грубее, иначе текстура земли съест видеопамять
 const FIELD = ["#c9a85a", "#7a9a40", "#7a5a3a", "#a8b860"], RUBBLE_COL = ["#7b746a", "#857d72", "#706960"];
 // цвет клетки земли; завал — серо-бурая крошка поверх чего угодно, по ней видно, докуда дошли экскаваторы
 function groundColOf(i) {
@@ -50,12 +50,12 @@ function groundColOf(i) {
   const r = regionOf[i], b = r >= 0 ? blocks[r] : null, k = b ? b.kind : null;
   if (b && b.rural && c === 7) return "#9d9a92"; // бетон за городом: плац части, площадки
   if (b && b.rural && c === 0) return "#4c4e50"; // асфальт заправки у трассы
-  if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : FIELD[pt.crop]; }
+  if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : pt.kind === "orchard" ? "#67883f" : FIELD[pt.crop]; }
   if (c === 7) return k === "old" || k === "square" ? "#9a8f7e" : "#a8a092";
   if (c === 1) return "#8f8f8a";
   if (c === 0) return k === "industry" ? "#6d6c66" : "#3f4244";
   if (c === 3) return k === "suburb" ? "#56763d" : k === "old" || k === "square" ? "#9a8f7e" : k === "towers" || k === "plaza" ? "#a8a092" : "#8f8f8a";
-  return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" ? "#4b6e35" : "#56763d";
+  return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" || k === "lake" ? "#4b6e35" : "#56763d";
 }
 // перекрасить клетки в прямоугольнике мира (завал лёг или его вывезли); на видеокарту уходит только задетый кусок, не чаще раза в секунду
 let groundDirty = null, groundT = -9;
@@ -106,12 +106,13 @@ function paintGround(g) {
     if (b.paths) { g.strokeStyle = "#c2b493"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round"; for (const path of b.paths) { g.beginPath(); path.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); } }
   }
   for (const p of ponds) { g.fillStyle = "#b8ab8a"; g.beginPath(); g.ellipse(p.x, p.y, p.rx + 4, p.ry + 4, 0, 0, TAU); g.fill(); g.fillStyle = "#24404f"; g.beginPath(); g.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, TAU); g.fill(); }
+  paintLakes(g);
   drawLandmarkGround(g);
   paintContactShadows(g);
   edPaintGround(g);
   // дорожки от крыльца частного дома к тротуару
   g.strokeStyle = "#9b958a"; g.lineWidth = 4; g.lineCap = "butt";
-  for (const b of buildings) if (b.kind === "house" && b.front) { const f = b.front; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(f.x + f.nx * (f.set + 4), f.y + f.ny * (f.set + 4)); g.stroke(); }
+  for (const b of buildings) if ((b.kind === "house" || b.kind === "cottage" || b.kind === "farmhouse" || b.kind === "manor") && b.front) { const f = b.front; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(f.x + f.nx * (f.set + 4), f.y + f.ny * (f.set + 4)); g.stroke(); }
   // дороги: тротуар, бордюр, асфальт — сначала у всех рёбер, потом поверх
   const path = e => { g.beginPath(); e.pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
   g.lineJoin = "round"; g.lineCap = "round";
@@ -225,12 +226,24 @@ function markingWear(g) {
   }
   g.restore();
 }
-const groundCv = document.createElement("canvas"); groundCv.width = W * GS; groundCv.height = H * GS;
-const groundTex = new THREE.CanvasTexture(groundCv);
+const groundCv = document.createElement("canvas"); groundCv.width = Math.round(W * GS); groundCv.height = Math.round(H * GS);
+let groundTex = new THREE.CanvasTexture(groundCv);
 groundTex.encoding = THREE.sRGBEncoding; groundTex.anisotropy = Math.min(16, R3.capabilities.getMaxAnisotropy());
+const groundWorldSize = { value: new THREE.Vector2(W, H) }; // размер мира для шейдера земли и воды, обновляется при смене карты
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(W, H, GW, GH), new THREE.MeshStandardMaterial({ map: groundTex, roughness: .93, metalness: 0, envMapIntensity: .45 }));
-ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.userData.W = W; ground.userData.H = H;
 scene.add(ground);
+// карта другого размера: холст и текстура земли, сетка вершин, размер мира в шейдерах и мини-карта перестраиваются под новые W и H
+function syncWorldSize() {
+  if (ground.userData.W === W && ground.userData.H === H) return;
+  GS = Math.min(1.5, 4500 / W); groundCv.width = Math.round(W * GS); groundCv.height = Math.round(H * GS);
+  groundTex.dispose(); groundTex = new THREE.CanvasTexture(groundCv); groundTex.encoding = THREE.sRGBEncoding; groundTex.anisotropy = Math.min(16, R3.capabilities.getMaxAnisotropy());
+  ground.material.map = groundTex; ground.material.needsUpdate = true;
+  ground.geometry.dispose(); ground.geometry = new THREE.PlaneGeometry(W, H, GW, GH);
+  groundWorldSize.value.set(W, H); if (typeof waterU !== "undefined") waterU.mapSize.value.set(W, H);
+  ground.userData.W = W; ground.userData.H = H;
+  if (typeof miniResize === "function") miniResize();
+}
 const grassTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#4a5a37"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#55663e", "#405030", "#5d6d44", "#3b4a2c", "#6a6a48"], 2); });
 grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(280, 280);
 const outskirts = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
@@ -310,6 +323,14 @@ const STYLES = [
   { wall: "#8a3a2a", glass: "#3a4650", frame: "#e8e2d4", win: .2, house: true }, // амбар
   { wall: "#f1ede3", glass: "#2c3a48", frame: "#e0d2b0", win: .32, arch: true, house: true }, // храм: белёные стены, арочные окна, без витрин
   { wall: "#6c7050", glass: "#33404a", frame: "#c7c6b4", win: .42 }, // воинская часть: казармы и штаб
+  { wall: "#c9c4b6", glass: "#3c4a55", frame: "#e6e2d8", win: .5 }, { wall: "#b9b4a4", glass: "#3c4a55", frame: "#ece8e0", win: .5 }, // панельные дома спального района (29, 30)
+  { wall: "#e9d7a8", glass: "#4a5a66", frame: "#f6f2e8", win: .5 }, // детский сад
+  { wall: "#6b7378", glass: "#3a4650", frame: "#9fa5a8", win: .3, metal: true }, // автосервис
+  { wall: "#c9b48a", glass: "#4b6a82", frame: "#7a6a4a", win: .6 }, // рынок
+  { wall: "#d8a878", glass: "#3a4650", frame: "#f4ecd8", win: .5, house: true }, // кафе
+  { wall: "#d8d0b8", glass: "#3c4a55", frame: "#8a6a48", win: .36, house: true }, // дом фермера
+  { wall: "#f0e6d0", glass: "#33414c", frame: "#ffffff", win: .4, arch: true, house: true }, // усадьба
+  { wall: "#8f8a80", metal: true, blank: true }, // гаражи
 ];
 // кирпичные — красные и рыжие стены
 function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && r > g + 25 && r > b + 30 && r < 200; }
@@ -415,6 +436,7 @@ function boxUV(geo, w, d, floors, uOff) {
 }
 const instBoxes = []; // мелочи на крышах собираются в один InstancedMesh
 function buildCity() {
+  syncWorldSize();
   while (cityGroup.children.length) { const c = cityGroup.children.pop(); c.traverse?.(o => { if (o.geometry) o.geometry.dispose(); }); }
   for (const b of buildings) { if (b.scaf) { scene.remove(b.scaf); cityGroup.remove(b.scaf); } b.scaf = null; b.mound = null; b.sign = null; b.hid = b.ruinDone = b.detached = b.moundDone = b.broke = b.scorched = false; b.scorchK = 0; b.lastStep = -1; }
   for (const t of trees) t.shownBurnt = false;
@@ -437,6 +459,7 @@ function buildCity() {
     if (topY - b.baseY > .25) { const fh = topY - b.baseY + 2.4; const fnd = new THREE.Mesh(new THREE.BoxGeometry(w + .6, fh, d + .6), parapetMat); fnd.position.y = fh / 2 - 2.2; fnd.receiveShadow = fnd.castShadow = true; obj.add(fnd); }
     const cx = obj.position.x, cz = obj.position.z, by = b.baseY;
     if (landmarkMesh(b, obj, mesh, w, d)) { if (b.anim) cityGroup.add(obj); obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
+    if (districtMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (b.kind === "cathedral") {
       // собор: неф, барабан с куполом, две башни со шпилями
       const stone = facadeMats[21], gold = new THREE.MeshStandardMaterial({ color: 0xc9a14a, roughness: .25, metalness: .9 }), dark = new THREE.MeshStandardMaterial({ color: 0x3f5a4e, roughness: .5, metalness: .4 });

@@ -1,6 +1,6 @@
 /* ---------- тяжёлая техника: погрузчик, самосвал, эвакуатор, бетономешалка ---------- */
 let machines = [];
-const siteMask = new Uint8Array(GW * GH);
+const siteMask = new Uint8Array(GMAX);
 // стройплощадка огораживается: забор по границе квартала и участка, проезд со стороны улицы; снимается, когда дом готов
 function fenceSite(b) {
   if (b.siteCells) return;
