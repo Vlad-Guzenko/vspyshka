@@ -2,6 +2,8 @@
 // высота в единицах мира (1 ед. = 25 см). Город стоит на пологих холмах, за ним хребты со снегом.
 // Вода — ямы в рельефе под общей водной гладью. Клетка 10 — скала, по ней не пройти.
 let massif = null; // горная страна: сторона, ширина, центр плато по краю, озеро на полке
+// то же в плоских переменных: сохранение обнуляет massif, а рельеф за краем карты должен оставаться тем же
+let massifSide = 2, massifW = 0, massifLake = null;
 let funicular = null; // фуникулёр: нижняя станция L у городка, верхняя U на вершине, вагон ходит по t от 0 до 1
 let terrainSeed = 1, hasHills = true, ridgeSides = [], ridgeFront = [330, 330, 330, 330], rocks = [], river = null, shore = null, lakes = [], cityBlob = null;
 const TH = new Float32Array(GMAX); // высота по клеткам города
@@ -67,16 +69,20 @@ function prepareWater() {
   const mountains = relief === "mountains" && L.ridges !== 0;
   // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Граница предгорий гуляет, отроги выходят
   // в равнину; пики соединены гребнями, между двумя — долина к седловине; на умеренных склонах случайные полки с озёрами
-  massif = null; ridgeSides = []; funicular = null;
+  massif = null; ridgeSides = []; funicular = null; massifLake = null; massifSpurs = []; massifPeaks = []; massifValley = null; massifSummit = null;
   if (mountains) {
     const side = pick([2, 3]), BW = MOUNT_W, AL = H, P = (ds, along) => side === 3 ? [W - BW + ds, along] : [BW - ds, along];
+    massifSide = side; massifW = BW;
     const spurs = []; for (let k = 0, n = Math.floor(rnd(1, 3)); k < n; k++) spurs.push({ a: rnd(AL * .15, AL * .85), r: rnd(260, 420), push: rnd(160, 300) });
+    massifSpurs = spurs;
     const peaks = [], np = Math.floor(rnd(4, 9));
     // холмы (colline), а не пики: невысокие, широкие, с мягкими гребнями
     for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(135, 285), r: rnd(420, 800), rw: rnd(280, 440) }); // в полтора раза выше: есть куда ехать фуникулёру
     peaks.sort((p, q) => p.a - q.a);
+    massifPeaks = peaks;
     const vk = Math.floor(rnd(0, peaks.length - 1)), valley = { a0: (peaks[vk].a + peaks[vk + 1].a) / 2 + rnd(-120, 120), w: rnd(180, 280), depth: rnd(20, 45) };
-    massif = { side, w: BW, spurs, peaks, valley, terraces: [], lakes: [] };
+    massifValley = valley;
+    massif = { side, w: BW, spurs, peaks, valley, terraces: [], lakes: [], lake: null };
     // полки: первая высоко, в настоящих горах, остальные ниже; все на умеренных склонах и не ближе 200 друг к другу
     const raw = (x, y) => hillsH(x, y) + massifRaw(x, y), slope = (x, y) => Math.hypot(raw(x + 12, y) - raw(x - 12, y), raw(x, y + 12) - raw(x, y - 12)) / 24;
     const nt = Math.floor(rnd(2, 4));
@@ -88,6 +94,21 @@ function prepareWater() {
       massif.terraces.push({ x, y, a, d, h: h - 2, r, lake }); massif.lakes.push(lake);
     }
     massif.terraces.sort((p, q) => p.d - q.d);
+    // горное озеро в долине между двумя холмами: длинная чаша поперёк долины, берега выше уровня воды, сток — к краю массива.
+    // Уровень и чаща пишутся в massifRaw (до полок): там же считается седловина между самыми высокими соседними пиками
+    {
+      let bv = null;
+      for (let i = 0; i < peaks.length - 1; i++) { const s = Math.min(peaks[i].h, peaks[i + 1].h); if (!bv || s > bv.s) bv = { i, s }; }
+      if (bv) {
+        const av = (peaks[bv.i].a + peaks[bv.i + 1].a) / 2 + rnd(-60, 60), dv = (peaks[bv.i].d + peaks[bv.i + 1].d) / 2 + rnd(-70, 70);
+        const L = { a: av, d: clamp(dv, BW * .38, BW * .92), rx: rnd(190, 300), ry: rnd(105, 165), level: 0 };
+        L.level = raw(P(L.d, L.a)[0], P(L.d, L.a)[1]) - rnd(9, 14);
+        L.out = L.d + L.ry * .9 + 120; // до этой глубины чаша открыта стоку, дальше берег поднимается
+        [L.x, L.y] = P(L.d, L.a); // мировые координаты центра: озеро попадёт в общий список воды (как озёра на полках)
+        massifLake = L;
+        massif.lake = L;
+      }
+    }
     // вершина со смотровой для канатной дороги: самый высокий холм в 150–400 м от нижнего городка с перепадом от 20 м; макушка выравнивается площадкой
     massif.summit = null;
     if (massif.terraces.length) {
@@ -130,6 +151,16 @@ function massifRaw(x, y) {
   const rg = ridged(wx / 300, wy / 300) * .6 + fbm(wx / 120, wy / 120) * .3 + fbm(x / 40, y / 40) * .1;
   let h = f * (.86 + rg * .24) + fbm(x / 90, y / 90) * 6 * m + 30 * smooth(0, M.w, d) * m; // складки мягкие: холмы, а не скалы
   const V = M.valley, dv = Math.abs(a - V.a0 + (fbm(d / 500 + 9, 2.2) - .5) * 160); h -= V.depth * Math.exp(-((dv / V.w) ** 2)) * smooth(150, 600, d) * (h / (h + 80));
+  // горное озеро: чаша поперёк долины (rx — вдоль края), со стоком к подножию; берег у края чаши чуть выше уровня воды
+  const ML = M.lake;
+  if (ML) {
+    const q = ((a - ML.a) / ML.rx) ** 2 + ((d - ML.d) / ML.ry) ** 2, open = d < ML.out ? 1 : 0;
+    if (q < 1 || open) {
+      const k = Math.min(1, Math.sqrt(q)), bowl = (1 - k * k) * (1 - .55 * k * k); // профиль: ровное дно, крутее к бортам
+      const rim = ML.level + 3.5 + (open ? (d - ML.out + 120) * .07 : 0); // у стока борт ниже — вода «утекает» из долины
+      h = Math.min(h, rim - bowl * (rim - ML.level + 13));
+    }
+  }
   return h * m;
 }
 // полки: площадка неправильной формы выравнивается к своей высоте с мягким краем, в ней чаша озера
