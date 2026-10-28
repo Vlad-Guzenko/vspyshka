@@ -3,6 +3,7 @@
 let agents = [], nextId = 1, simT = 0, stats = [], events = [], firsts = {}, noises = [];
 let bites = 0, deaths = 0, zkills = 0, saved = 0, cured = 0, fieldT = 0, fieldTick = 0, statT = 0, logDirty = true;
 let evac = null, strikes = [], fires = [], hasMedics = false;
+const fieldJobs = []; // поля, которые досчитываются в следующих шагах
 const settings = { services: true, inc: 20, armed: .05, fast: false, night: false, threats: true };
 const CLOTH = ["#b23a3a", "#2f5f9e", "#d9d2c1", "#2a2a2e", "#5c7a45", "#a5702f", "#6b4590", "#cf8337", "#55606a", "#e2e2dc", "#7a2f2f", "#3d7f86"];
 const PANTS = ["#2b2f3a", "#3b3f46", "#1d2230", "#5a4a3a", "#6b6f72", "#23324f", "#4a4f3a"];
@@ -455,8 +456,15 @@ function step(dt) {
       if (a.role === "medic" && a.state === "alive") hasMedics = true; if (a.state !== "alive") continue; if (a.role === "zombie") Z.push(a); else if (!a.hidden && !a.post) { Hm.push(a); if (a.bitten) I.push(a); } }
     // поля на всю карту (заражённые для медиков, лагеря) считаются по очереди раз в секунду: на большой карте они вдвое дороже
     fieldTick ^= 1;
-    bfs(fZ, Z, 0, 140); if (Z.length) bfs(fH, Hm, 1, 64); if (hasMedics && fieldTick) bfs(fInf, I, 0, 520); if (evac) bfs(fE, [evac], 0, 280); if (camps.length && !fieldTick) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })), 0, 520); // дальше ~1,3 км пешком поле не считаем
-  }
+    // поля считаются не разом, а по одному за шаг: каждое стоит несколько миллисекунд, и вместе они давали рывок кадра раз в полсекунды
+    for (const job of fieldJobs) job(); fieldJobs.length = 0; // недосчитанные с прошлого раза — сейчас
+    const ev = evac, cg = camps.length && !fieldTick ? camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })) : null, med = hasMedics && fieldTick;
+    bfs(fZ, Z, 0, 140);
+    if (Z.length) fieldJobs.push(() => bfs(fH, Hm, 1, 64));
+    if (med) fieldJobs.push(() => bfs(fInf, I, 0, 520));
+    if (ev) fieldJobs.push(() => bfs(fE, [ev], 0, 280));
+    if (cg) fieldJobs.push(() => bfs(fC, cg, 0, 520)); // дальше ~1,3 км пешком поле не считаем
+  } else if (fieldJobs.length) fieldJobs.shift()();
   for (const a of agents) {
     if (a.state === "saved") continue;
     if (a.state === "dead") {

@@ -386,19 +386,19 @@ function bfsBox(e, sx, sy) {
   const { x0, y0, w, h, f } = e; f.fill(FAR);
   const si = (clamp(Math.floor(sy / CS), y0, y0 + h - 1) - y0) * w + (clamp(Math.floor(sx / CS), x0, x0 + w - 1) - x0);
   f[si] = 0; ring[0].push(si); let pending = 1;
+  const md = e.mode, N = w * h, dg = GW - w; // dg: сдвиг между строкой коробки и строкой всей карты
   for (let d = 0; pending > 0 && d < 3000; d++) {
     const b = ring[d % RING];
     while (b.length) {
       const i = b.pop(); pending--;
       if (f[i] !== d) continue;
-      const x = i % w, y = (i / w) | 0;
-      for (const [dx, dy] of NB4) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const gi = (ny + y0) * GW + nx + x0, c = grid[gi];
-        if (c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10) continue;
-        const md = e.mode; let wc; if (c === 8) { if (!md) continue; wc = 3; } else if (c === 6) { if (md === 2) continue; wc = 9; } else if (c === 0 && roadMask[gi] === 1 && !crossMask[gi]) wc = md ? 1 : 8; else wc = md === 2 && roadMask[gi] !== 1 ? 2 : 1;
-        const j = ny * w + nx, nd = d + wc;
+      const x = i % w, gi0 = i + ((i / w) | 0) * dg + y0 * GW + x0; // та же клетка в сетке карты
+      for (let k = 0; k < 4; k++) {
+        let j, gi;
+        if (k === 0) { if (x + 1 >= w) continue; j = i + 1; gi = gi0 + 1; } else if (k === 1) { if (x === 0) continue; j = i - 1; gi = gi0 - 1; }
+        else if (k === 2) { j = i + w; if (j >= N) continue; gi = gi0 + GW; } else { j = i - w; if (j < 0) continue; gi = gi0 - GW; }
+        const wc = stepCost(gi, md, true); if (!wc) continue;
+        const nd = d + wc;
         if (nd < f[j]) { f[j] = nd; ring[nd % RING].push(j); pending++; }
       }
     }

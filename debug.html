@@ -611,8 +611,21 @@ const crossMask = new Uint8Array(GMAX);
 // стоимость клетки для пешехода: тротуар, газон, площадь — 1; проезжая часть вне зебры — 8; завал — непроходим (зомби карабкаются)
 // mode: 0 пешеход, 1 зомби (карабкается по завалам, дорог не боится), 2 техника и танк (по дорогам и завалам, тротуар хуже)
 function walkCost(j, mode) { const c = grid[j]; if (c === 8) return mode ? 3 : 0; if (c === 6) return mode === 1 ? 9 : 0; if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8; return mode === 2 && roadMask[j] !== 1 ? 2 : 1; }
+// цена шага в клетку j для поиска путей: 0 — нельзя. Стены, деревья, машины, вода, скалы непроходимы; завал — только зомби и технике;
+// баррикада — только зомби (ломают); проезжая часть вне зебры пешеходу дорога (8). wall6 — баррикада непроходима для всех (поиск в коробке)
+function stepCost(j, mode, wall6) {
+  const c = grid[j];
+  if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) return 0;
+  if (c === 8) return mode ? 3 : 0;
+  if (c === 6) return wall6 || mode !== 1 ? 0 : 9;
+  if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8;
+  return mode === 2 && roadMask[j] !== 1 ? 2 : 1;
+}
+// поле расстояний (алгоритм Дейкстры с кольцом корзин, веса 1–9): соседи развёрнуты вручную —
+// раньше обход шёл через for…of по массиву пар, и под эпидемию на это уходила треть шага симуляции
 function bfs(field, sources, mode, maxD = 3000) {
-  field.fill(FAR, 0, GW * GH); // сетка выделена под большую карту, чистим только используемую часть
+  const N = GW * GH;
+  field.fill(FAR, 0, N); // сетка выделена под большую карту, чистим только используемую часть
   let pending = 0;
   for (const s of sources) {
     const i = clamp(Math.floor(s.y / CS), 0, GH - 1) * GW + clamp(Math.floor(s.x / CS), 0, GW - 1);
@@ -623,13 +636,12 @@ function bfs(field, sources, mode, maxD = 3000) {
     while (b.length) {
       const i = b.pop(); pending--;
       if (field[i] !== d) continue;
-      const x = i % GW, y = (i / GW) | 0;
-      for (const [dx, dy] of NB4) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
-        const j = ny * GW + nx, c = grid[j];
-        if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) continue;
-        let wc; if (c === 8) { if (!mode) continue; wc = 3; } else if (c === 6) { if (mode !== 1) continue; wc = 9; } else if (c === 0 && roadMask[j] === 1 && !crossMask[j]) wc = mode ? 1 : 8; else wc = mode === 2 && roadMask[j] !== 1 ? 2 : 1;
+      const x = i % GW;
+      for (let k = 0; k < 4; k++) {
+        let j;
+        if (k === 0) { if (x + 1 >= GW) continue; j = i + 1; } else if (k === 1) { if (x === 0) continue; j = i - 1; }
+        else if (k === 2) { j = i + GW; if (j >= N) continue; } else { j = i - GW; if (j < 0) continue; }
+        const wc = stepCost(j, mode, false); if (!wc) continue;
         const nd = d + wc;
         if (nd < field[j]) { field[j] = nd; ring[nd % RING].push(j); pending++; }
       }
@@ -3686,6 +3698,7 @@ function cableStep(dt) {
 let agents = [], nextId = 1, simT = 0, stats = [], events = [], firsts = {}, noises = [];
 let bites = 0, deaths = 0, zkills = 0, saved = 0, cured = 0, fieldT = 0, fieldTick = 0, statT = 0, logDirty = true;
 let evac = null, strikes = [], fires = [], hasMedics = false;
+const fieldJobs = []; // поля, которые досчитываются в следующих шагах
 const settings = { services: true, inc: 20, armed: .05, fast: false, night: false, threats: true };
 const CLOTH = ["#b23a3a", "#2f5f9e", "#d9d2c1", "#2a2a2e", "#5c7a45", "#a5702f", "#6b4590", "#cf8337", "#55606a", "#e2e2dc", "#7a2f2f", "#3d7f86"];
 const PANTS = ["#2b2f3a", "#3b3f46", "#1d2230", "#5a4a3a", "#6b6f72", "#23324f", "#4a4f3a"];
@@ -4138,8 +4151,15 @@ function step(dt) {
       if (a.role === "medic" && a.state === "alive") hasMedics = true; if (a.state !== "alive") continue; if (a.role === "zombie") Z.push(a); else if (!a.hidden && !a.post) { Hm.push(a); if (a.bitten) I.push(a); } }
     // поля на всю карту (заражённые для медиков, лагеря) считаются по очереди раз в секунду: на большой карте они вдвое дороже
     fieldTick ^= 1;
-    bfs(fZ, Z, 0, 140); if (Z.length) bfs(fH, Hm, 1, 64); if (hasMedics && fieldTick) bfs(fInf, I, 0, 520); if (evac) bfs(fE, [evac], 0, 280); if (camps.length && !fieldTick) bfs(fC, camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })), 0, 520); // дальше ~1,3 км пешком поле не считаем
-  }
+    // поля считаются не разом, а по одному за шаг: каждое стоит несколько миллисекунд, и вместе они давали рывок кадра раз в полсекунды
+    for (const job of fieldJobs) job(); fieldJobs.length = 0; // недосчитанные с прошлого раза — сейчас
+    const ev = evac, cg = camps.length && !fieldTick ? camps.map(c => ({ x: c.gate[0], y: c.gate[1] + 10 })) : null, med = hasMedics && fieldTick;
+    bfs(fZ, Z, 0, 140);
+    if (Z.length) fieldJobs.push(() => bfs(fH, Hm, 1, 64));
+    if (med) fieldJobs.push(() => bfs(fInf, I, 0, 520));
+    if (ev) fieldJobs.push(() => bfs(fE, [ev], 0, 280));
+    if (cg) fieldJobs.push(() => bfs(fC, cg, 0, 520)); // дальше ~1,3 км пешком поле не считаем
+  } else if (fieldJobs.length) fieldJobs.shift()();
   for (const a of agents) {
     if (a.state === "saved") continue;
     if (a.state === "dead") {
@@ -4995,19 +5015,19 @@ function bfsBox(e, sx, sy) {
   const { x0, y0, w, h, f } = e; f.fill(FAR);
   const si = (clamp(Math.floor(sy / CS), y0, y0 + h - 1) - y0) * w + (clamp(Math.floor(sx / CS), x0, x0 + w - 1) - x0);
   f[si] = 0; ring[0].push(si); let pending = 1;
+  const md = e.mode, N = w * h, dg = GW - w; // dg: сдвиг между строкой коробки и строкой всей карты
   for (let d = 0; pending > 0 && d < 3000; d++) {
     const b = ring[d % RING];
     while (b.length) {
       const i = b.pop(); pending--;
       if (f[i] !== d) continue;
-      const x = i % w, y = (i / w) | 0;
-      for (const [dx, dy] of NB4) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const gi = (ny + y0) * GW + nx + x0, c = grid[gi];
-        if (c === 3 || c === 4 || c === 5 || c === 6 || c === 9 || c === 10) continue;
-        const md = e.mode; let wc; if (c === 8) { if (!md) continue; wc = 3; } else if (c === 6) { if (md === 2) continue; wc = 9; } else if (c === 0 && roadMask[gi] === 1 && !crossMask[gi]) wc = md ? 1 : 8; else wc = md === 2 && roadMask[gi] !== 1 ? 2 : 1;
-        const j = ny * w + nx, nd = d + wc;
+      const x = i % w, gi0 = i + ((i / w) | 0) * dg + y0 * GW + x0; // та же клетка в сетке карты
+      for (let k = 0; k < 4; k++) {
+        let j, gi;
+        if (k === 0) { if (x + 1 >= w) continue; j = i + 1; gi = gi0 + 1; } else if (k === 1) { if (x === 0) continue; j = i - 1; gi = gi0 - 1; }
+        else if (k === 2) { j = i + w; if (j >= N) continue; gi = gi0 + GW; } else { j = i - w; if (j < 0) continue; gi = gi0 - GW; }
+        const wc = stepCost(gi, md, true); if (!wc) continue;
+        const nd = d + wc;
         if (nd < f[j]) { f[j] = nd; ring[nd % RING].push(j); pending++; }
       }
     }
@@ -8680,60 +8700,55 @@ function buildCity() {
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
   buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFunicular(); buildFences(); buildProps(); buildHydrants(); makeCarMeshes(cars.length + 300);
-  cityGroup.traverse(o => { if (o.isInstancedMesh) o.frustumCulled = false; });
+  cityGroup.traverse(o => { if (o.isInstancedMesh && !o.userData.cull) o.frustumCulled = false; }); // участки деревьев отсекаются по своей сфере
 }
 let roofStuff = null;
 
 /* ---------- деревья, фонари, фонтаны ---------- */
-let lampHeads, lampPools, lampPole, lampArm, treeCrown, treeTrunk, treeLeaf = null, treeCrownM = null, leafLod = null;
-const LEAF_CAP = 3000;
-// листва рядом с камерой: кроны ближних деревьев переезжают из шаров в листву, при сдвиге камеры — обратно
+let lampHeads, lampPools, lampPole, lampArm, treeLeaf = null, trees3d = null;
+const LEAF_CAP = 3000, CROWN_DETAIL_CAP = 9000, TREE_TILE = 800;
+// Деревья рисуются участками 800 × 800: участок вне кадра (и вне карты теней) не рисуется вовсе — раньше все
+// 55 тысяч крон рисовались каждый кадр дважды, в кадр и в тени, даже за спиной камеры.
+// Крона бывает трёх видов: вблизи — листва (только у городских деревьев), на средней дистанции — бугристый шар
+// в 396 треугольников, дальше — такой же шар попроще, в 90. Каждая крона живёт ровно в одном из них и при сдвиге камеры переезжает.
 const _lc = new THREE.Color();
-function updateLeafLOD() {
-  if (!treeLeaf || !treeCrownM || !leafLod) return;
-  const off = prefs.quality === "low" || camC.dist > 650;
-  const cx = camC.tx + W / 2, cy = camC.tz + H / 2, R = clamp(camC.dist * .75, 150, 320);
-  if (!off && !leafLod.dirty && Math.hypot(cx - leafLod.cx, cy - leafLod.cy) < 45 && Math.abs(R - leafLod.r) < 35) return;
-  if (off && !leafLod.near.length && treeLeaf.count === 0) return;
-  const A = treeCrown.instanceMatrix.array, Lm = treeLeaf.instanceMatrix.array;
-  for (const i of leafLod.near) A.set(treeCrownM.subarray(i * 48, i * 48 + 48), i * 48);
-  const near = [];
-  if (!off) for (let i = 0; i < trees.length && near.length * 3 < LEAF_CAP; i++) { const t = trees[i]; if (Math.abs(t.x - cx) < R && Math.abs(t.y - cy) < R && Math.hypot(t.x - cx, t.y - cy) < R) near.push(i); }
-  let n = 0;
-  for (const i of near) for (let k = 0; k < 3; k++) { const j = i * 3 + k; Lm.set(treeCrownM.subarray(j * 16, j * 16 + 16), n * 16); treeCrown.getColorAt(j, _lc); treeLeaf.setColorAt(n, _lc); A.fill(0, j * 16, j * 16 + 16); n++; }
-  treeLeaf.count = n; treeLeaf.instanceMatrix.needsUpdate = true; if (treeLeaf.instanceColor) treeLeaf.instanceColor.needsUpdate = true; treeCrown.instanceMatrix.needsUpdate = true;
-  leafLod = { cx, cy, r: R, near, dirty: false };
+// обёртка над общей геометрией со своей ограничивающей сферой: буферы одни, а отсечение по кадру — по участку
+function tileGeo(base, sphere) { const g = new THREE.BufferGeometry(); for (const k in base.attributes) g.setAttribute(k, base.attributes[k]); g.setIndex(base.index); g.boundingSphere = sphere; return g; }
+// раскладка по участкам: items — [{ m: Matrix4, c: Color|null, r: размер }], ключ участка — по положению и виду (город/лес)
+function buildTiles(items, base, mat, shadow, tag) {
+  const buckets = new Map();
+  items.forEach((it, j) => { const e = it.m.elements, k = tag + ":" + Math.floor((e[12] + W) / TREE_TILE) + ":" + Math.floor((e[14] + H) / TREE_TILE); let B = buckets.get(k); if (!B) buckets.set(k, B = []); B.push(j); });
+  const meshes = [], tileOf = new Int32Array(items.length), slotOf = new Int32Array(items.length);
+  for (const B of buckets.values()) {
+    const c = new THREE.Vector3(); for (const j of B) { const e = items[j].m.elements; c.x += e[12]; c.y += e[13]; c.z += e[14]; } c.multiplyScalar(1 / B.length);
+    let r = 0; for (const j of B) { const e = items[j].m.elements; r = Math.max(r, Math.hypot(e[12] - c.x, e[13] - c.y, e[14] - c.z) + items[j].r); }
+    const im = new THREE.InstancedMesh(tileGeo(base, new THREE.Sphere(c, r)), mat, B.length);
+    B.forEach((j, s) => { im.setMatrixAt(s, items[j].m); if (items[j].c) im.setColorAt(s, items[j].c); tileOf[j] = meshes.length; slotOf[j] = s; });
+    im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = true; im.userData.cull = true; meshes.push(im); cityGroup.add(im); // в three r147 у InstancedMesh отсечение по умолчанию выключено
+  }
+  return { meshes, tileOf, slotOf };
 }
 function buildTrees() {
-  treeTrunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.7, 1.1, 1, 6).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 }), Math.max(1, trees.length));
-  // кроны: у всех деревьев — бугристые шары; у деревьев рядом с камерой их подменяют кроны из листвы (updateLeafLOD):
-  // деревьев в городе тысячи, и листва на всех разом не по силам видеокарте
-  const crownGeo = organicCrown(), sphereMat = new THREE.MeshStandardMaterial({ roughness: .9, vertexColors: true, envMapIntensity: .3, normalMap: typeof leafNormal !== "undefined" ? leafNormal : null, normalScale: new THREE.Vector2(1.4, 1.4) });
-  treeCrown = new THREE.InstancedMesh(crownGeo, sphereMat, Math.max(1, trees.length * 3));
+  trees3d = null;
+  const trunkGeo = new THREE.CylinderGeometry(.7, 1.1, 1, 6).translate(0, .5, 0), trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 });
+  const crownGeo = organicCrown(), lowGeo = organicCrown(9, 6), sphereMat = new THREE.MeshStandardMaterial({ roughness: .9, vertexColors: true, envMapIntensity: .3, normalMap: typeof leafNormal !== "undefined" ? leafNormal : null, normalScale: new THREE.Vector2(1.4, 1.4) });
   if (treeLeaf) { cityGroup.remove(treeLeaf); treeLeaf.dispose(); treeLeaf = null; }
   if (typeof leafCrownGeo === "function") {
     const lm = leafMaterial(); treeLeaf = new THREE.InstancedMesh(leafCrownGeo(), lm, LEAF_CAP); treeLeaf.customDepthMaterial = lm.userData.depth;
     treeLeaf.count = 0; treeLeaf.frustumCulled = false; treeLeaf.castShadow = treeLeaf.receiveShadow = true; treeLeaf.setColorAt(0, new THREE.Color()); cityGroup.add(treeLeaf);
   }
-  leafLod = { cx: 1e9, cy: 1e9, r: 0, near: [], dirty: true };
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
-  trees.forEach((t, i) => {
+  const q = new THREE.Quaternion(), cityTr = [], cityCr = [], outTr = [], outCr = [];
+  trees.forEach(t => {
     const ty = gY(t.x, t.y);
     // в симуляции дерево занимает свою клетку, а рисуем его в натуральную величину: городские деревья 6–12 м
     const th = t.h * 1.45, trr = t.r * 1.3;
-    m.makeScale(1.25, th * .55, 1.25).setPosition(X(t.x), ty, Z(t.y)); treeTrunk.setMatrixAt(i, m);
+    cityTr.push({ m: new THREE.Matrix4().makeScale(1.25, th * .55, 1.25).setPosition(X(t.x), ty, Z(t.y)), c: null, r: th * .55 + 2 });
     for (let k = 0; k < 3; k++) {
-      const r = trr * rnd(.6, .9);
-      q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
-      m.compose(new THREE.Vector3(X(t.x) + rnd(-trr, trr) * .4, ty + th * rnd(.6, .85), Z(t.y) + rnd(-trr, trr) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r));
-      treeCrown.setMatrixAt(i * 3 + k, m); col.setHSL(rnd(.2, .29), rnd(.22, .38), rnd(.17, .26)); treeCrown.setColorAt(i * 3 + k, col);
+      const r = trr * rnd(.6, .9); q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
+      cityCr.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(X(t.x) + rnd(-trr, trr) * .4, ty + th * rnd(.6, .85), Z(t.y) + rnd(-trr, trr) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r)), c: new THREE.Color().setHSL(rnd(.2, .29), rnd(.22, .38), rnd(.17, .26)), r: r * 1.2 });
     }
   });
-  treeTrunk.castShadow = treeCrown.castShadow = true; treeCrown.receiveShadow = true;
-  cityGroup.add(treeTrunk, treeCrown);
-  treeCrownM = treeCrown.instanceMatrix.array.slice();
   // лесополоса за городом, кроме воды
-  const out = [];
   const wet = (x, y) => waterD(x, y) < 8;
   for (let i = 0; i < 3400; i++) {
     const side = Math.floor(rnd(0, 4)), d = 14 + Math.pow(Math.random(), 1.4) * 1100;
@@ -8742,22 +8757,49 @@ function buildTrees() {
     // лес растёт на пологих склонах ниже снега
     const hh = gY(x, y), sl = Math.hypot(gY(x + 8, y) - gY(x - 8, y), gY(x, y + 8) - gY(x, y - 8)) / 16;
     if (hh > 330 || sl > .55) continue;
-    out.push([x, y, rnd(10, 19) * (hh > 180 ? .7 : 1), rnd(26, 50) * (hh > 180 ? .7 : 1), hh]);
+    const r = rnd(10, 19) * (hh > 180 ? .7 : 1), h = rnd(26, 50) * (hh > 180 ? .7 : 1);
+    outTr.push({ m: new THREE.Matrix4().makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)), c: null, r: h * .55 + 2 });
+    for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); outCr.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)), c: new THREE.Color().setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)), r: r * 1.2 }); }
   }
-  const ot = new THREE.InstancedMesh(treeTrunk.geometry, treeTrunk.material, Math.max(1, out.length)), oc = new THREE.InstancedMesh(crownGeo, sphereMat, Math.max(1, out.length * 2));
-  out.forEach(([x, y, r, h, hh], i) => {
-    m.makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)); ot.setMatrixAt(i, m);
-    for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); m.compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)); oc.setMatrixAt(i * 2 + k, m); col.setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)); oc.setColorAt(i * 2 + k, col); }
-  });
-  ot.castShadow = oc.castShadow = false; oc.receiveShadow = true; // лес за городом без теней: дорого, а издали не видно
-  cityGroup.add(ot, oc);
+  buildTiles(cityTr, trunkGeo, trunkMat, true, "ct"); buildTiles(outTr, trunkGeo, trunkMat, false, "ot"); // лес за городом без теней: дорого, а издали не видно
+  // кроны: сначала городские (крона k дерева i — номер i·3+k), за ними лес; дальние — упрощённые шары по участкам
+  const all = cityCr.concat(outCr), n = all.length, M = new Float32Array(n * 16), C = new Float32Array(n * 3);
+  all.forEach((it, j) => { it.m.toArray(M, j * 16); C[j * 3] = it.c.r; C[j * 3 + 1] = it.c.g; C[j * 3 + 2] = it.c.b; });
+  const ct = buildTiles(cityCr, lowGeo, sphereMat, true, "cc"), ft = buildTiles(outCr, lowGeo, sphereMat, false, "oc");
+  const tiles = ct.meshes.concat(ft.meshes), tileOf = new Int32Array(n), slotOf = new Int32Array(n);
+  for (let j = 0; j < n; j++) { const o = j < cityCr.length; tileOf[j] = o ? ct.tileOf[j] : ft.tileOf[j - cityCr.length] + ct.meshes.length; slotOf[j] = o ? ct.slotOf[j] : ft.slotOf[j - cityCr.length]; }
+  const detail = new THREE.InstancedMesh(crownGeo, sphereMat, CROWN_DETAIL_CAP); detail.count = 0; detail.castShadow = detail.receiveShadow = true; detail.frustumCulled = false; detail.setColorAt(0, _lc.setRGB(1, 1, 1)); cityGroup.add(detail);
+  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true };
+}
+// кроны по местам: 2 — листва, 1 — бугристый шар, 0 — упрощённый шар в своём участке
+function updateLeafLOD() {
+  const T = trees3d; if (!T) return;
+  const cx = camC.tx + W / 2, cy = camC.tz + H / 2;
+  const rL = treeLeaf && prefs.quality !== "low" && camC.dist <= 650 ? clamp(camC.dist * .75, 150, 320) : 0;
+  const rD = camC.dist > 1000 ? 0 : clamp(camC.dist * 1.2 + 150, 300, 800); // в общем обзоре кроны мелкие: всем хватает упрощённых
+  if (!T.dirty && Math.hypot(cx - T.cx, cy - T.cy) < 45 && Math.abs(rL - T.rL) < 35 && Math.abs(rD - T.rD) < 60) return;
+  T.cx = cx; T.cy = cy; T.rL = rL; T.rD = rD; T.dirty = false;
+  const { M, C, where, tiles, tileOf, slotOf, detail } = T, touched = new Set();
+  let nL = 0, nD = 0;
+  for (let j = 0; j < T.n; j++) {
+    const o = j * 16, d = Math.hypot(M[o + 12] + W / 2 - cx, M[o + 14] + H / 2 - cy);
+    const w = j < T.cityN && d < rL && nL < LEAF_CAP ? 2 : d < rD && nD < CROWN_DETAIL_CAP ? 1 : 0;
+    if (w === 2) { treeLeaf.instanceMatrix.array.set(M.subarray(o, o + 16), nL * 16); treeLeaf.setColorAt(nL, _lc.fromArray(C, j * 3)); nL++; }
+    else if (w === 1) { detail.instanceMatrix.array.set(M.subarray(o, o + 16), nD * 16); detail.setColorAt(nD, _lc.fromArray(C, j * 3)); nD++; }
+    if ((w === 0) !== (where[j] === 0) || T.first) { const t = tiles[tileOf[j]]; if (w === 0) t.instanceMatrix.array.set(M.subarray(o, o + 16), slotOf[j] * 16); else t.instanceMatrix.array.fill(0, slotOf[j] * 16, slotOf[j] * 16 + 16); touched.add(t); }
+    where[j] = w;
+  }
+  T.first = false;
+  for (const t of touched) t.instanceMatrix.needsUpdate = true;
+  detail.count = nD; detail.instanceMatrix.needsUpdate = true; if (detail.instanceColor) detail.instanceColor.needsUpdate = true;
+  if (treeLeaf) { treeLeaf.count = nL; treeLeaf.instanceMatrix.needsUpdate = true; if (treeLeaf.instanceColor) treeLeaf.instanceColor.needsUpdate = true; }
 }
 function refreshTrees() {
-  if (!treeCrown) return;
-  if (leafLod) leafLod.dirty = true;
-  const col = new THREE.Color("#1b1714");
-  trees.forEach((t, i) => { if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) treeCrown.setColorAt(i * 3 + k, col); } });
-  if (treeCrown.instanceColor) treeCrown.instanceColor.needsUpdate = true;
+  const T = trees3d; if (!T) return;
+  T.dirty = true;
+  const col = new THREE.Color("#1b1714"), touched = new Set();
+  trees.forEach((t, i) => { if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
+  for (const m of touched) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 function radialTex(stops) { return canvasTex(128, 128, (g) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); for (const [o, c] of stops) gr.addColorStop(o, c); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }); }
 const glowTex = radialTex([[0, "rgba(255,255,255,1)"], [.25, "rgba(255,255,255,.6)"], [1, "rgba(255,255,255,0)"]]);
@@ -12049,8 +12091,8 @@ function updatePuddles() { puddles.material.opacity = clamp(world.wet * 1.1) * .
 
 /* ---------- кроны деревьев: неровные, светлее сверху ---------- */
 // крона: гладкая сфера с бугристой поверхностью (шум зависит только от положения, швов нет), темнее снизу и внутри
-function organicCrown() {
-  const g = new THREE.SphereGeometry(1, 18, 12), p = g.attributes.position, col = [];
+function organicCrown(ws = 18, hs = 12) { // ws × hs: 18 × 12 — 396 треугольников, 9 × 6 — 90 (дальние кроны)
+  const g = new THREE.SphereGeometry(1, ws, hs), p = g.attributes.position, col = [];
   for (let i = 0; i < p.count; i++) {
     const v = new THREE.Vector3().fromBufferAttribute(p, i), n = Math.sin(v.x * 5.1 + v.y * 3.3) * Math.cos(v.z * 4.7 - v.y * 2.1) + .5 * Math.sin(v.x * 9.3 - v.z * 7.7 + v.y * 4.1);
     v.multiplyScalar(1 + n * .12); p.setXYZ(i, v.x, v.y * .88, v.z);
@@ -14638,7 +14680,7 @@ setupPost(); upgradeFacades(); loadRealTextures(); initRealPeople(); renderTools
 $("loading").hidden = true;
 requestAnimationFrame(frame);
 
-window.__v = { camS, camC, camera, R3, scene, settings, world, get agents() { return agents; }, get cars() { return cars; }, get props() { return props; }, get threat() { return threat; }, get entries() { return entries; }, get special() { return special; }, get buildings() { return buildings; }, get blocks() { return blocks; }, gY, waterD, waterAt, riverD, TH, grid, get RN() { return RN; }, get RE() { return RE; }, get RL() { return RL; }, get rounds() { return rounds; }, get bridges() { return bridges; }, get hasHills() { return hasHills; }, perfStats, get camps() { return camps; }, get towers() { return towers; }, get selected() { return selected; }, get tanks() { return tanks; }, get waters() { return waters; }, get research() { return research; }, stepN: n => { for (let i = 0; i < n; i++) step(.05); }, useToolAt: (k, x, y) => { tool = k; useTool({}, x, y); }, get traps() { return traps; }, get gens() { return gens; }, get cps() { return cps; }, get factions() { return factions; }, get hq() { return hq; }, paintBarricade, addWire, elecMask, addTank, spawnService, deliverMachine, collapse, damageBuilding, launchNuke, planQuarantine, serializeGame, loadGame, layout: () => layoutKey, get paused() { return paused; }, get speed() { return speed; }, get slowMoT() { return slowMoT; }, get simT() { return simT; }, get alert() { return alert; }, get wallJobs() { return wallJobs; }, get machines() { return machines; }, get squads() { return squads; }, setPaused, standDown, frame, newCity, get fps() { return fps; }, get drive() { return drive; }, get camp() { return camp; }, campNextDay, campEndEarly, stepN2: n => { for (let i = 0; i < n; i++) step(.05); }, RT, DET, groundDet, REAL };
+window.__v = { camS, camC, camera, R3, scene, settings, world, get agents() { return agents; }, get cars() { return cars; }, get props() { return props; }, get threat() { return threat; }, get entries() { return entries; }, get special() { return special; }, get buildings() { return buildings; }, get blocks() { return blocks; }, gY, waterD, waterAt, riverD, TH, grid, get RN() { return RN; }, get RE() { return RE; }, get RL() { return RL; }, get rounds() { return rounds; }, get bridges() { return bridges; }, get hasHills() { return hasHills; }, perfStats, get camps() { return camps; }, get towers() { return towers; }, get selected() { return selected; }, get tanks() { return tanks; }, get waters() { return waters; }, get research() { return research; }, stepN: n => { for (let i = 0; i < n; i++) step(.05); }, useToolAt: (k, x, y) => { tool = k; useTool({}, x, y); }, get traps() { return traps; }, get gens() { return gens; }, get trees3d() { return trees3d; }, get cps() { return cps; }, get factions() { return factions; }, get hq() { return hq; }, paintBarricade, addWire, elecMask, addTank, spawnService, deliverMachine, collapse, damageBuilding, launchNuke, planQuarantine, serializeGame, loadGame, layout: () => layoutKey, get paused() { return paused; }, get speed() { return speed; }, get slowMoT() { return slowMoT; }, get simT() { return simT; }, get alert() { return alert; }, get wallJobs() { return wallJobs; }, get machines() { return machines; }, get squads() { return squads; }, setPaused, standDown, frame, newCity, get fps() { return fps; }, get drive() { return drive; }, get camp() { return camp; }, campNextDay, campEndEarly, stepN2: n => { for (let i = 0; i < n; i++) step(.05); }, RT, DET, groundDet, REAL };
 })();
 </script>
 </html>

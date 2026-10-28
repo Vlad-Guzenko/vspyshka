@@ -427,8 +427,8 @@ function updatePuddles() { puddles.material.opacity = clamp(world.wet * 1.1) * .
 
 /* ---------- кроны деревьев: неровные, светлее сверху ---------- */
 // крона: гладкая сфера с бугристой поверхностью (шум зависит только от положения, швов нет), темнее снизу и внутри
-function organicCrown() {
-  const g = new THREE.SphereGeometry(1, 18, 12), p = g.attributes.position, col = [];
+function organicCrown(ws = 18, hs = 12) { // ws × hs: 18 × 12 — 396 треугольников, 9 × 6 — 90 (дальние кроны)
+  const g = new THREE.SphereGeometry(1, ws, hs), p = g.attributes.position, col = [];
   for (let i = 0; i < p.count; i++) {
     const v = new THREE.Vector3().fromBufferAttribute(p, i), n = Math.sin(v.x * 5.1 + v.y * 3.3) * Math.cos(v.z * 4.7 - v.y * 2.1) + .5 * Math.sin(v.x * 9.3 - v.z * 7.7 + v.y * 4.1);
     v.multiplyScalar(1 + n * .12); p.setXYZ(i, v.x, v.y * .88, v.z);

@@ -545,60 +545,55 @@ function buildCity() {
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
   buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFunicular(); buildFences(); buildProps(); buildHydrants(); makeCarMeshes(cars.length + 300);
-  cityGroup.traverse(o => { if (o.isInstancedMesh) o.frustumCulled = false; });
+  cityGroup.traverse(o => { if (o.isInstancedMesh && !o.userData.cull) o.frustumCulled = false; }); // участки деревьев отсекаются по своей сфере
 }
 let roofStuff = null;
 
 /* ---------- деревья, фонари, фонтаны ---------- */
-let lampHeads, lampPools, lampPole, lampArm, treeCrown, treeTrunk, treeLeaf = null, treeCrownM = null, leafLod = null;
-const LEAF_CAP = 3000;
-// листва рядом с камерой: кроны ближних деревьев переезжают из шаров в листву, при сдвиге камеры — обратно
+let lampHeads, lampPools, lampPole, lampArm, treeLeaf = null, trees3d = null;
+const LEAF_CAP = 3000, CROWN_DETAIL_CAP = 9000, TREE_TILE = 800;
+// Деревья рисуются участками 800 × 800: участок вне кадра (и вне карты теней) не рисуется вовсе — раньше все
+// 55 тысяч крон рисовались каждый кадр дважды, в кадр и в тени, даже за спиной камеры.
+// Крона бывает трёх видов: вблизи — листва (только у городских деревьев), на средней дистанции — бугристый шар
+// в 396 треугольников, дальше — такой же шар попроще, в 90. Каждая крона живёт ровно в одном из них и при сдвиге камеры переезжает.
 const _lc = new THREE.Color();
-function updateLeafLOD() {
-  if (!treeLeaf || !treeCrownM || !leafLod) return;
-  const off = prefs.quality === "low" || camC.dist > 650;
-  const cx = camC.tx + W / 2, cy = camC.tz + H / 2, R = clamp(camC.dist * .75, 150, 320);
-  if (!off && !leafLod.dirty && Math.hypot(cx - leafLod.cx, cy - leafLod.cy) < 45 && Math.abs(R - leafLod.r) < 35) return;
-  if (off && !leafLod.near.length && treeLeaf.count === 0) return;
-  const A = treeCrown.instanceMatrix.array, Lm = treeLeaf.instanceMatrix.array;
-  for (const i of leafLod.near) A.set(treeCrownM.subarray(i * 48, i * 48 + 48), i * 48);
-  const near = [];
-  if (!off) for (let i = 0; i < trees.length && near.length * 3 < LEAF_CAP; i++) { const t = trees[i]; if (Math.abs(t.x - cx) < R && Math.abs(t.y - cy) < R && Math.hypot(t.x - cx, t.y - cy) < R) near.push(i); }
-  let n = 0;
-  for (const i of near) for (let k = 0; k < 3; k++) { const j = i * 3 + k; Lm.set(treeCrownM.subarray(j * 16, j * 16 + 16), n * 16); treeCrown.getColorAt(j, _lc); treeLeaf.setColorAt(n, _lc); A.fill(0, j * 16, j * 16 + 16); n++; }
-  treeLeaf.count = n; treeLeaf.instanceMatrix.needsUpdate = true; if (treeLeaf.instanceColor) treeLeaf.instanceColor.needsUpdate = true; treeCrown.instanceMatrix.needsUpdate = true;
-  leafLod = { cx, cy, r: R, near, dirty: false };
+// обёртка над общей геометрией со своей ограничивающей сферой: буферы одни, а отсечение по кадру — по участку
+function tileGeo(base, sphere) { const g = new THREE.BufferGeometry(); for (const k in base.attributes) g.setAttribute(k, base.attributes[k]); g.setIndex(base.index); g.boundingSphere = sphere; return g; }
+// раскладка по участкам: items — [{ m: Matrix4, c: Color|null, r: размер }], ключ участка — по положению и виду (город/лес)
+function buildTiles(items, base, mat, shadow, tag) {
+  const buckets = new Map();
+  items.forEach((it, j) => { const e = it.m.elements, k = tag + ":" + Math.floor((e[12] + W) / TREE_TILE) + ":" + Math.floor((e[14] + H) / TREE_TILE); let B = buckets.get(k); if (!B) buckets.set(k, B = []); B.push(j); });
+  const meshes = [], tileOf = new Int32Array(items.length), slotOf = new Int32Array(items.length);
+  for (const B of buckets.values()) {
+    const c = new THREE.Vector3(); for (const j of B) { const e = items[j].m.elements; c.x += e[12]; c.y += e[13]; c.z += e[14]; } c.multiplyScalar(1 / B.length);
+    let r = 0; for (const j of B) { const e = items[j].m.elements; r = Math.max(r, Math.hypot(e[12] - c.x, e[13] - c.y, e[14] - c.z) + items[j].r); }
+    const im = new THREE.InstancedMesh(tileGeo(base, new THREE.Sphere(c, r)), mat, B.length);
+    B.forEach((j, s) => { im.setMatrixAt(s, items[j].m); if (items[j].c) im.setColorAt(s, items[j].c); tileOf[j] = meshes.length; slotOf[j] = s; });
+    im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = true; im.userData.cull = true; meshes.push(im); cityGroup.add(im); // в three r147 у InstancedMesh отсечение по умолчанию выключено
+  }
+  return { meshes, tileOf, slotOf };
 }
 function buildTrees() {
-  treeTrunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.7, 1.1, 1, 6).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 }), Math.max(1, trees.length));
-  // кроны: у всех деревьев — бугристые шары; у деревьев рядом с камерой их подменяют кроны из листвы (updateLeafLOD):
-  // деревьев в городе тысячи, и листва на всех разом не по силам видеокарте
-  const crownGeo = organicCrown(), sphereMat = new THREE.MeshStandardMaterial({ roughness: .9, vertexColors: true, envMapIntensity: .3, normalMap: typeof leafNormal !== "undefined" ? leafNormal : null, normalScale: new THREE.Vector2(1.4, 1.4) });
-  treeCrown = new THREE.InstancedMesh(crownGeo, sphereMat, Math.max(1, trees.length * 3));
+  trees3d = null;
+  const trunkGeo = new THREE.CylinderGeometry(.7, 1.1, 1, 6).translate(0, .5, 0), trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 });
+  const crownGeo = organicCrown(), lowGeo = organicCrown(9, 6), sphereMat = new THREE.MeshStandardMaterial({ roughness: .9, vertexColors: true, envMapIntensity: .3, normalMap: typeof leafNormal !== "undefined" ? leafNormal : null, normalScale: new THREE.Vector2(1.4, 1.4) });
   if (treeLeaf) { cityGroup.remove(treeLeaf); treeLeaf.dispose(); treeLeaf = null; }
   if (typeof leafCrownGeo === "function") {
     const lm = leafMaterial(); treeLeaf = new THREE.InstancedMesh(leafCrownGeo(), lm, LEAF_CAP); treeLeaf.customDepthMaterial = lm.userData.depth;
     treeLeaf.count = 0; treeLeaf.frustumCulled = false; treeLeaf.castShadow = treeLeaf.receiveShadow = true; treeLeaf.setColorAt(0, new THREE.Color()); cityGroup.add(treeLeaf);
   }
-  leafLod = { cx: 1e9, cy: 1e9, r: 0, near: [], dirty: true };
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
-  trees.forEach((t, i) => {
+  const q = new THREE.Quaternion(), cityTr = [], cityCr = [], outTr = [], outCr = [];
+  trees.forEach(t => {
     const ty = gY(t.x, t.y);
     // в симуляции дерево занимает свою клетку, а рисуем его в натуральную величину: городские деревья 6–12 м
     const th = t.h * 1.45, trr = t.r * 1.3;
-    m.makeScale(1.25, th * .55, 1.25).setPosition(X(t.x), ty, Z(t.y)); treeTrunk.setMatrixAt(i, m);
+    cityTr.push({ m: new THREE.Matrix4().makeScale(1.25, th * .55, 1.25).setPosition(X(t.x), ty, Z(t.y)), c: null, r: th * .55 + 2 });
     for (let k = 0; k < 3; k++) {
-      const r = trr * rnd(.6, .9);
-      q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
-      m.compose(new THREE.Vector3(X(t.x) + rnd(-trr, trr) * .4, ty + th * rnd(.6, .85), Z(t.y) + rnd(-trr, trr) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r));
-      treeCrown.setMatrixAt(i * 3 + k, m); col.setHSL(rnd(.2, .29), rnd(.22, .38), rnd(.17, .26)); treeCrown.setColorAt(i * 3 + k, col);
+      const r = trr * rnd(.6, .9); q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
+      cityCr.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(X(t.x) + rnd(-trr, trr) * .4, ty + th * rnd(.6, .85), Z(t.y) + rnd(-trr, trr) * .4), q, new THREE.Vector3(r, r * rnd(.75, 1), r)), c: new THREE.Color().setHSL(rnd(.2, .29), rnd(.22, .38), rnd(.17, .26)), r: r * 1.2 });
     }
   });
-  treeTrunk.castShadow = treeCrown.castShadow = true; treeCrown.receiveShadow = true;
-  cityGroup.add(treeTrunk, treeCrown);
-  treeCrownM = treeCrown.instanceMatrix.array.slice();
   // лесополоса за городом, кроме воды
-  const out = [];
   const wet = (x, y) => waterD(x, y) < 8;
   for (let i = 0; i < 3400; i++) {
     const side = Math.floor(rnd(0, 4)), d = 14 + Math.pow(Math.random(), 1.4) * 1100;
@@ -607,22 +602,49 @@ function buildTrees() {
     // лес растёт на пологих склонах ниже снега
     const hh = gY(x, y), sl = Math.hypot(gY(x + 8, y) - gY(x - 8, y), gY(x, y + 8) - gY(x, y - 8)) / 16;
     if (hh > 330 || sl > .55) continue;
-    out.push([x, y, rnd(10, 19) * (hh > 180 ? .7 : 1), rnd(26, 50) * (hh > 180 ? .7 : 1), hh]);
+    const r = rnd(10, 19) * (hh > 180 ? .7 : 1), h = rnd(26, 50) * (hh > 180 ? .7 : 1);
+    outTr.push({ m: new THREE.Matrix4().makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)), c: null, r: h * .55 + 2 });
+    for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); outCr.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)), c: new THREE.Color().setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)), r: r * 1.2 }); }
   }
-  const ot = new THREE.InstancedMesh(treeTrunk.geometry, treeTrunk.material, Math.max(1, out.length)), oc = new THREE.InstancedMesh(crownGeo, sphereMat, Math.max(1, out.length * 2));
-  out.forEach(([x, y, r, h, hh], i) => {
-    m.makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)); ot.setMatrixAt(i, m);
-    for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); m.compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)); oc.setMatrixAt(i * 2 + k, m); col.setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)); oc.setColorAt(i * 2 + k, col); }
-  });
-  ot.castShadow = oc.castShadow = false; oc.receiveShadow = true; // лес за городом без теней: дорого, а издали не видно
-  cityGroup.add(ot, oc);
+  buildTiles(cityTr, trunkGeo, trunkMat, true, "ct"); buildTiles(outTr, trunkGeo, trunkMat, false, "ot"); // лес за городом без теней: дорого, а издали не видно
+  // кроны: сначала городские (крона k дерева i — номер i·3+k), за ними лес; дальние — упрощённые шары по участкам
+  const all = cityCr.concat(outCr), n = all.length, M = new Float32Array(n * 16), C = new Float32Array(n * 3);
+  all.forEach((it, j) => { it.m.toArray(M, j * 16); C[j * 3] = it.c.r; C[j * 3 + 1] = it.c.g; C[j * 3 + 2] = it.c.b; });
+  const ct = buildTiles(cityCr, lowGeo, sphereMat, true, "cc"), ft = buildTiles(outCr, lowGeo, sphereMat, false, "oc");
+  const tiles = ct.meshes.concat(ft.meshes), tileOf = new Int32Array(n), slotOf = new Int32Array(n);
+  for (let j = 0; j < n; j++) { const o = j < cityCr.length; tileOf[j] = o ? ct.tileOf[j] : ft.tileOf[j - cityCr.length] + ct.meshes.length; slotOf[j] = o ? ct.slotOf[j] : ft.slotOf[j - cityCr.length]; }
+  const detail = new THREE.InstancedMesh(crownGeo, sphereMat, CROWN_DETAIL_CAP); detail.count = 0; detail.castShadow = detail.receiveShadow = true; detail.frustumCulled = false; detail.setColorAt(0, _lc.setRGB(1, 1, 1)); cityGroup.add(detail);
+  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true };
+}
+// кроны по местам: 2 — листва, 1 — бугристый шар, 0 — упрощённый шар в своём участке
+function updateLeafLOD() {
+  const T = trees3d; if (!T) return;
+  const cx = camC.tx + W / 2, cy = camC.tz + H / 2;
+  const rL = treeLeaf && prefs.quality !== "low" && camC.dist <= 650 ? clamp(camC.dist * .75, 150, 320) : 0;
+  const rD = camC.dist > 1000 ? 0 : clamp(camC.dist * 1.2 + 150, 300, 800); // в общем обзоре кроны мелкие: всем хватает упрощённых
+  if (!T.dirty && Math.hypot(cx - T.cx, cy - T.cy) < 45 && Math.abs(rL - T.rL) < 35 && Math.abs(rD - T.rD) < 60) return;
+  T.cx = cx; T.cy = cy; T.rL = rL; T.rD = rD; T.dirty = false;
+  const { M, C, where, tiles, tileOf, slotOf, detail } = T, touched = new Set();
+  let nL = 0, nD = 0;
+  for (let j = 0; j < T.n; j++) {
+    const o = j * 16, d = Math.hypot(M[o + 12] + W / 2 - cx, M[o + 14] + H / 2 - cy);
+    const w = j < T.cityN && d < rL && nL < LEAF_CAP ? 2 : d < rD && nD < CROWN_DETAIL_CAP ? 1 : 0;
+    if (w === 2) { treeLeaf.instanceMatrix.array.set(M.subarray(o, o + 16), nL * 16); treeLeaf.setColorAt(nL, _lc.fromArray(C, j * 3)); nL++; }
+    else if (w === 1) { detail.instanceMatrix.array.set(M.subarray(o, o + 16), nD * 16); detail.setColorAt(nD, _lc.fromArray(C, j * 3)); nD++; }
+    if ((w === 0) !== (where[j] === 0) || T.first) { const t = tiles[tileOf[j]]; if (w === 0) t.instanceMatrix.array.set(M.subarray(o, o + 16), slotOf[j] * 16); else t.instanceMatrix.array.fill(0, slotOf[j] * 16, slotOf[j] * 16 + 16); touched.add(t); }
+    where[j] = w;
+  }
+  T.first = false;
+  for (const t of touched) t.instanceMatrix.needsUpdate = true;
+  detail.count = nD; detail.instanceMatrix.needsUpdate = true; if (detail.instanceColor) detail.instanceColor.needsUpdate = true;
+  if (treeLeaf) { treeLeaf.count = nL; treeLeaf.instanceMatrix.needsUpdate = true; if (treeLeaf.instanceColor) treeLeaf.instanceColor.needsUpdate = true; }
 }
 function refreshTrees() {
-  if (!treeCrown) return;
-  if (leafLod) leafLod.dirty = true;
-  const col = new THREE.Color("#1b1714");
-  trees.forEach((t, i) => { if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) treeCrown.setColorAt(i * 3 + k, col); } });
-  if (treeCrown.instanceColor) treeCrown.instanceColor.needsUpdate = true;
+  const T = trees3d; if (!T) return;
+  T.dirty = true;
+  const col = new THREE.Color("#1b1714"), touched = new Set();
+  trees.forEach((t, i) => { if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
+  for (const m of touched) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 function radialTex(stops) { return canvasTex(128, 128, (g) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); for (const [o, c] of stops) gr.addColorStop(o, c); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }); }
 const glowTex = radialTex([[0, "rgba(255,255,255,1)"], [.25, "rgba(255,255,255,.6)"], [1, "rgba(255,255,255,0)"]]);

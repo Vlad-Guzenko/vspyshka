@@ -99,8 +99,21 @@ const crossMask = new Uint8Array(GMAX);
 // стоимость клетки для пешехода: тротуар, газон, площадь — 1; проезжая часть вне зебры — 8; завал — непроходим (зомби карабкаются)
 // mode: 0 пешеход, 1 зомби (карабкается по завалам, дорог не боится), 2 техника и танк (по дорогам и завалам, тротуар хуже)
 function walkCost(j, mode) { const c = grid[j]; if (c === 8) return mode ? 3 : 0; if (c === 6) return mode === 1 ? 9 : 0; if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8; return mode === 2 && roadMask[j] !== 1 ? 2 : 1; }
+// цена шага в клетку j для поиска путей: 0 — нельзя. Стены, деревья, машины, вода, скалы непроходимы; завал — только зомби и технике;
+// баррикада — только зомби (ломают); проезжая часть вне зебры пешеходу дорога (8). wall6 — баррикада непроходима для всех (поиск в коробке)
+function stepCost(j, mode, wall6) {
+  const c = grid[j];
+  if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) return 0;
+  if (c === 8) return mode ? 3 : 0;
+  if (c === 6) return wall6 || mode !== 1 ? 0 : 9;
+  if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8;
+  return mode === 2 && roadMask[j] !== 1 ? 2 : 1;
+}
+// поле расстояний (алгоритм Дейкстры с кольцом корзин, веса 1–9): соседи развёрнуты вручную —
+// раньше обход шёл через for…of по массиву пар, и под эпидемию на это уходила треть шага симуляции
 function bfs(field, sources, mode, maxD = 3000) {
-  field.fill(FAR, 0, GW * GH); // сетка выделена под большую карту, чистим только используемую часть
+  const N = GW * GH;
+  field.fill(FAR, 0, N); // сетка выделена под большую карту, чистим только используемую часть
   let pending = 0;
   for (const s of sources) {
     const i = clamp(Math.floor(s.y / CS), 0, GH - 1) * GW + clamp(Math.floor(s.x / CS), 0, GW - 1);
@@ -111,13 +124,12 @@ function bfs(field, sources, mode, maxD = 3000) {
     while (b.length) {
       const i = b.pop(); pending--;
       if (field[i] !== d) continue;
-      const x = i % GW, y = (i / GW) | 0;
-      for (const [dx, dy] of NB4) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
-        const j = ny * GW + nx, c = grid[j];
-        if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) continue;
-        let wc; if (c === 8) { if (!mode) continue; wc = 3; } else if (c === 6) { if (mode !== 1) continue; wc = 9; } else if (c === 0 && roadMask[j] === 1 && !crossMask[j]) wc = mode ? 1 : 8; else wc = mode === 2 && roadMask[j] !== 1 ? 2 : 1;
+      const x = i % GW;
+      for (let k = 0; k < 4; k++) {
+        let j;
+        if (k === 0) { if (x + 1 >= GW) continue; j = i + 1; } else if (k === 1) { if (x === 0) continue; j = i - 1; }
+        else if (k === 2) { j = i + GW; if (j >= N) continue; } else { j = i - GW; if (j < 0) continue; }
+        const wc = stepCost(j, mode, false); if (!wc) continue;
         const nd = d + wc;
         if (nd < field[j]) { field[j] = nd; ring[nd % RING].push(j); pending++; }
       }
