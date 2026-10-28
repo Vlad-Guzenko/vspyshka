@@ -264,6 +264,17 @@ function buildMassifRoads() {
       const made = addRoad([[best.x, best.y], mid, foot], 14, "st", { extra: { rural: true, sw: 3 } }); const fn = made && gNodeNear(foot[0], foot[1], 30); if (fn) feet.push(fn); }
   }
   for (const t of T) buildTerraceRing(t);
+  // канатная дорога: нижняя станция у кольца нижнего городка со стороны вершины, верхняя — на площадке вершины
+  if (M.summit && T.length) {
+    const t = T[0], S = M.summit, f = Math.atan2(S.y - t.y, S.x - t.x), rp = ringPoint(t, f), L = [rp[0] + Math.cos(f) * 34, rp[1] + Math.sin(f) * 34];
+    const len = Math.hypot(S.x - L[0], S.y - L[1]);
+    funicular = { L, U: [S.x, S.y], hL: t.h, hU: S.h, len, supports: null, cabins: [], trips: 0 };
+    const rot = f + Math.PI / 2;
+    for (const [x, y, up] of [[L[0] - Math.cos(f) * 14, L[1] - Math.sin(f) * 14, 0], [S.x + Math.cos(f) * 14, S.y + Math.sin(f) * 14, 1]]) {
+      addRotBuilding(x, y, 20, 12, rot, { kind: "cafe", floors: 1, style: 12, village: true, funi: up ? "up" : "down" });
+      if (up) for (let k = 0; k < 5; k++) { const a = f + (k - 2) * .35; props.push({ k: "bench", x: S.x + Math.cos(a) * 34, y: S.y + Math.sin(a) * 34, a: a + Math.PI }); } // скамейки смотровой
+    }
+  }
   // просёлок вдоль подножия от первого подножия в обе стороны: у него встанут фермы и ранчо на пологих предгорьях
   if (feet.length) {
     const f0 = feet[0], fa = sideAlong(side, f0.x, f0.y), fd = massifDs(f0.x, f0.y);
@@ -317,5 +328,55 @@ function buildMountainVillage() {
       const b = placeAlong(q.e, q.s, q.sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
       if (b) { houses++; suburbLot(q.e, q.s - 10, q.sd, w + 20, b); }
     }
+  }
+}
+
+// ---------- канатная дорога: трос над склоном на опорах, кабинки по кругу, посадка на станциях ----------
+// Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
+// в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.
+// Над станциями трос держат порталы высотой 10, опоры по 16 (высокие 28)
+const CABLE = { maxSpan: 360, minSpan: 60, clear: 10, sag: .035, pylon: 16, tall: 28, portal: 10, speed: 16, cap: 6 };
+function cablePoint(F, d) { return [F.L[0] + (F.U[0] - F.L[0]) * d / F.len, F.L[1] + (F.U[1] - F.L[1]) * d / F.len]; }
+function cableH(F, d) {
+  const S = F.supports; if (!S) return F.hL + (F.hU - F.hL) * d / F.len;
+  let k = 0; while (k < S.length - 2 && d > S[k + 1].d) k++;
+  const a = S[k], b = S[k + 1], span = b.d - a.d || 1, t = clamp((d - a.d) / span);
+  return a.h + (b.h - a.h) * t - span * CABLE.sag * 4 * t * (1 - t);
+}
+function planCableCar() {
+  const F = funicular; if (!F) return;
+  const n = Math.ceil(F.len / 8), prof = []; for (let i = 0; i <= n; i++) { const d = Math.min(F.len, i * 8), p = cablePoint(F, d); prof.push({ d, h: gY(p[0], p[1]) }); }
+  const last = prof.length - 1, tops = [{ d: 0, h: F.hL + CABLE.portal, pylon: false }]; let i0 = 0;
+  for (let guard = 0; guard < 60 && i0 < last; guard++) {
+    const A = tops[tops.length - 1]; let best = null;
+    for (let j = last; j > i0; j--) {
+      const P = prof[j], span = P.d - A.d; if (span > CABLE.maxSpan) continue; if (span < CABLE.minSpan && j !== last) continue;
+      const topH = j === last ? F.hU + CABLE.portal : P.h + CABLE.pylon; let ok = true;
+      for (let k = i0 + 1; k < j; k++) { const Q = prof[k], u = (Q.d - A.d) / span, hc = A.h + (topH - A.h) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < Q.h + CABLE.clear) { ok = false; break; } }
+      if (ok) { best = { j, topH }; break; }
+    }
+    if (!best) { const j = Math.min(last, i0 + 8); best = { j, topH: (j === last ? F.hU + CABLE.portal : prof[j].h + CABLE.tall) }; }
+    tops.push({ d: prof[best.j].d, h: best.topH, pylon: best.j !== last, tall: best.topH - prof[best.j].h > CABLE.pylon + 1 }); i0 = best.j;
+  }
+  F.supports = tops;
+  // кабинки по кругу: вверх по одной нитке, вниз по другой; шаг около 300 ед.
+  const loop = F.len * 2, nc = Math.max(4, Math.round(loop / 300)); F.cabins = []; for (let k = 0; k < nc; k++) F.cabins.push({ s: loop * k / nc, riders: [] });
+}
+// положение кабинки: s по кругу [0, 2·len): до len — вверх, дальше — вниз; поперёк троса нитки разнесены на ±2.6
+function cabinPos(F, c) { const up = c.s < F.len, d = up ? c.s : 2 * F.len - c.s, p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, o = up ? 2.6 : -2.6; return [p[0] + nx * o, p[1] + ny * o, cableH(F, d), d, up]; }
+function stepFunicular(dt) {
+  const F = funicular; if (!F || !F.cabins.length) return;
+  const loop = F.len * 2;
+  for (const c of F.cabins) {
+    const [, , , d, up] = cabinPos(F, c), nearSt = Math.min(d, F.len - d) < 30, v = CABLE.speed * (nearSt ? .3 : 1);
+    c.s = (c.s + v * dt) % loop;
+    c.riders = c.riders.filter(a => a.state === "alive" && a.onBus === F);
+    const atLower = d < 12 && up, atUpper = d > F.len - 12 && up, atUpperDown = d > F.len - 12 && !up, atLowerDown = d < 12 && !up;
+    // высадка: приехавшие наверх (по верхней нитке) и вниз (по нижней)
+    if ((atUpper || atLowerDown) && c.riders.length) { const st = atUpper ? F.U : F.L; for (const a of c.riders) { a.hidden = false; a.onBus = null; const [x, y] = freeNear(st[0], st[1], 16); a.x = x; a.y = y; a.vx = a.vy = 0; a.dest = null; a.panic = Math.min(a.panic || 0, .2); a.idleT = rnd(6, 30); } F.trips += c.riders.length; c.riders = []; }
+    // посадка: внизу в кабинку, идущую вверх, наверху — идущую вниз
+    if ((atLower || atUpperDown) && c.riders.length < CABLE.cap) { const st = atLower ? F.L : F.U;
+      near(st[0], st[1], 30, a => { if (a.role === "civ" && a.state === "alive" && !a.hidden && !a.onBus && !a.detained && !a.hideB && c.riders.length < CABLE.cap && Math.random() < dt * (a.panic > .3 ? 3 : .8)) { a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; c.riders.push(a); } }); }
+    const p = cabinPos(F, c); for (const a of c.riders) { a.x = p[0]; a.y = p[1]; }
   }
 }

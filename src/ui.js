@@ -440,7 +440,7 @@ function frameBody(now) {
   const t1 = performance.now();
   const fxDt = paused ? 0 : Math.min(dt * speed * slowK, dt * 2);
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
-  updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
+  updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateFunicular(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();

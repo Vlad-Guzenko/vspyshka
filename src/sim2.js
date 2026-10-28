@@ -468,7 +468,7 @@ function step(dt) {
     if (a.hidden) {
       if (a.role === "bandit" && a.lootT > 0) { a.lootT -= dt; if (a.lootT <= 0) { a.hidden = false; a.loot = null; a.bag = pick(["#3a2a1e", "#1e1e22", "#8a6a2a"]); logT("loot", "Мародёры вынесли добычу", "bad", 25); } }
       if (!a.hideB && !a.detained && !a.onBus && !(a.role === "bandit" && a.lootT > 0)) { a.hidden = false; a.onRoof = false; } // никто не остаётся невидимым без укрытия
-      if (a.onBus && (a.onBus.gone || !cars.includes(a.onBus))) { a.hidden = false; a.onBus = null; }
+      if (a.onBus && a.onBus !== funicular && (a.onBus.gone || !cars.includes(a.onBus))) { a.hidden = false; a.onBus = null; } // вагон фуникулёра — не машина
       if (a.bitten && a.role !== "zombie") { a.incT -= dt; if (a.incT <= 0) { turn(a); a.riseT = 0; if (a.detained) a.detained.detained--; } }
       if (a.onRoof && a.hideB) { a.x = a.rx; a.y = a.ry; a.dir += dt * .3; }
       a.speed = 0; continue;
@@ -513,7 +513,7 @@ function step(dt) {
     if (a.player && typeof fps !== "undefined") a.dir = fps.yaw;
     a.phase += a.speed * dt * (a.role === "zombie" ? .45 : .56);
   }
-  rebuildCarHash(); stepTraffic(dt); stepServices(dt); stepTanks(dt); stepBuildings(dt); stepTimers(dt);
+  rebuildCarHash(); stepTraffic(dt); stepServices(dt); stepTanks(dt); stepFunicular(dt); stepBuildings(dt); stepTimers(dt);
   for (const s of strikes) { s.t -= dt; if (s.t <= 0 && !s.done) { s.done = true; boom(s.x, s.y, 70, true); } }
   strikes = strikes.filter(s => !s.done);
   for (const c of cars) if (c.boomT > 0) { c.boomT -= dt; if (c.boomT <= 0) { c.exploded = true; boom(c.x, c.y, c.tanker ? 64 : 32, !!c.tanker); c.burnT = 40; fires.push({ x: c.x, y: c.y, r: c.tanker ? 18 : 10, l: 40 }); if (c.tanker) logE("Взорвался бензовоз", "bad"); } }

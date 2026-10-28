@@ -259,7 +259,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         <label class="chk"><input type="radio" name="wMap" value="big"> Большая: 1300 × 900 м, больше районов, озёра и фермы на окраинах</label>
       </fieldset>
       <fieldset><legend>Рельеф</legend>
-        <label class="chk"><input type="radio" name="wRelief" value="mountains" checked> Горы: за городом случайная горная страна (карта шире на 600 м) — пики и гребни, полки с озёрами и курортными городками, серпантины к ним и на перевал</label>
+        <label class="chk"><input type="radio" name="wRelief" value="mountains" checked> Горы: за городом случайная горная страна (карта шире на 600 м) — холмы, полки с озёрами и курортными городками, серпантины, канатная дорога на смотровую</label>
         <label class="chk"><input type="radio" name="wRelief" value="plain"> Равнина: поля до горизонта</label>
       </fieldset>
       <div class="row"><label for="wPop">Население</label><output id="wPopO">900</output></div>
@@ -586,7 +586,7 @@ function genCity(layout = "random") {
     rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;
   }
-  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); finishTerrain();
+  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); finishTerrain(); planCableCar();
   lamps = lamps.filter(l => cellAt(l.x, l.y) === 1);
   buildBusLines();
 }
@@ -2870,6 +2870,7 @@ function stepPark(c, l, dt) {
 // высота в единицах мира (1 ед. = 25 см). Город стоит на пологих холмах, за ним хребты со снегом.
 // Вода — ямы в рельефе под общей водной гладью. Клетка 10 — скала, по ней не пройти.
 let massif = null; // горная страна: сторона, ширина, центр плато по краю, озеро на полке
+let funicular = null; // фуникулёр: нижняя станция L у городка, верхняя U на вершине, вагон ходит по t от 0 до 1
 let terrainSeed = 1, hasHills = true, ridgeSides = [], ridgeFront = [330, 330, 330, 330], rocks = [], river = null, shore = null, lakes = [], cityBlob = null;
 const TH = new Float32Array(GMAX); // высота по клеткам города
 const MOUNT = { front: 320, span: 1000, hmax: 420 }, WATER_Y = -1.5, BED = -5.5, BANK = 10; // рельефа нет: земля ровная, у воды короткий откос
@@ -2934,13 +2935,13 @@ function prepareWater() {
   const mountains = relief === "mountains" && L.ridges !== 0;
   // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Граница предгорий гуляет, отроги выходят
   // в равнину; пики соединены гребнями, между двумя — долина к седловине; на умеренных склонах случайные полки с озёрами
-  massif = null; ridgeSides = [];
+  massif = null; ridgeSides = []; funicular = null;
   if (mountains) {
     const side = pick([2, 3]), BW = MOUNT_W, AL = H, P = (ds, along) => side === 3 ? [W - BW + ds, along] : [BW - ds, along];
     const spurs = []; for (let k = 0, n = Math.floor(rnd(1, 3)); k < n; k++) spurs.push({ a: rnd(AL * .15, AL * .85), r: rnd(260, 420), push: rnd(160, 300) });
     const peaks = [], np = Math.floor(rnd(4, 9));
     // холмы (colline), а не пики: невысокие, широкие, с мягкими гребнями
-    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(90, 190), r: rnd(420, 800), rw: rnd(280, 440) });
+    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(135, 285), r: rnd(420, 800), rw: rnd(280, 440) }); // в полтора раза выше: есть куда ехать фуникулёру
     peaks.sort((p, q) => p.a - q.a);
     const vk = Math.floor(rnd(0, peaks.length - 1)), valley = { a0: (peaks[vk].a + peaks[vk + 1].a) / 2 + rnd(-120, 120), w: rnd(180, 280), depth: rnd(20, 45) };
     massif = { side, w: BW, spurs, peaks, valley, terraces: [], lakes: [] };
@@ -2949,12 +2950,22 @@ function prepareWater() {
     const nt = Math.floor(rnd(2, 4));
     for (let tries = 0; tries < 700 && massif.terraces.length < nt; tries++) {
       const a = rnd(AL * .14, AL * .86), d = rnd(520, BW - 180), [x, y] = P(d, a); if (x < 220 || y < 220 || x > W - 220 || y > H - 220) continue;
-      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 45 : 90; if (h < lo || h > 220 || s < .07 || s > .3) continue; // только мягкие склоны
+      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 60 : 130; if (h < lo || h > 300 || s < .07 || s > .4) continue; // только мягкие склоны
       const r = rnd(190, 270); if (massif.terraces.some(q => Math.hypot(q.x - x, q.y - y) < q.r + r + 200)) continue;
       const lake = { x: x + rnd(-r * .18, r * .18), y: y + rnd(-r * .18, r * .18), rx: r * rnd(.24, .32), ry: r * rnd(.2, .27), level: h - 4.5 };
       massif.terraces.push({ x, y, a, d, h: h - 2, r, lake }); massif.lakes.push(lake);
     }
     massif.terraces.sort((p, q) => p.d - q.d);
+    // вершина со смотровой для канатной дороги: самый высокий холм в 150–400 м от нижнего городка с перепадом от 20 м; макушка выравнивается площадкой
+    massif.summit = null;
+    if (massif.terraces.length) {
+      const t = massif.terraces[0]; let best = null, bh = -1;
+      for (const pk of peaks) { const [px, py] = P(pk.d, pk.a); if (px < 160 || py < 160 || px > W - 160 || py > H - 160) continue; const dd = Math.hypot(px - t.x, py - t.y); if (dd < 600 || dd > 1700) continue;
+        let sx = px, sy = py, sh = -1;
+        for (let y = py - 220; y <= py + 220; y += 16) for (let x = px - 220; x <= px + 220; x += 16) { if (x < 120 || y < 120 || x > W - 120 || y > H - 120 || Math.hypot(x - px, y - py) > 220) continue; const h = raw(x, y); if (h > sh) { sh = h; sx = x; sy = y; } }
+        if (sh > bh) { bh = sh; best = [sx, sy, sh]; } }
+      if (best && best[2] - 4 - t.h > 80) massif.summit = { x: best[0], y: best[1], h: best[2] - 4, r: 130 };
+    }
     ridgeSides = [side];
   }
   if (WORLD_WATER && L.sea) { makeShore(); ridgeSides = ridgeSides.filter(s => s !== shore.side); }
@@ -2998,6 +3009,7 @@ function massifH(x, y) {
     const k = smooth(t.r + 280, t.r - 20, dd); h += (t.h - hillsH(x, y) - h) * k;
     const L = t.lake, dl = Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry); h -= 4 * smooth(1.0, .5, dl) * k; // чаша только внутри озера: берег остаётся выше воды
   }
+  const S = M.summit; if (S) { const dd = Math.hypot(x - S.x, y - S.y); if (dd < S.r) { const k = smooth(S.r, S.r * .4, dd); h += (S.h - hillsH(x, y) - h) * k; } } // площадка на вершине
   return Math.max(0, h);
 }
 function mountainH(x, y) {
@@ -3454,6 +3466,17 @@ function buildMassifRoads() {
       const made = addRoad([[best.x, best.y], mid, foot], 14, "st", { extra: { rural: true, sw: 3 } }); const fn = made && gNodeNear(foot[0], foot[1], 30); if (fn) feet.push(fn); }
   }
   for (const t of T) buildTerraceRing(t);
+  // канатная дорога: нижняя станция у кольца нижнего городка со стороны вершины, верхняя — на площадке вершины
+  if (M.summit && T.length) {
+    const t = T[0], S = M.summit, f = Math.atan2(S.y - t.y, S.x - t.x), rp = ringPoint(t, f), L = [rp[0] + Math.cos(f) * 34, rp[1] + Math.sin(f) * 34];
+    const len = Math.hypot(S.x - L[0], S.y - L[1]);
+    funicular = { L, U: [S.x, S.y], hL: t.h, hU: S.h, len, supports: null, cabins: [], trips: 0 };
+    const rot = f + Math.PI / 2;
+    for (const [x, y, up] of [[L[0] - Math.cos(f) * 14, L[1] - Math.sin(f) * 14, 0], [S.x + Math.cos(f) * 14, S.y + Math.sin(f) * 14, 1]]) {
+      addRotBuilding(x, y, 20, 12, rot, { kind: "cafe", floors: 1, style: 12, village: true, funi: up ? "up" : "down" });
+      if (up) for (let k = 0; k < 5; k++) { const a = f + (k - 2) * .35; props.push({ k: "bench", x: S.x + Math.cos(a) * 34, y: S.y + Math.sin(a) * 34, a: a + Math.PI }); } // скамейки смотровой
+    }
+  }
   // просёлок вдоль подножия от первого подножия в обе стороны: у него встанут фермы и ранчо на пологих предгорьях
   if (feet.length) {
     const f0 = feet[0], fa = sideAlong(side, f0.x, f0.y), fd = massifDs(f0.x, f0.y);
@@ -3507,6 +3530,56 @@ function buildMountainVillage() {
       const b = placeAlong(q.e, q.s, q.sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
       if (b) { houses++; suburbLot(q.e, q.s - 10, q.sd, w + 20, b); }
     }
+  }
+}
+
+// ---------- канатная дорога: трос над склоном на опорах, кабинки по кругу, посадка на станциях ----------
+// Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
+// в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.
+// Над станциями трос держат порталы высотой 10, опоры по 16 (высокие 28)
+const CABLE = { maxSpan: 360, minSpan: 60, clear: 10, sag: .035, pylon: 16, tall: 28, portal: 10, speed: 16, cap: 6 };
+function cablePoint(F, d) { return [F.L[0] + (F.U[0] - F.L[0]) * d / F.len, F.L[1] + (F.U[1] - F.L[1]) * d / F.len]; }
+function cableH(F, d) {
+  const S = F.supports; if (!S) return F.hL + (F.hU - F.hL) * d / F.len;
+  let k = 0; while (k < S.length - 2 && d > S[k + 1].d) k++;
+  const a = S[k], b = S[k + 1], span = b.d - a.d || 1, t = clamp((d - a.d) / span);
+  return a.h + (b.h - a.h) * t - span * CABLE.sag * 4 * t * (1 - t);
+}
+function planCableCar() {
+  const F = funicular; if (!F) return;
+  const n = Math.ceil(F.len / 8), prof = []; for (let i = 0; i <= n; i++) { const d = Math.min(F.len, i * 8), p = cablePoint(F, d); prof.push({ d, h: gY(p[0], p[1]) }); }
+  const last = prof.length - 1, tops = [{ d: 0, h: F.hL + CABLE.portal, pylon: false }]; let i0 = 0;
+  for (let guard = 0; guard < 60 && i0 < last; guard++) {
+    const A = tops[tops.length - 1]; let best = null;
+    for (let j = last; j > i0; j--) {
+      const P = prof[j], span = P.d - A.d; if (span > CABLE.maxSpan) continue; if (span < CABLE.minSpan && j !== last) continue;
+      const topH = j === last ? F.hU + CABLE.portal : P.h + CABLE.pylon; let ok = true;
+      for (let k = i0 + 1; k < j; k++) { const Q = prof[k], u = (Q.d - A.d) / span, hc = A.h + (topH - A.h) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < Q.h + CABLE.clear) { ok = false; break; } }
+      if (ok) { best = { j, topH }; break; }
+    }
+    if (!best) { const j = Math.min(last, i0 + 8); best = { j, topH: (j === last ? F.hU + CABLE.portal : prof[j].h + CABLE.tall) }; }
+    tops.push({ d: prof[best.j].d, h: best.topH, pylon: best.j !== last, tall: best.topH - prof[best.j].h > CABLE.pylon + 1 }); i0 = best.j;
+  }
+  F.supports = tops;
+  // кабинки по кругу: вверх по одной нитке, вниз по другой; шаг около 300 ед.
+  const loop = F.len * 2, nc = Math.max(4, Math.round(loop / 300)); F.cabins = []; for (let k = 0; k < nc; k++) F.cabins.push({ s: loop * k / nc, riders: [] });
+}
+// положение кабинки: s по кругу [0, 2·len): до len — вверх, дальше — вниз; поперёк троса нитки разнесены на ±2.6
+function cabinPos(F, c) { const up = c.s < F.len, d = up ? c.s : 2 * F.len - c.s, p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, o = up ? 2.6 : -2.6; return [p[0] + nx * o, p[1] + ny * o, cableH(F, d), d, up]; }
+function stepFunicular(dt) {
+  const F = funicular; if (!F || !F.cabins.length) return;
+  const loop = F.len * 2;
+  for (const c of F.cabins) {
+    const [, , , d, up] = cabinPos(F, c), nearSt = Math.min(d, F.len - d) < 30, v = CABLE.speed * (nearSt ? .3 : 1);
+    c.s = (c.s + v * dt) % loop;
+    c.riders = c.riders.filter(a => a.state === "alive" && a.onBus === F);
+    const atLower = d < 12 && up, atUpper = d > F.len - 12 && up, atUpperDown = d > F.len - 12 && !up, atLowerDown = d < 12 && !up;
+    // высадка: приехавшие наверх (по верхней нитке) и вниз (по нижней)
+    if ((atUpper || atLowerDown) && c.riders.length) { const st = atUpper ? F.U : F.L; for (const a of c.riders) { a.hidden = false; a.onBus = null; const [x, y] = freeNear(st[0], st[1], 16); a.x = x; a.y = y; a.vx = a.vy = 0; a.dest = null; a.panic = Math.min(a.panic || 0, .2); a.idleT = rnd(6, 30); } F.trips += c.riders.length; c.riders = []; }
+    // посадка: внизу в кабинку, идущую вверх, наверху — идущую вниз
+    if ((atLower || atUpperDown) && c.riders.length < CABLE.cap) { const st = atLower ? F.L : F.U;
+      near(st[0], st[1], 30, a => { if (a.role === "civ" && a.state === "alive" && !a.hidden && !a.onBus && !a.detained && !a.hideB && c.riders.length < CABLE.cap && Math.random() < dt * (a.panic > .3 ? 3 : .8)) { a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; c.riders.push(a); } }); }
+    const p = cabinPos(F, c); for (const a of c.riders) { a.x = p[0]; a.y = p[1]; }
   }
 }
 
@@ -3980,7 +4053,7 @@ function step(dt) {
     if (a.hidden) {
       if (a.role === "bandit" && a.lootT > 0) { a.lootT -= dt; if (a.lootT <= 0) { a.hidden = false; a.loot = null; a.bag = pick(["#3a2a1e", "#1e1e22", "#8a6a2a"]); logT("loot", "Мародёры вынесли добычу", "bad", 25); } }
       if (!a.hideB && !a.detained && !a.onBus && !(a.role === "bandit" && a.lootT > 0)) { a.hidden = false; a.onRoof = false; } // никто не остаётся невидимым без укрытия
-      if (a.onBus && (a.onBus.gone || !cars.includes(a.onBus))) { a.hidden = false; a.onBus = null; }
+      if (a.onBus && a.onBus !== funicular && (a.onBus.gone || !cars.includes(a.onBus))) { a.hidden = false; a.onBus = null; } // вагон фуникулёра — не машина
       if (a.bitten && a.role !== "zombie") { a.incT -= dt; if (a.incT <= 0) { turn(a); a.riseT = 0; if (a.detained) a.detained.detained--; } }
       if (a.onRoof && a.hideB) { a.x = a.rx; a.y = a.ry; a.dir += dt * .3; }
       a.speed = 0; continue;
@@ -4025,7 +4098,7 @@ function step(dt) {
     if (a.player && typeof fps !== "undefined") a.dir = fps.yaw;
     a.phase += a.speed * dt * (a.role === "zombie" ? .45 : .56);
   }
-  rebuildCarHash(); stepTraffic(dt); stepServices(dt); stepTanks(dt); stepBuildings(dt); stepTimers(dt);
+  rebuildCarHash(); stepTraffic(dt); stepServices(dt); stepTanks(dt); stepFunicular(dt); stepBuildings(dt); stepTimers(dt);
   for (const s of strikes) { s.t -= dt; if (s.t <= 0 && !s.done) { s.done = true; boom(s.x, s.y, 70, true); } }
   strikes = strikes.filter(s => !s.done);
   for (const c of cars) if (c.boomT > 0) { c.boomT -= dt; if (c.boomT <= 0) { c.exploded = true; boom(c.x, c.y, c.tanker ? 64 : 32, !!c.tanker); c.burnT = 40; fires.push({ x: c.x, y: c.y, r: c.tanker ? 18 : 10, l: 40 }); if (c.tanker) logE("Взорвался бензовоз", "bad"); } }
@@ -8508,7 +8581,7 @@ function buildCity() {
   instBoxes.forEach(([x, y, z, sx, sy, sz, c, b, rot], i) => { rq.setFromAxisAngle(ry, rot || 0); m.compose(rp.set(x, y, z), rq, rsc.set(sx, sy, sz)); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); (b.roofBox = b.roofBox || []).push([x, y, z, sx, sy, sz, rot || 0]); });
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
-  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); buildProps(); buildHydrants(); makeCarMeshes(cars.length + 300);
+  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFunicular(); buildFences(); buildProps(); buildHydrants(); makeCarMeshes(cars.length + 300);
   cityGroup.traverse(o => { if (o.isInstancedMesh) o.frustumCulled = false; });
 }
 let roofStuff = null;
@@ -8662,6 +8735,38 @@ function buildWater() {
     for (let k = .2; k < 1; k += .2) { const p = new THREE.Mesh(new THREE.BoxGeometry(b.v ? wid * .6 : 4, hy - BED + 2, b.v ? 4 : wid * .6), conc); p.position.set(X(b.v ? (b.x0 + b.x1) / 2 : b.x0 + len * k), (hy + BED) / 2, Z(b.v ? b.y0 + len * k : (b.y0 + b.y1) / 2)); cityGroup.add(p); }
   }
   buildCityWalls();
+}
+// канатная дорога: порталы над станциями, решётчатые опоры по склону, два троса с провисом, кабинки на подвесах; двигает updateFunicular
+let funiObj = null;
+function buildFunicular() {
+  funiObj = null; const F = funicular; if (!F || !F.supports) return;
+  const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({ color: 0x6f7378, roughness: .55, metalness: .6 }), rope = new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: .6, metalness: .5 });
+  const nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, yaw = -Math.atan2(F.U[1] - F.L[1], F.U[0] - F.L[0]);
+  // опоры и порталы
+  for (const s of F.supports) {
+    const p = cablePoint(F, s.d), ground = gY(p[0], p[1]), hT = s.h - ground;
+    if (s.pylon) { const tw = new THREE.Mesh(new THREE.CylinderGeometry(.9, 2.2, hT, 6), steel); tw.position.set(X(p[0]), ground + hT / 2, Z(p[1])); tw.castShadow = true; g.add(tw); }
+    else for (const o of [-4, 4]) { const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, hT, 1.2), steel); post.position.set(X(p[0] + nx * o), ground + hT / 2, Z(p[1] + ny * o)); g.add(post); }
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(9, .8, 1.2), steel); arm.position.set(X(p[0]), s.h, Z(p[1])); arm.rotation.y = yaw; g.add(arm);
+  }
+  // тросы: две нитки с провисом
+  for (const o of [-2.6, 2.6]) {
+    const pts = []; for (let d = 0; d <= F.len; d += 6) { const p = cablePoint(F, Math.min(d, F.len)); pts.push(new THREE.Vector3(X(p[0] + nx * o), cableH(F, Math.min(d, F.len)) - .3, Z(p[1] + ny * o))); }
+    const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, pts.length * 2), .22, 5, false), rope); g.add(tube);
+  }
+  // кабинки
+  const cabins = [], body = new THREE.MeshStandardMaterial({ color: 0xc8342a, roughness: .5 }), glass = new THREE.MeshStandardMaterial({ color: 0x9fc1d4, roughness: .2, metalness: .3 });
+  for (const c of F.cabins) {
+    const cab = new THREE.Group(), hanger = new THREE.Mesh(new THREE.BoxGeometry(.5, 3.2, .5), steel); hanger.position.y = -1.6; cab.add(hanger);
+    const bx = new THREE.Mesh(new THREE.BoxGeometry(5, 4.2, 4), body); bx.position.y = -5.4; bx.castShadow = true; cab.add(bx);
+    const wn = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.6, 4.2), glass); wn.position.y = -4.6; cab.add(wn);
+    cab.rotation.y = yaw; g.add(cab); cabins.push(cab);
+  }
+  cityGroup.add(g); funiObj = { g, cabins };
+}
+function updateFunicular() {
+  const F = funicular; if (!funiObj || !F || !F.supports) return;
+  F.cabins.forEach((c, i) => { const m = funiObj.cabins[i]; if (!m) return; const p = cabinPos(F, c); m.position.set(X(p[0]), p[2] - .3, Z(p[1])); });
 }
 // крепостная стена старого города: кольцо с зубцами и башнями, ворота на лучах
 function buildCityWalls() {
@@ -13212,7 +13317,7 @@ function serializeGame() {
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     camp, // кампания: день, итоги по дням, бюджет (campaign.js)
-    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
+    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
 function loadGame(S) {
@@ -13259,6 +13364,7 @@ function loadGame(S) {
   for (const a of agents) if (!a.name) nameFor(a);
   const T = S.terrain || {}; terrainSeed = T.seed || 1; hasHills = !!T.hasHills; ridgeSides = T.ridgeSides || []; ridgeSides.intrude = !!T.intrude; rocks = T.rocks || [];
   river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || [];
+  funicular = T.funicular ? { ...T.funicular, cabins: (T.funicular.cabins || []).map(c => ({ s: c.s, riders: [] })) } : null; massif = null;
   TH.fill(0); if (T.th) { const u = unb64(T.th, Uint8Array); for (let i = 0; i < TH.length && i < u.length; i++) TH[i] = u[i] * 2 - 10; }
   scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = []; wave = S.wave || 0; waveT = S.waveT ?? 40;
   loadCampaignState(S);
@@ -14398,7 +14504,7 @@ function frameBody(now) {
   const t1 = performance.now();
   const fxDt = paused ? 0 : Math.min(dt * speed * slowK, dt * 2);
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
-  updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
+  updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateFunicular(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();

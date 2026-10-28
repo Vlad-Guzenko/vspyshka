@@ -544,7 +544,7 @@ function buildCity() {
   instBoxes.forEach(([x, y, z, sx, sy, sz, c, b, rot], i) => { rq.setFromAxisAngle(ry, rot || 0); m.compose(rp.set(x, y, z), rq, rsc.set(sx, sy, sz)); roofStuff.setMatrixAt(i, m); roofStuff.setColorAt(i, col.setHex(c)); b.roofIdx.push(i); (b.roofBox = b.roofBox || []).push([x, y, z, sx, sy, sz, rot || 0]); });
   roofStuff.castShadow = roofStuff.receiveShadow = true; cityGroup.add(roofStuff);
   mergeBuildings(); placePuddles(); buildTrafficLights();
-  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFences(); buildProps(); buildHydrants(); makeCarMeshes(cars.length + 300);
+  buildTrees(); buildLamps(); buildFountains(); buildWater(); buildFunicular(); buildFences(); buildProps(); buildHydrants(); makeCarMeshes(cars.length + 300);
   cityGroup.traverse(o => { if (o.isInstancedMesh) o.frustumCulled = false; });
 }
 let roofStuff = null;
@@ -698,6 +698,38 @@ function buildWater() {
     for (let k = .2; k < 1; k += .2) { const p = new THREE.Mesh(new THREE.BoxGeometry(b.v ? wid * .6 : 4, hy - BED + 2, b.v ? 4 : wid * .6), conc); p.position.set(X(b.v ? (b.x0 + b.x1) / 2 : b.x0 + len * k), (hy + BED) / 2, Z(b.v ? b.y0 + len * k : (b.y0 + b.y1) / 2)); cityGroup.add(p); }
   }
   buildCityWalls();
+}
+// канатная дорога: порталы над станциями, решётчатые опоры по склону, два троса с провисом, кабинки на подвесах; двигает updateFunicular
+let funiObj = null;
+function buildFunicular() {
+  funiObj = null; const F = funicular; if (!F || !F.supports) return;
+  const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({ color: 0x6f7378, roughness: .55, metalness: .6 }), rope = new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: .6, metalness: .5 });
+  const nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, yaw = -Math.atan2(F.U[1] - F.L[1], F.U[0] - F.L[0]);
+  // опоры и порталы
+  for (const s of F.supports) {
+    const p = cablePoint(F, s.d), ground = gY(p[0], p[1]), hT = s.h - ground;
+    if (s.pylon) { const tw = new THREE.Mesh(new THREE.CylinderGeometry(.9, 2.2, hT, 6), steel); tw.position.set(X(p[0]), ground + hT / 2, Z(p[1])); tw.castShadow = true; g.add(tw); }
+    else for (const o of [-4, 4]) { const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, hT, 1.2), steel); post.position.set(X(p[0] + nx * o), ground + hT / 2, Z(p[1] + ny * o)); g.add(post); }
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(9, .8, 1.2), steel); arm.position.set(X(p[0]), s.h, Z(p[1])); arm.rotation.y = yaw; g.add(arm);
+  }
+  // тросы: две нитки с провисом
+  for (const o of [-2.6, 2.6]) {
+    const pts = []; for (let d = 0; d <= F.len; d += 6) { const p = cablePoint(F, Math.min(d, F.len)); pts.push(new THREE.Vector3(X(p[0] + nx * o), cableH(F, Math.min(d, F.len)) - .3, Z(p[1] + ny * o))); }
+    const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, pts.length * 2), .22, 5, false), rope); g.add(tube);
+  }
+  // кабинки
+  const cabins = [], body = new THREE.MeshStandardMaterial({ color: 0xc8342a, roughness: .5 }), glass = new THREE.MeshStandardMaterial({ color: 0x9fc1d4, roughness: .2, metalness: .3 });
+  for (const c of F.cabins) {
+    const cab = new THREE.Group(), hanger = new THREE.Mesh(new THREE.BoxGeometry(.5, 3.2, .5), steel); hanger.position.y = -1.6; cab.add(hanger);
+    const bx = new THREE.Mesh(new THREE.BoxGeometry(5, 4.2, 4), body); bx.position.y = -5.4; bx.castShadow = true; cab.add(bx);
+    const wn = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.6, 4.2), glass); wn.position.y = -4.6; cab.add(wn);
+    cab.rotation.y = yaw; g.add(cab); cabins.push(cab);
+  }
+  cityGroup.add(g); funiObj = { g, cabins };
+}
+function updateFunicular() {
+  const F = funicular; if (!funiObj || !F || !F.supports) return;
+  F.cabins.forEach((c, i) => { const m = funiObj.cabins[i]; if (!m) return; const p = cabinPos(F, c); m.position.set(X(p[0]), p[2] - .3, Z(p[1])); });
 }
 // крепостная стена старого города: кольцо с зубцами и башнями, ворота на лучах
 function buildCityWalls() {

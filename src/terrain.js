@@ -2,6 +2,7 @@
 // высота в единицах мира (1 ед. = 25 см). Город стоит на пологих холмах, за ним хребты со снегом.
 // Вода — ямы в рельефе под общей водной гладью. Клетка 10 — скала, по ней не пройти.
 let massif = null; // горная страна: сторона, ширина, центр плато по краю, озеро на полке
+let funicular = null; // фуникулёр: нижняя станция L у городка, верхняя U на вершине, вагон ходит по t от 0 до 1
 let terrainSeed = 1, hasHills = true, ridgeSides = [], ridgeFront = [330, 330, 330, 330], rocks = [], river = null, shore = null, lakes = [], cityBlob = null;
 const TH = new Float32Array(GMAX); // высота по клеткам города
 const MOUNT = { front: 320, span: 1000, hmax: 420 }, WATER_Y = -1.5, BED = -5.5, BANK = 10; // рельефа нет: земля ровная, у воды короткий откос
@@ -66,13 +67,13 @@ function prepareWater() {
   const mountains = relief === "mountains" && L.ridges !== 0;
   // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Граница предгорий гуляет, отроги выходят
   // в равнину; пики соединены гребнями, между двумя — долина к седловине; на умеренных склонах случайные полки с озёрами
-  massif = null; ridgeSides = [];
+  massif = null; ridgeSides = []; funicular = null;
   if (mountains) {
     const side = pick([2, 3]), BW = MOUNT_W, AL = H, P = (ds, along) => side === 3 ? [W - BW + ds, along] : [BW - ds, along];
     const spurs = []; for (let k = 0, n = Math.floor(rnd(1, 3)); k < n; k++) spurs.push({ a: rnd(AL * .15, AL * .85), r: rnd(260, 420), push: rnd(160, 300) });
     const peaks = [], np = Math.floor(rnd(4, 9));
     // холмы (colline), а не пики: невысокие, широкие, с мягкими гребнями
-    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(90, 190), r: rnd(420, 800), rw: rnd(280, 440) });
+    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(135, 285), r: rnd(420, 800), rw: rnd(280, 440) }); // в полтора раза выше: есть куда ехать фуникулёру
     peaks.sort((p, q) => p.a - q.a);
     const vk = Math.floor(rnd(0, peaks.length - 1)), valley = { a0: (peaks[vk].a + peaks[vk + 1].a) / 2 + rnd(-120, 120), w: rnd(180, 280), depth: rnd(20, 45) };
     massif = { side, w: BW, spurs, peaks, valley, terraces: [], lakes: [] };
@@ -81,12 +82,22 @@ function prepareWater() {
     const nt = Math.floor(rnd(2, 4));
     for (let tries = 0; tries < 700 && massif.terraces.length < nt; tries++) {
       const a = rnd(AL * .14, AL * .86), d = rnd(520, BW - 180), [x, y] = P(d, a); if (x < 220 || y < 220 || x > W - 220 || y > H - 220) continue;
-      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 45 : 90; if (h < lo || h > 220 || s < .07 || s > .3) continue; // только мягкие склоны
+      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 60 : 130; if (h < lo || h > 300 || s < .07 || s > .4) continue; // только мягкие склоны
       const r = rnd(190, 270); if (massif.terraces.some(q => Math.hypot(q.x - x, q.y - y) < q.r + r + 200)) continue;
       const lake = { x: x + rnd(-r * .18, r * .18), y: y + rnd(-r * .18, r * .18), rx: r * rnd(.24, .32), ry: r * rnd(.2, .27), level: h - 4.5 };
       massif.terraces.push({ x, y, a, d, h: h - 2, r, lake }); massif.lakes.push(lake);
     }
     massif.terraces.sort((p, q) => p.d - q.d);
+    // вершина со смотровой для канатной дороги: самый высокий холм в 150–400 м от нижнего городка с перепадом от 20 м; макушка выравнивается площадкой
+    massif.summit = null;
+    if (massif.terraces.length) {
+      const t = massif.terraces[0]; let best = null, bh = -1;
+      for (const pk of peaks) { const [px, py] = P(pk.d, pk.a); if (px < 160 || py < 160 || px > W - 160 || py > H - 160) continue; const dd = Math.hypot(px - t.x, py - t.y); if (dd < 600 || dd > 1700) continue;
+        let sx = px, sy = py, sh = -1;
+        for (let y = py - 220; y <= py + 220; y += 16) for (let x = px - 220; x <= px + 220; x += 16) { if (x < 120 || y < 120 || x > W - 120 || y > H - 120 || Math.hypot(x - px, y - py) > 220) continue; const h = raw(x, y); if (h > sh) { sh = h; sx = x; sy = y; } }
+        if (sh > bh) { bh = sh; best = [sx, sy, sh]; } }
+      if (best && best[2] - 4 - t.h > 80) massif.summit = { x: best[0], y: best[1], h: best[2] - 4, r: 130 };
+    }
     ridgeSides = [side];
   }
   if (WORLD_WATER && L.sea) { makeShore(); ridgeSides = ridgeSides.filter(s => s !== shore.side); }
@@ -130,6 +141,7 @@ function massifH(x, y) {
     const k = smooth(t.r + 280, t.r - 20, dd); h += (t.h - hillsH(x, y) - h) * k;
     const L = t.lake, dl = Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry); h -= 4 * smooth(1.0, .5, dl) * k; // чаша только внутри озера: берег остаётся выше воды
   }
+  const S = M.summit; if (S) { const dd = Math.hypot(x - S.x, y - S.y); if (dd < S.r) { const k = smooth(S.r, S.r * .4, dd); h += (S.h - hillsH(x, y) - h) * k; } } // площадка на вершине
   return Math.max(0, h);
 }
 function mountainH(x, y) {
