@@ -128,6 +128,7 @@ function cityLake(cx, cy, r0, r1) {
 // озёра за городом: в полях, в стороне от дорог; на большой карте их больше
 function placeLakes() {
   if (massif) for (const Lk of massif.lakes) { const l = addLake(Lk.x, Lk.y, Lk.rx, Lk.ry, false); l.level = Lk.level; l.mountain = true; } // озёра на полках
+  if (massif && massif.lake) { const Lk = massif.lake; const l = addLake(Lk.x, Lk.y, Lk.rx * .82, Lk.ry * .82, false); l.level = Lk.level; l.mountain = true; } // горное озеро в долине: зеркало чуть меньше чаши, берега сухие
   if (!L.lakes) return;
   const want = (L.lakes === "rural" ? (Math.random() < .75 ? 1 : 0) : 0) + (mapSize === "big" ? 1 : 0);
   for (let n = 0, k = 0; n < want && k < 200; k++) {
