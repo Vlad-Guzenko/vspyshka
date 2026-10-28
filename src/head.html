@@ -171,6 +171,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .hero span{color:var(--muted);font-size:11.5px}.hero.on{border-color:var(--amber);color:var(--amber)}.hero.gone{opacity:.55;border-left-color:var(--c-dead)}
 .muted{color:var(--muted)}
 .toast{position:fixed;right:18px;bottom:18px;z-index:110;background:var(--panel);border:1px solid var(--amber);border-radius:6px;padding:10px 14px;display:flex;flex-direction:column;gap:2px;box-shadow:0 10px 30px rgba(0,0,0,.5);min-width:220px;pointer-events:none}
+.toast.spawn{right:auto;left:50%;transform:translateX(-50%);bottom:auto;top:70px;border-color:var(--fg)}body.pick canvas{cursor:crosshair}
 .toast small{font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--amber);font-size:10.5px}.toast b{font-size:15px}.toast span{font-size:12px;color:var(--muted)}
 .achs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px}.achs li{background:var(--raise);border-radius:4px;padding:5px 8px;opacity:.45;display:flex;flex-direction:column}.achs li.done{opacity:1;border-left:3px solid var(--amber)}.achs b{font-size:12.5px}.achs small{font-size:11px;color:var(--muted)}
 .chron h3{margin:10px 0 2px;font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:13px;color:var(--amber)}.chron ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5}.chron li{margin:2px 0}
@@ -334,14 +335,15 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div class="toast spawn" id="spawnHint" hidden><small>Играть самому</small><b>Кликни место на карте, где появиться</b><span>Esc — отмена</span></div>
 
 <div class="modal" id="fpsChoose" hidden role="dialog" aria-modal="true" aria-labelledby="fcTitle">
   <div class="dlg wide">
     <div class="dlghead"><h2 id="fcTitle">Играть самому</h2><button class="x" id="fpsChooseClose" aria-label="Закрыть">×</button></div>
     <p class="note">Вид от первого лица. Нужны мышь и клавиатура; курсор захватывается кликом, Esc его отпускает.</p>
     <div class="cards">
-      <button class="card" id="fpsAsHuman"><b>Выживший</b><small>Пистолет, 12 патронов в магазине. Беги, прячься, собирай патроны у погибших полицейских и солдат. Если укусят — станешь зомби и продолжишь за них.</small></button>
-      <button class="card" id="fpsAsZombie"><b>Зомби</b><small>Быстрый бег, укус, чутьё: живые светятся сквозь стены, слышно их сердцебиение. Заражай как можно больше людей, пока тебя не упокоили.</small></button>
+      <button class="card" id="fpsAsHuman"><b>Выживший</b><small>Затем кликни место на карте, где появиться. Пистолет, 12 патронов в магазине. Беги, прячься, собирай патроны у погибших полицейских и солдат. Если укусят — станешь зомби и продолжишь за них.</small></button>
+      <button class="card" id="fpsAsZombie"><b>Зомби</b><small>Затем кликни место на карте, где появиться. Быстрый бег, укус, чутьё: живые светятся сквозь стены, слышно их сердцебиение. Заражай как можно больше людей, пока тебя не упокоили.</small></button>
       <button class="card" id="fpsAsDriver"><b>За рулём</b><small>Ближайшая машина — твоя: газ, тормоз, ручник, сигнал, вид из-за машины или из кабины. Можно таранить, сбивать и возить пассажиров автобуса. Врезался на скорости — машина разбита. Выживший садится в машину рядом клавишей E.</small></button>
     </div>
   </div>
@@ -418,7 +420,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         </div>
         <div class="fmsg" id="fpsMsg" hidden></div>
         <div class="fdead" id="fpsDead" hidden></div>
-        <div class="fhelp" id="fpsHelp" hidden>WASD — идти · Shift — бег · мышь — смотреть · ЛКМ — стрелять или кусать · R — перезарядка · E — подобрать · Q — чутьё зомби · Esc — пауза</div>
+        <div class="fhelp" id="fpsHelp" hidden>WASD — идти · Shift — бег · мышь — смотреть · ЛКМ — стрелять или кусать · R — перезарядка · E — подобрать или сесть в кабинку канатки у станции · Q — чутьё зомби · Esc — пауза</div>
         <div class="fpause" id="fpsPause" hidden><div class="dlg"><h2>Пауза</h2><p>Курсор освобождён. Кликни «Продолжить», чтобы снова управлять персонажем.</p><div class="dlgbar"><button class="btn" id="fpsExit">Выйти из режима</button><button class="btn primary" id="fpsResume">Продолжить</button></div></div></div>
         <div class="news" id="news" hidden>
           <div class="nlive"><i></i>Прямой эфир · <span id="newsChan">ВСПЫШКА-24</span></div>

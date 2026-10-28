@@ -25,9 +25,11 @@ const flashlight = new THREE.SpotLight(0xfff2dd, 0, 140, .42, .5, 1.2); flashlig
 const senseMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xff4030, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }), 600);
 senseMesh.count = 0; senseMesh.frustumCulled = false; senseMesh.renderOrder = 9; scene.add(senseMesh);
 
-function startFps(mode) {
+function startFps(mode, at) {
   let a = null, car = null;
-  const near0 = (pred) => { let best = null, bd = 1e9; for (const b of agents) { if (!pred(b)) continue; const d = Math.hypot(X(b.x) - camC.tx, Z(b.y) - camC.tz); if (d < bd) { bd = d; best = b; } } return best; };
+  // at — выбранная точка появления: берётся ближайший к ней подходящий человек и переносится туда; без точки — ближайший к камере
+  const cx = at ? at[0] : camC.tx + W / 2, cy = at ? at[1] : camC.tz + H / 2;
+  const near0 = (pred) => { let best = null, bd = 1e9; for (const b of agents) { if (!pred(b) || (at && (b.hidden || b.onBus))) continue; const d = Math.hypot(b.x - cx, b.y - cy); if (d < bd) { bd = d; best = b; } } return best; };
   if (mode === "human") { a = near0(b => b.state === "alive" && b.role === "civ" && !b.bitten); if (!a) return; if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; }
   else if (mode === "drive") {
     // за руль ближайшей к камере машины садится ближайший житель (drive.js)
@@ -36,6 +38,7 @@ function startFps(mode) {
     if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; const [dx, dy] = carDoor(car, 1); a.x = dx; a.y = dy;
   }
   else { a = near0(b => b.state === "alive" && b.role === "zombie") || near0(b => b.state === "alive" && b.role === "civ"); if (!a) return; if (a.role !== "zombie") turn(a); a.riseT = 0; a.zhp = 8; }
+  if (at) { const [x, y] = freeNear(at[0], at[1], 10); a.x = x; a.y = y; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; fps.gz = undefined; }
   fps.on = true; fps.mode = mode; fps.a = a; a.player = true; fps.yaw = a.dir; fps.pitch = 0; fps.score = 0; fps.lastHp = a.hp; fps.startT = simT;
   followA = null; cine = false; thirdPerson = false; tool = "watch"; renderTools();
   camera.fov = 72; camera.updateProjectionMatrix();
@@ -46,6 +49,7 @@ function startFps(mode) {
 }
 function stopFps() {
   if (fps.mode === "drive" && drive.car) exitCar();
+  if (fps.mode === "cable") leaveCable(true);
   if (fps.a) fps.a.player = false;
   fps.on = false; fps.a = null; vm.visible = false; flashlight.intensity = 0; senseMesh.count = 0;
   camera.fov = 42; camera.updateProjectionMatrix();
@@ -69,7 +73,10 @@ function reloadPlayer() { const a = fps.a; if (a.reload <= 0 && a.mag < a.magMax
 function useNearby() {
   const a = fps.a; if (!a) return;
   if (fps.mode === "drive") { exitCar(); return; }
+  if (fps.mode === "cable") { const msg = leaveCable(false); if (msg) fpsMsg(msg); return; }
   if (fps.mode === "human") {
+    // канатная дорога: у станции — сесть в кабинку
+    if (typeof boardCable === "function") { const msg = boardCable(a); if (msg) { fpsMsg(msg); return; } }
     // сесть в стоящую рядом машину (drive.js); иначе подобрать патроны и оружие у погибших
     const c = carNearAgent(a); if (c) { enterCar(a, c); fpsMsg("Ты за рулём. W — газ, S — тормоз, Пробел — ручник, H — сигнал, V — вид из кабины, E — выйти."); return; }
     let got = 0; near(a.x, a.y, 10, b => { if (b !== a && b.state === "dead" && b.armed && (b.mag + b.ammo) > 0) { got += b.mag + b.ammo; if (b.role === "army" && a.magMax < 30) { a.magMax = 30; fpsMsg("Подобран автомат"); } b.mag = 0; b.ammo = 0; } });
@@ -88,6 +95,7 @@ function fpsStep(dt) {
   const a = fps.a;
   if (!a) return;
   if (fps.mode === "drive") return driveStep(dt);
+  if (fps.mode === "cable") return cableStep(dt);
   // игрок погиб или обратился
   if (fps.mode === "human" && a.role === "zombie") { fps.mode = "zombie"; a.zhp = 8; fpsMsg("Ты обратился. Теперь ты один из них — кусай живых."); }
   if (a.state === "dead") {
@@ -132,10 +140,19 @@ function playerShoot(a) {
 function fpsCamera(dt) {
   const a = fps.a; if (!a) return;
   if (fps.mode === "drive" && drive.car) return driveCamera(dt);
+  if (fps.mode === "cable" && funicular && fps.cabin) {
+    // глаза в кабинке: под тросом, окна вокруг; мышь крутит взгляд
+    vm.visible = false; flashlight.intensity = 0;
+    const p = cabinPos(funicular, fps.cabin); camera.position.set(X(p[0]), p[2] - 4.6, Z(p[1]));
+    const cp = Math.cos(fps.pitch); camera.lookAt(camera.position.x + Math.cos(fps.yaw) * cp, camera.position.y + Math.sin(fps.pitch), camera.position.z + Math.sin(fps.yaw) * cp);
+    camC.tx = camera.position.x; camC.tz = camera.position.z; camC.dist = 40; scene.fog.near = 200; scene.fog.far = 2600; return;
+  }
   const moving = Math.hypot(a.vx, a.vy) > 2; fps.bob += dt * Math.hypot(a.vx, a.vy) * .7;
   const lying = a.state === "dead";
   const h = lying ? 1.2 : (fps.mode === "zombie" ? 6.1 : 6.6) * a.size + (moving ? Math.sin(fps.bob) * .18 : 0);
-  camera.position.set(X(a.x), h + (a.z || 0), Z(a.y));
+  // рельеф под ногами: сглажен, чтобы на сетке высот не трясло; после телепорта (станция канатки) — сразу
+  const gz = Math.max(WATER_Y, gY(a.x, a.y)); fps.gz = fps.gz === undefined || Math.abs(gz - fps.gz) > 12 ? gz : fps.gz + (gz - fps.gz) * Math.min(1, dt * 10);
+  camera.position.set(X(a.x), fps.gz + h + (a.z || 0), Z(a.y));
   const cp = Math.cos(fps.pitch + fps.kick * .03);
   camera.lookAt(camera.position.x + Math.cos(fps.yaw) * cp, camera.position.y + Math.sin(fps.pitch + fps.kick * .03), camera.position.z + Math.sin(fps.yaw) * cp);
   if (lying) camera.rotateZ(.9);
@@ -172,5 +189,9 @@ $("fpsResume").addEventListener("click", () => { lockPointer(); $("fpsPause").hi
 $("fpsExit").addEventListener("click", () => { stopFps(); setPaused(false); });
 $("playSelf").addEventListener("click", () => { $("fpsChoose").hidden = false; });
 $("fpsChooseClose").addEventListener("click", () => { $("fpsChoose").hidden = true; });
-$("fpsAsHuman").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("human"); });
-$("fpsAsZombie").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("zombie"); });
+// сначала точка на карте, где появиться: клик по земле, Esc — отмена
+function pickSpawn(mode) { $("fpsChoose").hidden = true; audio(); fps.pick = mode; $("spawnHint").hidden = false; document.body.classList.add("pick"); }
+function cancelPick() { fps.pick = null; $("spawnHint").hidden = true; document.body.classList.remove("pick"); }
+function spawnAt(g) { const mode = fps.pick; cancelPick(); if (blocked(g[0], g[1]) || waterAt(g[0], g[1])) { warn("<b>Здесь не появиться</b> — выбери землю рядом."); fps.pick = mode; $("spawnHint").hidden = false; document.body.classList.add("pick"); return; } startFps(mode, g); }
+$("fpsAsHuman").addEventListener("click", () => pickSpawn("human"));
+$("fpsAsZombie").addEventListener("click", () => pickSpawn("zombie"));

@@ -291,6 +291,7 @@ function updateLighting(dt, simDt) {
   moonDisc.position.set(sp.x + Math.cos(az) * 6000, Math.max(800, -el * 6000), sp.z + Math.sin(az) * 3000 + 2500);
   moonDisc.material.opacity = nightK * (1 - gloom);
   stars.position.copy(sp); stars.material.opacity = nightK * (1 - gloom) * .9;
+  sky.position.set(sp.x, 0, sp.z); // купол едет за камерой: иначе на широкой карте его дальняя стенка уходит за дальность камеры и в небе чёрная дыра
   for (const c of clouds) { c.position.x += dt * 12; if (c.position.x > sp.x + 4500) c.position.x -= 9000; c.material.color.setRGB(.25 + day * .75, .25 + day * .72, .3 + day * .7).lerp(_lc1.setHex(0xff9a70), dusk * .5); c.material.opacity = .35 + gloom * .55; }
   // окна, фонари, мокрый асфальт
   const powerK = settings.dark ? 0 : 1;

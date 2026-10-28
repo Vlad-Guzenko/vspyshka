@@ -235,7 +235,10 @@ function benchRoads() {
   const prof = new Map();
   for (const e of ME) {
     const S = []; for (let t = 0; t <= e.len; t += CS / 2) { const p = edgePos(e, t); S.push({ x: p.x, y: p.y, tx: p.tx, ty: p.ty, h: TH[cellOf(p.x, p.y)] }); }
+    // на полке дорога лежит на земле и не врезается: иначе спуск с полки прорезал бы траншею через городок и под озером
+    for (const s of S) { s.pin = null; if (massif) for (const t of massif.terraces) if (Math.hypot(s.x - t.x, s.y - t.y) < t.r + 40) { s.pin = s.h; break; } } // вся площадка полки вместе с началом юбки
     for (let pass = 0; pass < 3; pass++) { const c = S.map(s => s.h); for (let i = 0; i < S.length; i++) { let a = 0, n = 0; for (let k = -5; k <= 5; k++) { const j = i + k; if (j >= 0 && j < S.length) { a += c[j]; n++; } } S[i].h = a / n; } }
+    for (const s of S) if (s.pin != null) s.h = s.pin;
     prof.set(e, S);
   }
   // полотно: каждой ячейке — ближайшая ось; где полотна пересекаются (другое ребро или та же дорога через сотню единиц), высоты связываются
@@ -251,14 +254,36 @@ function benchRoads() {
     } }
   }
   // продольный уклон: два прохода срезают подъёмы; концы рёбер сходятся к высоте узла, пересечения — к общей высоте (минимум)
-  const dh = MR.grade * (CS / 2), nodeH = new Map();
+  // пересечение или узел на полке держит высоту полки, остальные сходятся к минимуму
+  const dh = MR.grade * (CS / 2), nodeH = new Map(), nodePin = new Map();
+  for (const e of ME) { const S = prof.get(e), n = S.length - 1; if (S[0].pin != null) nodePin.set(e.a, S[0].pin); if (S[n].pin != null) nodePin.set(e.b, S[n].pin); }
+  // конец дороги в узле на полке — тоже закреплён, иначе врезка срежет его и на стыке будет ступенька
+  for (const e of ME) { const S = prof.get(e), n = S.length - 1; if (nodePin.has(e.a)) { S[0].pin = nodePin.get(e.a); S[0].h = S[0].pin; } if (nodePin.has(e.b)) { S[n].pin = nodePin.get(e.b); S[n].h = S[n].pin; } }
+  // допустимый перепад между соседними пробами: норма; а где от полки до другой полки или до конца дороги рельеф падает круче,
+  // чем позволяет норма, — круче, но ровно: ни траншеи через городок, ни насыпи в полдома. Концы дорог берутся по текущей высоте узла
+  const steps = S => {
+    const n = S.length - 1, v = new Float32Array(n + 1).fill(dh); let i = 0;
+    while (i <= n) {
+      if (S[i].pin != null) { i++; continue; } let j = i; while (j <= n && S[j].pin == null) j++;
+      const a = i > 0 ? S[i - 1].pin : null, b = j <= n ? S[j].pin : null;
+      if (a != null || b != null) { const ha = a != null ? a : S[i].h, hb = b != null ? b : S[j - 1].h, need = Math.abs(hb - ha) / Math.max(1, j - i + (a != null && b != null ? 1 : 0)); if (need > dh) for (let k = i; k < j; k++) v[k] = need; }
+      i = j;
+    }
+    const st = new Float32Array(n + 1); for (let k = 1; k <= n; k++) st[k] = Math.max(v[k - 1], v[k]); return st;
+  };
   for (let it = 0; it < 4; it++) {
-    for (const [e1, i1, e2, i2] of links) { const A = prof.get(e1)[i1], B = prof.get(e2)[i2], m = Math.min(A.h, B.h); A.h = m; B.h = m; }
+    // пересечение или узел на полке держит высоту полки, остальные сходятся к минимуму
+    for (const [e1, i1, e2, i2] of links) { const A = prof.get(e1)[i1], B = prof.get(e2)[i2], m = A.pin != null ? A.pin : B.pin != null ? B.pin : Math.min(A.h, B.h); A.h = m; B.h = m; if (A.pin != null || B.pin != null) { A.pin = m; B.pin = m; } }
     for (const e of ME) {
       const S = prof.get(e), n = S.length - 1;
-      if (nodeH.has(e.a)) S[0].h = Math.min(S[0].h, nodeH.get(e.a)); if (nodeH.has(e.b)) S[n].h = Math.min(S[n].h, nodeH.get(e.b));
-      for (let i = 1; i <= n; i++) if (S[i].h > S[i - 1].h + dh) S[i].h = S[i - 1].h + dh;
-      for (let i = n - 1; i >= 0; i--) if (S[i].h > S[i + 1].h + dh) S[i].h = S[i + 1].h + dh;
+      if (S[0].pin == null && nodeH.has(e.a)) S[0].h = Math.min(S[0].h, nodeH.get(e.a));
+      if (S[n].pin == null && nodeH.has(e.b)) S[n].h = Math.min(S[n].h, nodeH.get(e.b));
+      const st = steps(S);
+      // подъёмы круче нормы срезаются (выемка); от полки вниз провалы подсыпаются (насыпь); закреплённые пробы не трогаем
+      for (let i = 1; i <= n; i++) if (S[i].pin == null && S[i].h > S[i - 1].h + st[i]) S[i].h = S[i - 1].h + st[i];
+      for (let i = n - 1; i >= 0; i--) if (S[i].pin == null && S[i].h > S[i + 1].h + st[i + 1]) S[i].h = S[i + 1].h + st[i + 1];
+      let ch = false; for (let i = 1; i < n; i++) { if (S[i].pin != null) { ch = true; continue; } if (!ch) continue; if (S[i].h < S[i - 1].h - st[i]) S[i].h = S[i - 1].h - st[i]; else if (S[i].h > S[i - 1].h + st[i]) ch = false; }
+      ch = false; for (let i = n - 1; i > 0; i--) { if (S[i].pin != null) { ch = true; continue; } if (!ch) continue; if (S[i].h < S[i + 1].h - st[i + 1]) S[i].h = S[i + 1].h - st[i + 1]; else if (S[i].h > S[i + 1].h + st[i + 1]) ch = false; }
       for (const [nd, h] of [[e.a, S[0].h], [e.b, S[n].h]]) nodeH.set(nd, Math.min(nodeH.has(nd) ? nodeH.get(nd) : Infinity, h));
     }
   }

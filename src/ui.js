@@ -229,6 +229,7 @@ cv.addEventListener("pointerdown", e => {
   if (mode === "tool") {
     const g = groundAt(e); lastG = g;
     if (!g) return;
+    if (fps.pick) { spawnAt(g); return; } // выбор места появления для игры от первого лица
     if (editMode) { if (tool === "ed_apt" || tool === "ed_tower" || tool === "ed_park") { qStart = g; qEnd = g; edDrag = tool; } else edPoint(tool, g); return; }
     if (tool === "barricade" || tool === "erase" || tool === "wall" || tool === "efence") { barrPrev = null; paintBarricade(g[0], g[1], tool === "erase", BARR_KIND[tool]); if (tool === "barricade") first("barr", "Поставлена первая баррикада", "good"); }
     else if (tool === "wire") { wireStart = g; selEnd = g; }
@@ -287,6 +288,7 @@ window.addEventListener("keydown", e => {
   const n = e.key === "0" ? 9 : e.key === "-" ? 10 : +e.key - 1;
   if (n >= 0 && n < TOOLS.length && /^[0-9-]$/.test(e.key)) { tool = TOOLS[n].k; renderTools(); }
   if (e.key === " ") { togglePause(); e.preventDefault(); }
+  if (e.key === "Escape" && fps.pick) { cancelPick(); return; }
   if (e.key === "Escape") { wireStart = null; followA = null; thirdPerson = false; cine = false; clearHighlight(); $("help").hidden = true; syncCamButtons(); clearOrders(); }
   if (e.code === "KeyG" && patientZero) followPatientZero();
   if (e.code === "KeyN") toggleNight();

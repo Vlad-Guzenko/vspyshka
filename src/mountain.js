@@ -335,7 +335,7 @@ function buildMountainVillage() {
 // Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
 // в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.
 // Над станциями трос держат порталы высотой 10, опоры по 16 (высокие 28)
-const CABLE = { maxSpan: 360, minSpan: 60, clear: 10, sag: .035, pylon: 16, tall: 28, portal: 10, speed: 16, cap: 6 };
+const CABLE = { maxSpan: 360, minSpan: 60, clear: 16, sag: .035, pylon: 24, tall: 36, portal: 10, speed: 16, cap: 6 }; // clear — просвет троса над землёй: кабинка висит на 7.5 ниже
 function cablePoint(F, d) { return [F.L[0] + (F.U[0] - F.L[0]) * d / F.len, F.L[1] + (F.U[1] - F.L[1]) * d / F.len]; }
 function cableH(F, d) {
   const S = F.supports; if (!S) return F.hL + (F.hU - F.hL) * d / F.len;
@@ -343,22 +343,65 @@ function cableH(F, d) {
   const a = S[k], b = S[k + 1], span = b.d - a.d || 1, t = clamp((d - a.d) / span);
   return a.h + (b.h - a.h) * t - span * CABLE.sag * 4 * t * (1 - t);
 }
+// место под опору: ноги стоят на ±4 поперёк троса. Нельзя на проезжую часть, тротуар и обочину (там ездят машины и ходят люди), в дом, в воду, за край карты
+function cableSiteBad(F, d) {
+  const p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len;
+  const e = gEdgeNear(p[0], p[1], 40); if (e && e.d < e.e.hw + (e.e.sw || 0) + 6) return true;
+  for (const o of [-5, 0, 5]) {
+    const x = p[0] + nx * o, y = p[1] + ny * o, gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 1 || gy < 1 || gx >= GW - 1 || gy >= GH - 1) return true;
+    const i = gy * GW + gx; if (roadMask[i] || grid[i] === 0 || grid[i] === 1 || grid[i] === 3 || grid[i] === 5 || waterAt(x, y)) return true;
+  }
+  return false;
+}
 function planCableCar() {
   const F = funicular; if (!F) return;
-  const n = Math.ceil(F.len / 8), prof = []; for (let i = 0; i <= n; i++) { const d = Math.min(F.len, i * 8), p = cablePoint(F, d); prof.push({ d, h: gY(p[0], p[1]) }); }
-  const last = prof.length - 1, tops = [{ d: 0, h: F.hL + CABLE.portal, pylon: false }]; let i0 = 0;
-  for (let guard = 0; guard < 60 && i0 < last; guard++) {
+  const n = Math.ceil(F.len / 8), prof = []; for (let i = 0; i <= n; i++) { const d = Math.min(F.len, i * 8), p = cablePoint(F, d), e = gEdgeNear(p[0], p[1], 30); prof.push({ d, h: gY(p[0], p[1]), road: !!(e && e.d < e.e.hw + 3) }); }
+  const last = prof.length - 1, bad = prof.map((P, i) => i !== 0 && i !== last && cableSiteBad(F, P.d)); // куда опору ставить нельзя
+  // нужная высота троса над точкой k: просвет, над дорогой больше (под кабинкой проходит грузовик); у перронов не считается
+  const need = k => prof[k].h + CABLE.clear + (prof[k].road ? 6 : 0);
+  const spanOk = (i, hi, j, hj) => { const span = prof[j].d - prof[i].d; for (let k = i + 1; k < j; k++) { if (prof[k].d < 16 || prof[k].d > F.len - 16) continue; const u = (prof[k].d - prof[i].d) / span, hc = hi + (hj - hi) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < need(k)) return false; } return true; };
+  // варианты высоты в точке: у станции портал обычный или поднятый (когда рядом дорога), у опоры — обычная, высокая, очень высокая
+  const HS = i => i === 0 ? [F.hL + CABLE.portal, F.hL + CABLE.portal + 12] : i === last ? [F.hU + CABLE.portal, F.hU + CABLE.portal + 12] : [prof[i].h + CABLE.pylon, prof[i].h + CABLE.tall, prof[i].h + CABLE.tall + 14];
+  const PEN = [0, 1.5, 4]; // плата за высоту: лучше лишняя обычная опора, чем высокая
+  // динамика по профилю: наименьшая «цена» дойти до точки j с вариантом высоты v — число опор плюс плата за высокие
+  const maxN = Math.ceil(CABLE.maxSpan / 8), minN = Math.ceil(CABLE.minSpan / 8), cost = [], from = [];
+  for (let i = 0; i <= last; i++) { cost.push([1e9, 1e9, 1e9]); from.push([null, null, null]); }
+  cost[0][0] = 0; cost[0][1] = PEN[1];
+  for (let i = 0; i < last; i++) for (let vi = 0; vi < 3; vi++) {
+    const ci = cost[i][vi]; if (ci >= 1e9) continue; const hi = HS(i)[vi];
+    for (let j = i + 1; j <= Math.min(last, i + maxN); j++) {
+      if (bad[j] || (j - i < minN && j !== last)) continue; const Hj = HS(j);
+      for (let vj = 0; vj < Hj.length; vj++) { const c = ci + 1 + PEN[vj]; if (c >= cost[j][vj] || !spanOk(i, hi, j, Hj[vj])) continue; cost[j][vj] = c; from[j][vj] = [i, vi]; }
+    }
+  }
+  let tops = null;
+  const vEnd = cost[last][0] <= cost[last][1] ? 0 : 1;
+  if (cost[last][vEnd] < 1e9) { // трасса найдена: разматываем от верхней станции
+    tops = []; let cur = [last, vEnd]; while (cur) { const [i, v] = cur; tops.push({ d: prof[i].d, h: HS(i)[v], pylon: i !== 0 && i !== last, tall: i !== 0 && i !== last && v > 0 }); cur = from[i][v]; } tops.reverse();
+  }
+  // запасной жадный проход, если ни одна комбинация не проходит по просвету (дорога слишком широка или у самой станции)
+  let i0 = 0; if (!tops) tops = [{ d: 0, h: F.hL + CABLE.portal, pylon: false }];
+  for (let guard = 0; guard < 60 && i0 < last && tops[tops.length - 1].d < F.len; guard++) {
     const A = tops[tops.length - 1]; let best = null;
     for (let j = last; j > i0; j--) {
-      const P = prof[j], span = P.d - A.d; if (span > CABLE.maxSpan) continue; if (span < CABLE.minSpan && j !== last) continue;
+      const P = prof[j], span = P.d - A.d; if (span > CABLE.maxSpan) continue; if (span < CABLE.minSpan && j !== last) continue; if (bad[j]) continue;
       const topH = j === last ? F.hU + CABLE.portal : P.h + CABLE.pylon; let ok = true;
-      for (let k = i0 + 1; k < j; k++) { const Q = prof[k], u = (Q.d - A.d) / span, hc = A.h + (topH - A.h) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < Q.h + CABLE.clear) { ok = false; break; } }
+      // над дорогой трос ещё выше: под кабинкой должен пройти грузовик
+      for (let k = i0 + 1; k < j; k++) { const Q = prof[k]; if (Q.d < 40 || Q.d > F.len - 40) continue; const u = (Q.d - A.d) / span, hc = A.h + (topH - A.h) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < Q.h + CABLE.clear + (Q.road ? 6 : 0)) { ok = false; break; } }
       if (ok) { best = { j, topH }; break; }
     }
-    if (!best) { const j = Math.min(last, i0 + 8); best = { j, topH: (j === last ? F.hU + CABLE.portal : prof[j].h + CABLE.tall) }; }
+    if (!best) { // ни один пролёт не проходит по просвету: ближайшее разрешённое место под высокую опору
+      let j = Math.min(last, i0 + 8); while (j < last && bad[j]) j++;
+      best = { j, topH: (j === last ? F.hU + CABLE.portal : prof[j].h + CABLE.tall) };
+    }
     tops.push({ d: prof[best.j].d, h: best.topH, pylon: best.j !== last, tall: best.topH - prof[best.j].h > CABLE.pylon + 1 }); i0 = best.j;
   }
   F.supports = tops;
+  // под ногами опор лес вырублен
+  for (const s of tops) if (s.pylon) {
+    const p = cablePoint(F, s.d); trees = trees.filter(t => Math.hypot(t.x - p[0], t.y - p[1]) > 9);
+    for (let gy = Math.floor((p[1] - 9) / CS); gy <= Math.floor((p[1] + 9) / CS); gy++) for (let gx = Math.floor((p[0] - 9) / CS); gx <= Math.floor((p[0] + 9) / CS); gx++) { if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx; if (grid[i] === 4) grid[i] = 2; }
+  }
   // кабинки по кругу: вверх по одной нитке, вниз по другой; шаг около 300 ед.
   const loop = F.len * 2, nc = Math.max(4, Math.round(loop / 300)); F.cabins = []; for (let k = 0; k < nc; k++) F.cabins.push({ s: loop * k / nc, riders: [] });
 }
@@ -376,7 +419,35 @@ function stepFunicular(dt) {
     if ((atUpper || atLowerDown) && c.riders.length) { const st = atUpper ? F.U : F.L; for (const a of c.riders) { a.hidden = false; a.onBus = null; const [x, y] = freeNear(st[0], st[1], 16); a.x = x; a.y = y; a.vx = a.vy = 0; a.dest = null; a.panic = Math.min(a.panic || 0, .2); a.idleT = rnd(6, 30); } F.trips += c.riders.length; c.riders = []; }
     // посадка: внизу в кабинку, идущую вверх, наверху — идущую вниз
     if ((atLower || atUpperDown) && c.riders.length < CABLE.cap) { const st = atLower ? F.L : F.U;
-      near(st[0], st[1], 30, a => { if (a.role === "civ" && a.state === "alive" && !a.hidden && !a.onBus && !a.detained && !a.hideB && c.riders.length < CABLE.cap && Math.random() < dt * (a.panic > .3 ? 3 : .8)) { a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; c.riders.push(a); } }); }
+      near(st[0], st[1], 30, a => { if (a.role === "civ" && !a.player && a.state === "alive" && !a.hidden && !a.onBus && !a.detained && !a.hideB && c.riders.length < CABLE.cap && Math.random() < dt * (a.panic > .3 ? 3 : .8)) { a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; c.riders.push(a); } }); }
     const p = cabinPos(F, c); for (const a of c.riders) { a.x = p[0]; a.y = p[1]; }
   }
+}
+
+// ---------- канатная дорога от первого лица: игрок садится у станции (E), едет в кабинке, выходит на другой станции ----------
+function cabinAtStation(F, lower) { // кабинка, стоящая у станции и идущая от неё: внизу — вверх, наверху — вниз
+  for (const c of F.cabins) { const [, , , d, up] = cabinPos(F, c); if (lower ? (up && d < 24) : (!up && d > F.len - 24)) return c; } return null;
+}
+function boardCable(a) {
+  const F = funicular; if (!F) return "";
+  const dl = Math.hypot(a.x - F.L[0], a.y - F.L[1]), du = Math.hypot(a.x - F.U[0], a.y - F.U[1]); if (Math.min(dl, du) > 34) return "";
+  const c = cabinAtStation(F, dl < du); if (!c) return "Кабинка ещё не подошла — подожди у станции";
+  if (c.riders.length >= CABLE.cap) return "Кабинка полна, подожди следующую";
+  a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; c.riders.push(a); fps.mode = "cable"; fps.cabin = c;
+  const to = dl < du ? F.U : F.L, from = dl < du ? F.L : F.U; fps.yaw = Math.atan2(to[1] - from[1], to[0] - from[0]); fps.pitch = 0; // взгляд по ходу
+  return dl < du ? "Поехали наверх. E — выйти на станции" : "Поехали вниз. E — выйти на станции";
+}
+function leaveCable(force) {
+  const a = fps.a, F = funicular, c = fps.cabin; if (!a || !F) return "";
+  const [, , , d, up] = c ? cabinPos(F, c) : [0, 0, 0, 0, true], atSt = d < 14 || d > F.len - 14;
+  if (!atSt && !force) return "Выйти можно только на станции";
+  const st = d < F.len / 2 ? F.L : F.U;
+  if (c) { const i = c.riders.indexOf(a); if (i >= 0) c.riders.splice(i, 1); }
+  a.hidden = false; a.onBus = null; const [x, y] = freeNear(st[0], st[1], 16); a.x = x; a.y = y; a.vx = a.vy = 0;
+  fps.mode = "human"; fps.cabin = null; return "Ты на станции";
+}
+function cableStep(dt) {
+  const a = fps.a; if (!a) return;
+  if (a.onBus !== funicular) { fps.mode = "human"; fps.cabin = null; fpsMsg("Приехали"); return; } // высадили на станции
+  a.dir = fps.yaw;
 }

@@ -176,6 +176,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .hero span{color:var(--muted);font-size:11.5px}.hero.on{border-color:var(--amber);color:var(--amber)}.hero.gone{opacity:.55;border-left-color:var(--c-dead)}
 .muted{color:var(--muted)}
 .toast{position:fixed;right:18px;bottom:18px;z-index:110;background:var(--panel);border:1px solid var(--amber);border-radius:6px;padding:10px 14px;display:flex;flex-direction:column;gap:2px;box-shadow:0 10px 30px rgba(0,0,0,.5);min-width:220px;pointer-events:none}
+.toast.spawn{right:auto;left:50%;transform:translateX(-50%);bottom:auto;top:70px;border-color:var(--fg)}body.pick canvas{cursor:crosshair}
 .toast small{font-family:var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--amber);font-size:10.5px}.toast b{font-size:15px}.toast span{font-size:12px;color:var(--muted)}
 .achs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px}.achs li{background:var(--raise);border-radius:4px;padding:5px 8px;opacity:.45;display:flex;flex-direction:column}.achs li.done{opacity:1;border-left:3px solid var(--amber)}.achs b{font-size:12.5px}.achs small{font-size:11px;color:var(--muted)}
 .chron h3{margin:10px 0 2px;font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:13px;color:var(--amber)}.chron ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5}.chron li{margin:2px 0}
@@ -339,14 +340,15 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div class="toast spawn" id="spawnHint" hidden><small>Играть самому</small><b>Кликни место на карте, где появиться</b><span>Esc — отмена</span></div>
 
 <div class="modal" id="fpsChoose" hidden role="dialog" aria-modal="true" aria-labelledby="fcTitle">
   <div class="dlg wide">
     <div class="dlghead"><h2 id="fcTitle">Играть самому</h2><button class="x" id="fpsChooseClose" aria-label="Закрыть">×</button></div>
     <p class="note">Вид от первого лица. Нужны мышь и клавиатура; курсор захватывается кликом, Esc его отпускает.</p>
     <div class="cards">
-      <button class="card" id="fpsAsHuman"><b>Выживший</b><small>Пистолет, 12 патронов в магазине. Беги, прячься, собирай патроны у погибших полицейских и солдат. Если укусят — станешь зомби и продолжишь за них.</small></button>
-      <button class="card" id="fpsAsZombie"><b>Зомби</b><small>Быстрый бег, укус, чутьё: живые светятся сквозь стены, слышно их сердцебиение. Заражай как можно больше людей, пока тебя не упокоили.</small></button>
+      <button class="card" id="fpsAsHuman"><b>Выживший</b><small>Затем кликни место на карте, где появиться. Пистолет, 12 патронов в магазине. Беги, прячься, собирай патроны у погибших полицейских и солдат. Если укусят — станешь зомби и продолжишь за них.</small></button>
+      <button class="card" id="fpsAsZombie"><b>Зомби</b><small>Затем кликни место на карте, где появиться. Быстрый бег, укус, чутьё: живые светятся сквозь стены, слышно их сердцебиение. Заражай как можно больше людей, пока тебя не упокоили.</small></button>
       <button class="card" id="fpsAsDriver"><b>За рулём</b><small>Ближайшая машина — твоя: газ, тормоз, ручник, сигнал, вид из-за машины или из кабины. Можно таранить, сбивать и возить пассажиров автобуса. Врезался на скорости — машина разбита. Выживший садится в машину рядом клавишей E.</small></button>
     </div>
   </div>
@@ -423,7 +425,7 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         </div>
         <div class="fmsg" id="fpsMsg" hidden></div>
         <div class="fdead" id="fpsDead" hidden></div>
-        <div class="fhelp" id="fpsHelp" hidden>WASD — идти · Shift — бег · мышь — смотреть · ЛКМ — стрелять или кусать · R — перезарядка · E — подобрать · Q — чутьё зомби · Esc — пауза</div>
+        <div class="fhelp" id="fpsHelp" hidden>WASD — идти · Shift — бег · мышь — смотреть · ЛКМ — стрелять или кусать · R — перезарядка · E — подобрать или сесть в кабинку канатки у станции · Q — чутьё зомби · Esc — пауза</div>
         <div class="fpause" id="fpsPause" hidden><div class="dlg"><h2>Пауза</h2><p>Курсор освобождён. Кликни «Продолжить», чтобы снова управлять персонажем.</p><div class="dlgbar"><button class="btn" id="fpsExit">Выйти из режима</button><button class="btn primary" id="fpsResume">Продолжить</button></div></div></div>
         <div class="news" id="news" hidden>
           <div class="nlive"><i></i>Прямой эфир · <span id="newsChan">ВСПЫШКА-24</span></div>
@@ -3103,7 +3105,10 @@ function benchRoads() {
   const prof = new Map();
   for (const e of ME) {
     const S = []; for (let t = 0; t <= e.len; t += CS / 2) { const p = edgePos(e, t); S.push({ x: p.x, y: p.y, tx: p.tx, ty: p.ty, h: TH[cellOf(p.x, p.y)] }); }
+    // на полке дорога лежит на земле и не врезается: иначе спуск с полки прорезал бы траншею через городок и под озером
+    for (const s of S) { s.pin = null; if (massif) for (const t of massif.terraces) if (Math.hypot(s.x - t.x, s.y - t.y) < t.r + 40) { s.pin = s.h; break; } } // вся площадка полки вместе с началом юбки
     for (let pass = 0; pass < 3; pass++) { const c = S.map(s => s.h); for (let i = 0; i < S.length; i++) { let a = 0, n = 0; for (let k = -5; k <= 5; k++) { const j = i + k; if (j >= 0 && j < S.length) { a += c[j]; n++; } } S[i].h = a / n; } }
+    for (const s of S) if (s.pin != null) s.h = s.pin;
     prof.set(e, S);
   }
   // полотно: каждой ячейке — ближайшая ось; где полотна пересекаются (другое ребро или та же дорога через сотню единиц), высоты связываются
@@ -3119,14 +3124,36 @@ function benchRoads() {
     } }
   }
   // продольный уклон: два прохода срезают подъёмы; концы рёбер сходятся к высоте узла, пересечения — к общей высоте (минимум)
-  const dh = MR.grade * (CS / 2), nodeH = new Map();
+  // пересечение или узел на полке держит высоту полки, остальные сходятся к минимуму
+  const dh = MR.grade * (CS / 2), nodeH = new Map(), nodePin = new Map();
+  for (const e of ME) { const S = prof.get(e), n = S.length - 1; if (S[0].pin != null) nodePin.set(e.a, S[0].pin); if (S[n].pin != null) nodePin.set(e.b, S[n].pin); }
+  // конец дороги в узле на полке — тоже закреплён, иначе врезка срежет его и на стыке будет ступенька
+  for (const e of ME) { const S = prof.get(e), n = S.length - 1; if (nodePin.has(e.a)) { S[0].pin = nodePin.get(e.a); S[0].h = S[0].pin; } if (nodePin.has(e.b)) { S[n].pin = nodePin.get(e.b); S[n].h = S[n].pin; } }
+  // допустимый перепад между соседними пробами: норма; а где от полки до другой полки или до конца дороги рельеф падает круче,
+  // чем позволяет норма, — круче, но ровно: ни траншеи через городок, ни насыпи в полдома. Концы дорог берутся по текущей высоте узла
+  const steps = S => {
+    const n = S.length - 1, v = new Float32Array(n + 1).fill(dh); let i = 0;
+    while (i <= n) {
+      if (S[i].pin != null) { i++; continue; } let j = i; while (j <= n && S[j].pin == null) j++;
+      const a = i > 0 ? S[i - 1].pin : null, b = j <= n ? S[j].pin : null;
+      if (a != null || b != null) { const ha = a != null ? a : S[i].h, hb = b != null ? b : S[j - 1].h, need = Math.abs(hb - ha) / Math.max(1, j - i + (a != null && b != null ? 1 : 0)); if (need > dh) for (let k = i; k < j; k++) v[k] = need; }
+      i = j;
+    }
+    const st = new Float32Array(n + 1); for (let k = 1; k <= n; k++) st[k] = Math.max(v[k - 1], v[k]); return st;
+  };
   for (let it = 0; it < 4; it++) {
-    for (const [e1, i1, e2, i2] of links) { const A = prof.get(e1)[i1], B = prof.get(e2)[i2], m = Math.min(A.h, B.h); A.h = m; B.h = m; }
+    // пересечение или узел на полке держит высоту полки, остальные сходятся к минимуму
+    for (const [e1, i1, e2, i2] of links) { const A = prof.get(e1)[i1], B = prof.get(e2)[i2], m = A.pin != null ? A.pin : B.pin != null ? B.pin : Math.min(A.h, B.h); A.h = m; B.h = m; if (A.pin != null || B.pin != null) { A.pin = m; B.pin = m; } }
     for (const e of ME) {
       const S = prof.get(e), n = S.length - 1;
-      if (nodeH.has(e.a)) S[0].h = Math.min(S[0].h, nodeH.get(e.a)); if (nodeH.has(e.b)) S[n].h = Math.min(S[n].h, nodeH.get(e.b));
-      for (let i = 1; i <= n; i++) if (S[i].h > S[i - 1].h + dh) S[i].h = S[i - 1].h + dh;
-      for (let i = n - 1; i >= 0; i--) if (S[i].h > S[i + 1].h + dh) S[i].h = S[i + 1].h + dh;
+      if (S[0].pin == null && nodeH.has(e.a)) S[0].h = Math.min(S[0].h, nodeH.get(e.a));
+      if (S[n].pin == null && nodeH.has(e.b)) S[n].h = Math.min(S[n].h, nodeH.get(e.b));
+      const st = steps(S);
+      // подъёмы круче нормы срезаются (выемка); от полки вниз провалы подсыпаются (насыпь); закреплённые пробы не трогаем
+      for (let i = 1; i <= n; i++) if (S[i].pin == null && S[i].h > S[i - 1].h + st[i]) S[i].h = S[i - 1].h + st[i];
+      for (let i = n - 1; i >= 0; i--) if (S[i].pin == null && S[i].h > S[i + 1].h + st[i + 1]) S[i].h = S[i + 1].h + st[i + 1];
+      let ch = false; for (let i = 1; i < n; i++) { if (S[i].pin != null) { ch = true; continue; } if (!ch) continue; if (S[i].h < S[i - 1].h - st[i]) S[i].h = S[i - 1].h - st[i]; else if (S[i].h > S[i - 1].h + st[i]) ch = false; }
+      ch = false; for (let i = n - 1; i > 0; i--) { if (S[i].pin != null) { ch = true; continue; } if (!ch) continue; if (S[i].h < S[i + 1].h - st[i + 1]) S[i].h = S[i + 1].h - st[i + 1]; else if (S[i].h > S[i + 1].h + st[i + 1]) ch = false; }
       for (const [nd, h] of [[e.a, S[0].h], [e.b, S[n].h]]) nodeH.set(nd, Math.min(nodeH.has(nd) ? nodeH.get(nd) : Infinity, h));
     }
   }
@@ -3537,7 +3564,7 @@ function buildMountainVillage() {
 // Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
 // в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.
 // Над станциями трос держат порталы высотой 10, опоры по 16 (высокие 28)
-const CABLE = { maxSpan: 360, minSpan: 60, clear: 10, sag: .035, pylon: 16, tall: 28, portal: 10, speed: 16, cap: 6 };
+const CABLE = { maxSpan: 360, minSpan: 60, clear: 16, sag: .035, pylon: 24, tall: 36, portal: 10, speed: 16, cap: 6 }; // clear — просвет троса над землёй: кабинка висит на 7.5 ниже
 function cablePoint(F, d) { return [F.L[0] + (F.U[0] - F.L[0]) * d / F.len, F.L[1] + (F.U[1] - F.L[1]) * d / F.len]; }
 function cableH(F, d) {
   const S = F.supports; if (!S) return F.hL + (F.hU - F.hL) * d / F.len;
@@ -3545,22 +3572,65 @@ function cableH(F, d) {
   const a = S[k], b = S[k + 1], span = b.d - a.d || 1, t = clamp((d - a.d) / span);
   return a.h + (b.h - a.h) * t - span * CABLE.sag * 4 * t * (1 - t);
 }
+// место под опору: ноги стоят на ±4 поперёк троса. Нельзя на проезжую часть, тротуар и обочину (там ездят машины и ходят люди), в дом, в воду, за край карты
+function cableSiteBad(F, d) {
+  const p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len;
+  const e = gEdgeNear(p[0], p[1], 40); if (e && e.d < e.e.hw + (e.e.sw || 0) + 6) return true;
+  for (const o of [-5, 0, 5]) {
+    const x = p[0] + nx * o, y = p[1] + ny * o, gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 1 || gy < 1 || gx >= GW - 1 || gy >= GH - 1) return true;
+    const i = gy * GW + gx; if (roadMask[i] || grid[i] === 0 || grid[i] === 1 || grid[i] === 3 || grid[i] === 5 || waterAt(x, y)) return true;
+  }
+  return false;
+}
 function planCableCar() {
   const F = funicular; if (!F) return;
-  const n = Math.ceil(F.len / 8), prof = []; for (let i = 0; i <= n; i++) { const d = Math.min(F.len, i * 8), p = cablePoint(F, d); prof.push({ d, h: gY(p[0], p[1]) }); }
-  const last = prof.length - 1, tops = [{ d: 0, h: F.hL + CABLE.portal, pylon: false }]; let i0 = 0;
-  for (let guard = 0; guard < 60 && i0 < last; guard++) {
+  const n = Math.ceil(F.len / 8), prof = []; for (let i = 0; i <= n; i++) { const d = Math.min(F.len, i * 8), p = cablePoint(F, d), e = gEdgeNear(p[0], p[1], 30); prof.push({ d, h: gY(p[0], p[1]), road: !!(e && e.d < e.e.hw + 3) }); }
+  const last = prof.length - 1, bad = prof.map((P, i) => i !== 0 && i !== last && cableSiteBad(F, P.d)); // куда опору ставить нельзя
+  // нужная высота троса над точкой k: просвет, над дорогой больше (под кабинкой проходит грузовик); у перронов не считается
+  const need = k => prof[k].h + CABLE.clear + (prof[k].road ? 6 : 0);
+  const spanOk = (i, hi, j, hj) => { const span = prof[j].d - prof[i].d; for (let k = i + 1; k < j; k++) { if (prof[k].d < 16 || prof[k].d > F.len - 16) continue; const u = (prof[k].d - prof[i].d) / span, hc = hi + (hj - hi) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < need(k)) return false; } return true; };
+  // варианты высоты в точке: у станции портал обычный или поднятый (когда рядом дорога), у опоры — обычная, высокая, очень высокая
+  const HS = i => i === 0 ? [F.hL + CABLE.portal, F.hL + CABLE.portal + 12] : i === last ? [F.hU + CABLE.portal, F.hU + CABLE.portal + 12] : [prof[i].h + CABLE.pylon, prof[i].h + CABLE.tall, prof[i].h + CABLE.tall + 14];
+  const PEN = [0, 1.5, 4]; // плата за высоту: лучше лишняя обычная опора, чем высокая
+  // динамика по профилю: наименьшая «цена» дойти до точки j с вариантом высоты v — число опор плюс плата за высокие
+  const maxN = Math.ceil(CABLE.maxSpan / 8), minN = Math.ceil(CABLE.minSpan / 8), cost = [], from = [];
+  for (let i = 0; i <= last; i++) { cost.push([1e9, 1e9, 1e9]); from.push([null, null, null]); }
+  cost[0][0] = 0; cost[0][1] = PEN[1];
+  for (let i = 0; i < last; i++) for (let vi = 0; vi < 3; vi++) {
+    const ci = cost[i][vi]; if (ci >= 1e9) continue; const hi = HS(i)[vi];
+    for (let j = i + 1; j <= Math.min(last, i + maxN); j++) {
+      if (bad[j] || (j - i < minN && j !== last)) continue; const Hj = HS(j);
+      for (let vj = 0; vj < Hj.length; vj++) { const c = ci + 1 + PEN[vj]; if (c >= cost[j][vj] || !spanOk(i, hi, j, Hj[vj])) continue; cost[j][vj] = c; from[j][vj] = [i, vi]; }
+    }
+  }
+  let tops = null;
+  const vEnd = cost[last][0] <= cost[last][1] ? 0 : 1;
+  if (cost[last][vEnd] < 1e9) { // трасса найдена: разматываем от верхней станции
+    tops = []; let cur = [last, vEnd]; while (cur) { const [i, v] = cur; tops.push({ d: prof[i].d, h: HS(i)[v], pylon: i !== 0 && i !== last, tall: i !== 0 && i !== last && v > 0 }); cur = from[i][v]; } tops.reverse();
+  }
+  // запасной жадный проход, если ни одна комбинация не проходит по просвету (дорога слишком широка или у самой станции)
+  let i0 = 0; if (!tops) tops = [{ d: 0, h: F.hL + CABLE.portal, pylon: false }];
+  for (let guard = 0; guard < 60 && i0 < last && tops[tops.length - 1].d < F.len; guard++) {
     const A = tops[tops.length - 1]; let best = null;
     for (let j = last; j > i0; j--) {
-      const P = prof[j], span = P.d - A.d; if (span > CABLE.maxSpan) continue; if (span < CABLE.minSpan && j !== last) continue;
+      const P = prof[j], span = P.d - A.d; if (span > CABLE.maxSpan) continue; if (span < CABLE.minSpan && j !== last) continue; if (bad[j]) continue;
       const topH = j === last ? F.hU + CABLE.portal : P.h + CABLE.pylon; let ok = true;
-      for (let k = i0 + 1; k < j; k++) { const Q = prof[k], u = (Q.d - A.d) / span, hc = A.h + (topH - A.h) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < Q.h + CABLE.clear) { ok = false; break; } }
+      // над дорогой трос ещё выше: под кабинкой должен пройти грузовик
+      for (let k = i0 + 1; k < j; k++) { const Q = prof[k]; if (Q.d < 40 || Q.d > F.len - 40) continue; const u = (Q.d - A.d) / span, hc = A.h + (topH - A.h) * u - span * CABLE.sag * 4 * u * (1 - u); if (hc < Q.h + CABLE.clear + (Q.road ? 6 : 0)) { ok = false; break; } }
       if (ok) { best = { j, topH }; break; }
     }
-    if (!best) { const j = Math.min(last, i0 + 8); best = { j, topH: (j === last ? F.hU + CABLE.portal : prof[j].h + CABLE.tall) }; }
+    if (!best) { // ни один пролёт не проходит по просвету: ближайшее разрешённое место под высокую опору
+      let j = Math.min(last, i0 + 8); while (j < last && bad[j]) j++;
+      best = { j, topH: (j === last ? F.hU + CABLE.portal : prof[j].h + CABLE.tall) };
+    }
     tops.push({ d: prof[best.j].d, h: best.topH, pylon: best.j !== last, tall: best.topH - prof[best.j].h > CABLE.pylon + 1 }); i0 = best.j;
   }
   F.supports = tops;
+  // под ногами опор лес вырублен
+  for (const s of tops) if (s.pylon) {
+    const p = cablePoint(F, s.d); trees = trees.filter(t => Math.hypot(t.x - p[0], t.y - p[1]) > 9);
+    for (let gy = Math.floor((p[1] - 9) / CS); gy <= Math.floor((p[1] + 9) / CS); gy++) for (let gx = Math.floor((p[0] - 9) / CS); gx <= Math.floor((p[0] + 9) / CS); gx++) { if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx; if (grid[i] === 4) grid[i] = 2; }
+  }
   // кабинки по кругу: вверх по одной нитке, вниз по другой; шаг около 300 ед.
   const loop = F.len * 2, nc = Math.max(4, Math.round(loop / 300)); F.cabins = []; for (let k = 0; k < nc; k++) F.cabins.push({ s: loop * k / nc, riders: [] });
 }
@@ -3578,9 +3648,37 @@ function stepFunicular(dt) {
     if ((atUpper || atLowerDown) && c.riders.length) { const st = atUpper ? F.U : F.L; for (const a of c.riders) { a.hidden = false; a.onBus = null; const [x, y] = freeNear(st[0], st[1], 16); a.x = x; a.y = y; a.vx = a.vy = 0; a.dest = null; a.panic = Math.min(a.panic || 0, .2); a.idleT = rnd(6, 30); } F.trips += c.riders.length; c.riders = []; }
     // посадка: внизу в кабинку, идущую вверх, наверху — идущую вниз
     if ((atLower || atUpperDown) && c.riders.length < CABLE.cap) { const st = atLower ? F.L : F.U;
-      near(st[0], st[1], 30, a => { if (a.role === "civ" && a.state === "alive" && !a.hidden && !a.onBus && !a.detained && !a.hideB && c.riders.length < CABLE.cap && Math.random() < dt * (a.panic > .3 ? 3 : .8)) { a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; c.riders.push(a); } }); }
+      near(st[0], st[1], 30, a => { if (a.role === "civ" && !a.player && a.state === "alive" && !a.hidden && !a.onBus && !a.detained && !a.hideB && c.riders.length < CABLE.cap && Math.random() < dt * (a.panic > .3 ? 3 : .8)) { a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; c.riders.push(a); } }); }
     const p = cabinPos(F, c); for (const a of c.riders) { a.x = p[0]; a.y = p[1]; }
   }
+}
+
+// ---------- канатная дорога от первого лица: игрок садится у станции (E), едет в кабинке, выходит на другой станции ----------
+function cabinAtStation(F, lower) { // кабинка, стоящая у станции и идущая от неё: внизу — вверх, наверху — вниз
+  for (const c of F.cabins) { const [, , , d, up] = cabinPos(F, c); if (lower ? (up && d < 24) : (!up && d > F.len - 24)) return c; } return null;
+}
+function boardCable(a) {
+  const F = funicular; if (!F) return "";
+  const dl = Math.hypot(a.x - F.L[0], a.y - F.L[1]), du = Math.hypot(a.x - F.U[0], a.y - F.U[1]); if (Math.min(dl, du) > 34) return "";
+  const c = cabinAtStation(F, dl < du); if (!c) return "Кабинка ещё не подошла — подожди у станции";
+  if (c.riders.length >= CABLE.cap) return "Кабинка полна, подожди следующую";
+  a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; c.riders.push(a); fps.mode = "cable"; fps.cabin = c;
+  const to = dl < du ? F.U : F.L, from = dl < du ? F.L : F.U; fps.yaw = Math.atan2(to[1] - from[1], to[0] - from[0]); fps.pitch = 0; // взгляд по ходу
+  return dl < du ? "Поехали наверх. E — выйти на станции" : "Поехали вниз. E — выйти на станции";
+}
+function leaveCable(force) {
+  const a = fps.a, F = funicular, c = fps.cabin; if (!a || !F) return "";
+  const [, , , d, up] = c ? cabinPos(F, c) : [0, 0, 0, 0, true], atSt = d < 14 || d > F.len - 14;
+  if (!atSt && !force) return "Выйти можно только на станции";
+  const st = d < F.len / 2 ? F.L : F.U;
+  if (c) { const i = c.riders.indexOf(a); if (i >= 0) c.riders.splice(i, 1); }
+  a.hidden = false; a.onBus = null; const [x, y] = freeNear(st[0], st[1], 16); a.x = x; a.y = y; a.vx = a.vy = 0;
+  fps.mode = "human"; fps.cabin = null; return "Ты на станции";
+}
+function cableStep(dt) {
+  const a = fps.a; if (!a) return;
+  if (a.onBus !== funicular) { fps.mode = "human"; fps.cabin = null; fpsMsg("Приехали"); return; } // высадили на станции
+  a.dir = fps.yaw;
 }
 
 /* ---------- жители ---------- */
@@ -9533,6 +9631,7 @@ function updateLighting(dt, simDt) {
   moonDisc.position.set(sp.x + Math.cos(az) * 6000, Math.max(800, -el * 6000), sp.z + Math.sin(az) * 3000 + 2500);
   moonDisc.material.opacity = nightK * (1 - gloom);
   stars.position.copy(sp); stars.material.opacity = nightK * (1 - gloom) * .9;
+  sky.position.set(sp.x, 0, sp.z); // купол едет за камерой: иначе на широкой карте его дальняя стенка уходит за дальность камеры и в небе чёрная дыра
   for (const c of clouds) { c.position.x += dt * 12; if (c.position.x > sp.x + 4500) c.position.x -= 9000; c.material.color.setRGB(.25 + day * .75, .25 + day * .72, .3 + day * .7).lerp(_lc1.setHex(0xff9a70), dusk * .5); c.material.opacity = .35 + gloom * .55; }
   // окна, фонари, мокрый асфальт
   const powerK = settings.dark ? 0 : 1;
@@ -12778,9 +12877,11 @@ const flashlight = new THREE.SpotLight(0xfff2dd, 0, 140, .42, .5, 1.2); flashlig
 const senseMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xff4030, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }), 600);
 senseMesh.count = 0; senseMesh.frustumCulled = false; senseMesh.renderOrder = 9; scene.add(senseMesh);
 
-function startFps(mode) {
+function startFps(mode, at) {
   let a = null, car = null;
-  const near0 = (pred) => { let best = null, bd = 1e9; for (const b of agents) { if (!pred(b)) continue; const d = Math.hypot(X(b.x) - camC.tx, Z(b.y) - camC.tz); if (d < bd) { bd = d; best = b; } } return best; };
+  // at — выбранная точка появления: берётся ближайший к ней подходящий человек и переносится туда; без точки — ближайший к камере
+  const cx = at ? at[0] : camC.tx + W / 2, cy = at ? at[1] : camC.tz + H / 2;
+  const near0 = (pred) => { let best = null, bd = 1e9; for (const b of agents) { if (!pred(b) || (at && (b.hidden || b.onBus))) continue; const d = Math.hypot(b.x - cx, b.y - cy); if (d < bd) { bd = d; best = b; } } return best; };
   if (mode === "human") { a = near0(b => b.state === "alive" && b.role === "civ" && !b.bitten); if (!a) return; if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; }
   else if (mode === "drive") {
     // за руль ближайшей к камере машины садится ближайший житель (drive.js)
@@ -12789,6 +12890,7 @@ function startFps(mode) {
     if (!a.armed) arm(a, 12, 24); a.hp = 100; a.panic = 0; const [dx, dy] = carDoor(car, 1); a.x = dx; a.y = dy;
   }
   else { a = near0(b => b.state === "alive" && b.role === "zombie") || near0(b => b.state === "alive" && b.role === "civ"); if (!a) return; if (a.role !== "zombie") turn(a); a.riseT = 0; a.zhp = 8; }
+  if (at) { const [x, y] = freeNear(at[0], at[1], 10); a.x = x; a.y = y; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; fps.gz = undefined; }
   fps.on = true; fps.mode = mode; fps.a = a; a.player = true; fps.yaw = a.dir; fps.pitch = 0; fps.score = 0; fps.lastHp = a.hp; fps.startT = simT;
   followA = null; cine = false; thirdPerson = false; tool = "watch"; renderTools();
   camera.fov = 72; camera.updateProjectionMatrix();
@@ -12799,6 +12901,7 @@ function startFps(mode) {
 }
 function stopFps() {
   if (fps.mode === "drive" && drive.car) exitCar();
+  if (fps.mode === "cable") leaveCable(true);
   if (fps.a) fps.a.player = false;
   fps.on = false; fps.a = null; vm.visible = false; flashlight.intensity = 0; senseMesh.count = 0;
   camera.fov = 42; camera.updateProjectionMatrix();
@@ -12822,7 +12925,10 @@ function reloadPlayer() { const a = fps.a; if (a.reload <= 0 && a.mag < a.magMax
 function useNearby() {
   const a = fps.a; if (!a) return;
   if (fps.mode === "drive") { exitCar(); return; }
+  if (fps.mode === "cable") { const msg = leaveCable(false); if (msg) fpsMsg(msg); return; }
   if (fps.mode === "human") {
+    // канатная дорога: у станции — сесть в кабинку
+    if (typeof boardCable === "function") { const msg = boardCable(a); if (msg) { fpsMsg(msg); return; } }
     // сесть в стоящую рядом машину (drive.js); иначе подобрать патроны и оружие у погибших
     const c = carNearAgent(a); if (c) { enterCar(a, c); fpsMsg("Ты за рулём. W — газ, S — тормоз, Пробел — ручник, H — сигнал, V — вид из кабины, E — выйти."); return; }
     let got = 0; near(a.x, a.y, 10, b => { if (b !== a && b.state === "dead" && b.armed && (b.mag + b.ammo) > 0) { got += b.mag + b.ammo; if (b.role === "army" && a.magMax < 30) { a.magMax = 30; fpsMsg("Подобран автомат"); } b.mag = 0; b.ammo = 0; } });
@@ -12841,6 +12947,7 @@ function fpsStep(dt) {
   const a = fps.a;
   if (!a) return;
   if (fps.mode === "drive") return driveStep(dt);
+  if (fps.mode === "cable") return cableStep(dt);
   // игрок погиб или обратился
   if (fps.mode === "human" && a.role === "zombie") { fps.mode = "zombie"; a.zhp = 8; fpsMsg("Ты обратился. Теперь ты один из них — кусай живых."); }
   if (a.state === "dead") {
@@ -12885,10 +12992,19 @@ function playerShoot(a) {
 function fpsCamera(dt) {
   const a = fps.a; if (!a) return;
   if (fps.mode === "drive" && drive.car) return driveCamera(dt);
+  if (fps.mode === "cable" && funicular && fps.cabin) {
+    // глаза в кабинке: под тросом, окна вокруг; мышь крутит взгляд
+    vm.visible = false; flashlight.intensity = 0;
+    const p = cabinPos(funicular, fps.cabin); camera.position.set(X(p[0]), p[2] - 4.6, Z(p[1]));
+    const cp = Math.cos(fps.pitch); camera.lookAt(camera.position.x + Math.cos(fps.yaw) * cp, camera.position.y + Math.sin(fps.pitch), camera.position.z + Math.sin(fps.yaw) * cp);
+    camC.tx = camera.position.x; camC.tz = camera.position.z; camC.dist = 40; scene.fog.near = 200; scene.fog.far = 2600; return;
+  }
   const moving = Math.hypot(a.vx, a.vy) > 2; fps.bob += dt * Math.hypot(a.vx, a.vy) * .7;
   const lying = a.state === "dead";
   const h = lying ? 1.2 : (fps.mode === "zombie" ? 6.1 : 6.6) * a.size + (moving ? Math.sin(fps.bob) * .18 : 0);
-  camera.position.set(X(a.x), h + (a.z || 0), Z(a.y));
+  // рельеф под ногами: сглажен, чтобы на сетке высот не трясло; после телепорта (станция канатки) — сразу
+  const gz = Math.max(WATER_Y, gY(a.x, a.y)); fps.gz = fps.gz === undefined || Math.abs(gz - fps.gz) > 12 ? gz : fps.gz + (gz - fps.gz) * Math.min(1, dt * 10);
+  camera.position.set(X(a.x), fps.gz + h + (a.z || 0), Z(a.y));
   const cp = Math.cos(fps.pitch + fps.kick * .03);
   camera.lookAt(camera.position.x + Math.cos(fps.yaw) * cp, camera.position.y + Math.sin(fps.pitch + fps.kick * .03), camera.position.z + Math.sin(fps.yaw) * cp);
   if (lying) camera.rotateZ(.9);
@@ -12925,8 +13041,12 @@ $("fpsResume").addEventListener("click", () => { lockPointer(); $("fpsPause").hi
 $("fpsExit").addEventListener("click", () => { stopFps(); setPaused(false); });
 $("playSelf").addEventListener("click", () => { $("fpsChoose").hidden = false; });
 $("fpsChooseClose").addEventListener("click", () => { $("fpsChoose").hidden = true; });
-$("fpsAsHuman").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("human"); });
-$("fpsAsZombie").addEventListener("click", () => { $("fpsChoose").hidden = true; audio(); startFps("zombie"); });
+// сначала точка на карте, где появиться: клик по земле, Esc — отмена
+function pickSpawn(mode) { $("fpsChoose").hidden = true; audio(); fps.pick = mode; $("spawnHint").hidden = false; document.body.classList.add("pick"); }
+function cancelPick() { fps.pick = null; $("spawnHint").hidden = true; document.body.classList.remove("pick"); }
+function spawnAt(g) { const mode = fps.pick; cancelPick(); if (blocked(g[0], g[1]) || waterAt(g[0], g[1])) { warn("<b>Здесь не появиться</b> — выбери землю рядом."); fps.pick = mode; $("spawnHint").hidden = false; document.body.classList.add("pick"); return; } startFps(mode, g); }
+$("fpsAsHuman").addEventListener("click", () => pickSpawn("human"));
+$("fpsAsZombie").addEventListener("click", () => pickSpawn("zombie"));
 
 /* ---------- за рулём: игрок ведёт машину ----------
    Третий вариант режима от первого лица (fps.mode === "drive"). Машина с c.player снимается с полосы (c.lane = null) и едет
@@ -14293,6 +14413,7 @@ cv.addEventListener("pointerdown", e => {
   if (mode === "tool") {
     const g = groundAt(e); lastG = g;
     if (!g) return;
+    if (fps.pick) { spawnAt(g); return; } // выбор места появления для игры от первого лица
     if (editMode) { if (tool === "ed_apt" || tool === "ed_tower" || tool === "ed_park") { qStart = g; qEnd = g; edDrag = tool; } else edPoint(tool, g); return; }
     if (tool === "barricade" || tool === "erase" || tool === "wall" || tool === "efence") { barrPrev = null; paintBarricade(g[0], g[1], tool === "erase", BARR_KIND[tool]); if (tool === "barricade") first("barr", "Поставлена первая баррикада", "good"); }
     else if (tool === "wire") { wireStart = g; selEnd = g; }
@@ -14351,6 +14472,7 @@ window.addEventListener("keydown", e => {
   const n = e.key === "0" ? 9 : e.key === "-" ? 10 : +e.key - 1;
   if (n >= 0 && n < TOOLS.length && /^[0-9-]$/.test(e.key)) { tool = TOOLS[n].k; renderTools(); }
   if (e.key === " ") { togglePause(); e.preventDefault(); }
+  if (e.key === "Escape" && fps.pick) { cancelPick(); return; }
   if (e.key === "Escape") { wireStart = null; followA = null; thirdPerson = false; cine = false; clearHighlight(); $("help").hidden = true; syncCamButtons(); clearOrders(); }
   if (e.code === "KeyG" && patientZero) followPatientZero();
   if (e.code === "KeyN") toggleNight();
