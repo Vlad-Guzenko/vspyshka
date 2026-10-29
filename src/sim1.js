@@ -72,6 +72,7 @@ function genCity(layout = "random") {
     LAYOUT_GEN[L.gen || layoutKey]();
     placeLakes(); // озёра за городом — после дорог, в стороне от них
     buildMountainRoads(); // трассы к горным сторонам — серпантином до перевала (mountain.js)
+    dropValleyLakeOnRoads(); // горная дорога прошла через долину — озера там не будет (terrain.js)
     markRural(); finishGraph();
     rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;

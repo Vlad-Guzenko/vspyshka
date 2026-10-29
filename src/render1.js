@@ -705,7 +705,9 @@ function buildWater() {
   pl.position.set(0, WATER_Y, 0); pl.renderOrder = -1; pl.frustumCulled = false; cityGroup.add(pl);
   // горные озёра лежат выше общей глади: у каждого своя плоскость на своём уровне, в размер чаши
   for (const l of lakes) if (l.level != null) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(l.rx * 2.6 + 24, l.ry * 2.6 + 24).rotateX(-Math.PI / 2), makeWaterMat(-1e6, -1e6, 1e6, 1e6));
+    // озеро в долине — эллипсом по краю чаши: прямоугольник углами вылезал над выемками дорог и показывал серую плиту воды
+    const geo = l.valley ? new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(l.rx * 1.16, 1, l.ry * 1.16) : new THREE.PlaneGeometry(l.rx * 2.6 + 24, l.ry * 2.6 + 24).rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(geo, makeWaterMat(-1e6, -1e6, 1e6, 1e6));
     m.position.set(X(l.x), l.level, Z(l.y)); m.renderOrder = -1; cityGroup.add(m);
   }
   outskirts.position.y = sea ? WATER_Y - 6 : WATER_Y - 1.2;
