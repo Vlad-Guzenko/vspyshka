@@ -536,6 +536,15 @@ function step(dt) {
   for (const c of cars) if (c.boomT > 0) { c.boomT -= dt; if (c.boomT <= 0) { c.exploded = true; boom(c.x, c.y, c.tanker ? 64 : 32, !!c.tanker); c.burnT = 40; fires.push({ x: c.x, y: c.y, r: c.tanker ? 18 : 10, l: 40 }); if (c.tanker) logE("Взорвался бензовоз", "bad"); } }
   for (const c of cars) if (c.burnT > 0) { c.burnT -= dt; if (c.tanker && !c.exploded && !(c.boomT > 0)) c.boomT = rnd(2, 5); }
   for (const f of fires) f.l -= dt;
+  // дождь гасит огонь: очаги, дома и машины догорают быстрее, в ливень — за минуту-другую
+  const rainK = world.rain || 0;
+  if (rainK > .1) {
+    let any = 0;
+    for (const f of fires) { f.l -= dt * rainK * 2; any++; }
+    for (const b of buildings) if (b.fire > 0) { b.fire -= dt * rainK * .8; any++; }
+    for (const c of cars) if (c.burnT > 0) { c.burnT -= dt * rainK * 1.5; any++; }
+    if (any && rainK > .4) logT("rainout", "Дождь гасит пожары", "good", 60);
+  }
   fires = fires.filter(f => f.l > 0);
   if (evac) stepEvac(dt);
   statT -= dt; if (statT <= 0) { statT = 1; record(); }

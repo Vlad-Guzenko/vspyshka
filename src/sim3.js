@@ -333,7 +333,9 @@ function stepWreck(dt) {
     if (!c.exploded && !(c.boomT > 0) && !c.tanker && !c.boomTried && c.burnAge > 10) { c.boomTried = true; if (Math.random() < .25) c.boomT = rnd(.5, 3); }
   }
   wreckT -= dt; if (wreckT > 0) return; const T = .5; wreckT += T;
-  const wet = (world.rain || 0) > .5 ? .25 : 1, src = [];
+  const rainK = world.rain || 0, wet = rainK > .5 ? .25 : 1, src = [];
+  // под дождём тлеющее гаснет: мелочи, деревья, заборы
+  if (rainK > .1) { for (const p of props) if (p.burnT > 0) p.burnT -= T * rainK * 2; for (const t of trees) if (t.burnT > 0) t.burnT -= T * rainK * 2; for (const f of fences) if (f.burnT > 0) f.burnT -= T * rainK * 2; }
   // что горит и докуда достаёт огонь
   for (const f of fires) src.push([f.x, f.y, f.r + 3]);
   for (const b of buildings) if (b.fire > 0 && b.state === "ok") src.push([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + 6]);

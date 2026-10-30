@@ -4536,6 +4536,15 @@ function step(dt) {
   for (const c of cars) if (c.boomT > 0) { c.boomT -= dt; if (c.boomT <= 0) { c.exploded = true; boom(c.x, c.y, c.tanker ? 64 : 32, !!c.tanker); c.burnT = 40; fires.push({ x: c.x, y: c.y, r: c.tanker ? 18 : 10, l: 40 }); if (c.tanker) logE("Взорвался бензовоз", "bad"); } }
   for (const c of cars) if (c.burnT > 0) { c.burnT -= dt; if (c.tanker && !c.exploded && !(c.boomT > 0)) c.boomT = rnd(2, 5); }
   for (const f of fires) f.l -= dt;
+  // дождь гасит огонь: очаги, дома и машины догорают быстрее, в ливень — за минуту-другую
+  const rainK = world.rain || 0;
+  if (rainK > .1) {
+    let any = 0;
+    for (const f of fires) { f.l -= dt * rainK * 2; any++; }
+    for (const b of buildings) if (b.fire > 0) { b.fire -= dt * rainK * .8; any++; }
+    for (const c of cars) if (c.burnT > 0) { c.burnT -= dt * rainK * 1.5; any++; }
+    if (any && rainK > .4) logT("rainout", "Дождь гасит пожары", "good", 60);
+  }
   fires = fires.filter(f => f.l > 0);
   if (evac) stepEvac(dt);
   statT -= dt; if (statT <= 0) { statT = 1; record(); }
@@ -4970,7 +4979,9 @@ function stepWreck(dt) {
     if (!c.exploded && !(c.boomT > 0) && !c.tanker && !c.boomTried && c.burnAge > 10) { c.boomTried = true; if (Math.random() < .25) c.boomT = rnd(.5, 3); }
   }
   wreckT -= dt; if (wreckT > 0) return; const T = .5; wreckT += T;
-  const wet = (world.rain || 0) > .5 ? .25 : 1, src = [];
+  const rainK = world.rain || 0, wet = rainK > .5 ? .25 : 1, src = [];
+  // под дождём тлеющее гаснет: мелочи, деревья, заборы
+  if (rainK > .1) { for (const p of props) if (p.burnT > 0) p.burnT -= T * rainK * 2; for (const t of trees) if (t.burnT > 0) t.burnT -= T * rainK * 2; for (const f of fences) if (f.burnT > 0) f.burnT -= T * rainK * 2; }
   // что горит и докуда достаёт огонь
   for (const f of fires) src.push([f.x, f.y, f.r + 3]);
   for (const b of buildings) if (b.fire > 0 && b.state === "ok") src.push([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + 6]);
@@ -10680,12 +10691,40 @@ moonDisc.scale.set(360, 360, 1); scene.add(moonDisc);
 // облака: плоские спрайты высоко над городом
 const clouds = [];
 for (let i = 0; i < 40; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0xffffff, transparent: true, depthWrite: false, opacity: .5, fog: false })); s.position.set(rnd(-4000, 4000), rnd(900, 1300), rnd(-4000, 4000)); const k = rnd(700, 1500); s.scale.set(k, k * .45, 1); scene.add(s); clouds.push(s); }
-// дождь: короткие штрихи вокруг камеры
-const RAIN_N = 6000, rainPos = new Float32Array(RAIN_N * 6), rainGeo = new THREE.BufferGeometry();
+// дождь: штрихи в цилиндре между камерой и точкой, куда она смотрит; с отдалением цилиндр шире, штрихи длиннее,
+// к краю цилиндра гаснут — сверху дождь читается пеленой над городом, а не столбом посреди сухих улиц. Штрих светлее внизу,
+// в грозу косой от ветра. Все капли — один вызов отрисовки
+const RAIN_N = 9000, rainPos = new Float32Array(RAIN_N * 6), rainCol = new Float32Array(RAIN_N * 6), rainGeo = new THREE.BufferGeometry();
 rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3).setUsage(THREE.DynamicDrawUsage));
-const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xa8b8c8, transparent: true, opacity: .45, depthWrite: false }));
+rainGeo.setAttribute("color", new THREE.BufferAttribute(rainCol, 3).setUsage(THREE.DynamicDrawUsage));
+const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
 rain.frustumCulled = false; scene.add(rain);
-const rainDrops = Array.from({ length: RAIN_N }, () => [rnd(-1, 1), rnd(0, 1), rnd(-1, 1)]);
+const rainDrops = Array.from({ length: RAIN_N }, () => [rnd(0, TAU), Math.sqrt(Math.random()), rnd(0, 1), rnd(.8, 1.2)]); // угол, доля радиуса, высота, скорость
+// молния: ломаная от туч до земли с отростками и вспышка света на месте удара
+const BOLT_N = 48, boltPos = new Float32Array(BOLT_N * 6), boltGeo = new THREE.BufferGeometry();
+boltGeo.setAttribute("position", new THREE.BufferAttribute(boltPos, 3).setUsage(THREE.DynamicDrawUsage));
+const bolt = new THREE.LineSegments(boltGeo, new THREE.LineBasicMaterial({ color: 0xe6eeff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+bolt.frustumCulled = false; bolt.visible = false; scene.add(bolt);
+const boltLight = new THREE.PointLight(0xc8d6ff, 0, 1400, 1.4); scene.add(boltLight);
+function strikeBolt() {
+  const sx = camC.tx + rnd(-1, 1) * (250 + camC.dist * .7), sz = camC.tz + rnd(-1, 1) * (250 + camC.dist * .7);
+  const gy = gY(clamp(sx + W / 2, 0, W - .01), clamp(sz + H / 2, 0, H - .01)), top = gy + 950;
+  let n = 0;
+  const branch = (x, y, z, steps, dy, spread) => {
+    for (let k = 0; k < steps && n < BOLT_N; k++) {
+      const nx = x + rnd(-1, 1) * spread, ny = Math.max(gy, y - dy * rnd(.7, 1.3)), nz = z + rnd(-1, 1) * spread;
+      boltPos.set([x, y, z, nx, ny, nz], n * 6); n++;
+      if (k > 2 && Math.random() < .18 && steps > 6) branch(nx, ny, nz, 5, dy * .7, spread * .9); // отросток
+      x = nx; y = ny; z = nz; if (y <= gy) break;
+    }
+  };
+  branch(sx, top, sz, 22, (top - gy) / 18, 34);
+  boltGeo.setDrawRange(0, n * 2); boltGeo.attributes.position.needsUpdate = true;
+  boltLight.position.set(sx, gy + 260, sz); world.boltT = .45; world.flash = 1.1;
+  // гром — с задержкой по расстоянию до камеры (звук ~340 м/с, единица ≈ 0,25 м)
+  const d = Math.hypot(sx - camera.position.x, sz - camera.position.z) * .25;
+  play("thunder", undefined, undefined, clamp(1.4 - d / 2500, .4, 1.2), { delay: Math.min(5, d / 340) });
+}
 let nightK = 0, carLightK = 0; // carLightK: водители включают ближний свет с ~17:00 и гасят около 7:00
 const flashGlow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff1d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), 400);
 flashGlow.count = 0; flashGlow.frustumCulled = false; flashGlow.renderOrder = 2; scene.add(flashGlow);
@@ -10743,18 +10782,26 @@ function updateLighting(dt, simDt) {
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);
   // молнии в грозу
   world.flash = clamp(world.flash - Math.max(0, dt) * 4, 0, 1.5);
-  if (world.weather === "storm" && !winter) { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = rnd(5, 16); world.flash = .9; sfx.thunder(); } }
+  // гроза: разряд раз в 2–7 с, иногда двойной; вспышка, видимая молния и гром с задержкой
+  if (world.weather === "storm" && !winter) { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = Math.random() < .2 ? rnd(.25, .6) : rnd(2, 7); strikeBolt(); } }
+  world.boltT = Math.max(0, (world.boltT || 0) - Math.max(0, dt));
+  bolt.visible = world.boltT > 0; if (bolt.visible) bolt.material.opacity = Math.min(1, world.boltT * 4) * (.6 + .4 * Math.sin(world.boltT * 90));
+  boltLight.intensity = world.boltT > 0 ? 14 * world.boltT / .45 : 0;
   // капли
   rain.visible = world.rain > .02;
   if (rain.visible) {
-    const R = 260, top2 = 220, cx = camC.tx, cz = camC.tz, len = 9;
+    const cp = camera.position, fp = typeof fps !== "undefined" && fps.on, k = fp ? 0 : clamp(camC.dist / 900);
+    const cx = cp.x + (camC.tx - cp.x) * (.4 + k * .3), cz = cp.z + (camC.tz - cp.z) * (.4 + k * .3);
+    const R = 170 + camC.dist * .6, y0 = fp ? cp.y - 30 : Math.max(0, cp.y * .2 - 40), top = fp ? 110 : Math.max(200, cp.y * .95), len = 5 + camC.dist * .011;
+    const storm = world.weather === "storm", wx = storm ? .42 : .1, wz = storm ? .16 : .04, v = (storm ? 640 : 560) / top;
+    const br = (.15 + nightK * .04) * (1 - k * .35) * (storm ? 1.15 : 1);
     for (let i = 0; i < RAIN_N; i++) {
-      const d = rainDrops[i]; d[1] -= dt * 2.6; if (d[1] < 0) { d[1] += 1; d[0] = rnd(-1, 1); d[2] = rnd(-1, 1); }
-      const x = cx + d[0] * R, y = d[1] * top2, z = cz + d[2] * R;
-      rainPos[i * 6] = x; rainPos[i * 6 + 1] = y; rainPos[i * 6 + 2] = z; rainPos[i * 6 + 3] = x + 1.5; rainPos[i * 6 + 4] = y + len; rainPos[i * 6 + 5] = z + .6;
+      const d = rainDrops[i]; d[2] -= dt * v * d[3]; if (d[2] < 0) { d[2] += 1; d[0] = rnd(0, TAU); d[1] = Math.sqrt(Math.random()); }
+      const x = cx + Math.cos(d[0]) * d[1] * R, y = y0 + d[2] * top, z = cz + Math.sin(d[0]) * d[1] * R, f = (1 - d[1] * d[1]) * br, o = i * 6;
+      rainPos[o] = x; rainPos[o + 1] = y; rainPos[o + 2] = z; rainPos[o + 3] = x + wx * len; rainPos[o + 4] = y + len; rainPos[o + 5] = z + wz * len;
+      rainCol[o] = f * .78; rainCol[o + 1] = f * .84; rainCol[o + 2] = f * .92; rainCol[o + 3] = f * .3; rainCol[o + 4] = f * .32; rainCol[o + 5] = f * .36;
     }
-    rainGeo.setDrawRange(0, Math.floor(RAIN_N * world.rain) * 2); rainGeo.attributes.position.needsUpdate = true;
-    rain.material.opacity = .35 + nightK * .1;
+    rainGeo.setDrawRange(0, Math.floor(RAIN_N * Math.min(1, world.rain) * (storm ? 1 : .7)) * 2); rainGeo.attributes.position.needsUpdate = true; rainGeo.attributes.color.needsUpdate = true;
   }
   // фонари силовиков ночью
   let n = 0;
