@@ -51,7 +51,7 @@ function hbMeshes(cap) {
   hb.handCones = mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), beamGroundMat(coneTex([0], .55), 0xfff1d6), 300);
 }
 // пул настоящих фар: машина игрока и три ближайшие к камере
-for (let i = 0; i < 4; i++) { const l = new THREE.SpotLight(0xfff0d8, 0, 230, .5, .7, 1.2); scene.add(l, l.target); hb.spots.push(l); }
+for (let i = 0; i < 4; i++) { const l = new THREE.SpotLight(0xffd8a0, 0, 120, .42, .8, 1.8); scene.add(l, l.target); hb.spots.push(l); } // тёплый и узкий: широкое пятно на тёмном асфальте читалось как лужа
 // дым у земли — по частицам дыма, клетками по 48 ед.: в дыму лучи гуще
 function hbSmokeAt(x, z) { return hb.smoke.get((Math.floor(x / 48) + 2048) * 4096 + Math.floor(z / 48) + 2048) || 0; }
 const _hm = new THREE.Matrix4(), _hq = new THREE.Quaternion(), _he = new THREE.Euler(), _hv = new THREE.Vector3(), _hs = new THREE.Vector3(), _hc = new THREE.Color();
@@ -63,7 +63,7 @@ function updateHeadBeams(dt) {
   hb.smokeT -= dt;
   if (hb.smokeT <= 0) { hb.smokeT = .3; hb.smoke.clear(); for (const p of PS_SMOKE.list) if (p.y < 70) { const k = (Math.floor(p.x / 48) + 2048) * 4096 + Math.floor(p.z / 48) + 2048; hb.smoke.set(k, (hb.smoke.get(k) || 0) + 1); } }
   // погода: в ясную ночь луч едва виден, в дождь, снегопад и туман — густой
-  const air = .045 + world.rain * .4 + world.fogK * .4 + Math.min(1, cozy.fall) * .35;
+  const air = .022 + world.rain * .25 + world.fogK * .25 + Math.min(1, cozy.fall) * .22;
   let bi = 0, ci = 0, hi = 0;
   const cand = [], camX = camera.position.x, camZ = camera.position.z;
   if (carLightK > .15) for (const c of cars) {
@@ -90,26 +90,27 @@ function updateHeadBeams(dt) {
   hb.carCones.count = ci; hb.handCones.count = hi; hb.beams.count = bi;
   for (const m of [hb.carCones, hb.handCones, hb.beams]) m.instanceMatrix.needsUpdate = true;
   if (hb.beams.instanceColor) hb.beams.instanceColor.needsUpdate = true;
-  hb.carCones.material.opacity = carLightK * (.25 + nightK * .4); hb.handCones.material.opacity = nightK * .6;
-  beamMat.uniforms.uK.value = Math.max(carLightK, nightK) * air;
+  hb.carCones.material.opacity = carLightK * (.1 + nightK * .16); hb.handCones.material.opacity = nightK * .3; // свет фар на асфальте мягкий, не прожектор
+  beamMat.uniforms.uK.value = Math.max(carLightK, nightK) * air * .6;
   // настоящие фары: ближайшие к камере (игрок — всегда первым), не дальше 700 ед. от камеры
   cand.sort((p, q) => p[0] - q[0]);
   hb.spots.forEach((l, i) => {
     const p = cand[i]; if (!p || p[0] > 700) { l.intensity = 0; return; }
     const [, c, fx, fy, y, cs, sn, g1] = p;
     l.position.set(X(fx), y + 1, Z(fy)); l.target.position.set(X(fx + cs * 70), g1, Z(fy + sn * 70)); l.target.updateMatrixWorld();
-    l.intensity = carLightK * 5;
+    l.intensity = carLightK * 1.2;
   });
 }
-// подстанции районов (sim12.js): значок над крышей одного размера на экране — видно, по чему ударить или что беречь; разрушена — красный
+// подстанции районов (sim12.js): значок над крышей появляется, только когда подстанция разрушена и район без света
 const subMarks = new Map();
 function subMarkTex(i, down) {
   return canvasTex(128, 64, g => { g.fillStyle = down ? "rgba(150,20,20,.85)" : "rgba(20,24,28,.8)"; g.fillRect(4, 4, 120, 56); g.strokeStyle = down ? "#ff6050" : "#ffd23c"; g.lineWidth = 4; g.strokeRect(4, 4, 120, 56); g.fillStyle = down ? "#ffb0a8" : "#ffd23c"; g.font = "bold 34px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("⚡ПС-" + (i + 1), 64, 34); });
 }
 function updateSubMarks() {
-  for (const [b, o] of subMarks) if (!pwSubs.some(s => s.b === b)) { scene.remove(o); o.material.map.dispose(); o.material.dispose(); subMarks.delete(b); }
+  for (const [b, o] of subMarks) if (!pwSubs.some(s => s.b === b && s.b.state !== "ok")) { scene.remove(o); o.material.map.dispose(); o.material.dispose(); subMarks.delete(b); }
   pwSubs.forEach((s, i) => {
     let o = subMarks.get(s.b), down = s.b.state !== "ok";
+    if (!down) return; // целая подстанция — обычное здание, без таблички
     if (!o || o.userData.down !== down) {
       if (o) { scene.remove(o); o.material.map.dispose(); o.material.dispose(); }
       o = new THREE.Sprite(new THREE.SpriteMaterial({ map: subMarkTex(i, down), depthWrite: false, depthTest: false, sizeAttenuation: false })); o.scale.set(.075, .0375, 1); o.renderOrder = 5; o.userData.down = down; subMarks.set(s.b, o); scene.add(o);

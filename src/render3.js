@@ -282,10 +282,10 @@ function updateLighting(dt, simDt) {
   if (el < 0) _sd.set(Math.cos(az) * .6, .7, Math.sin(az) * .4 + .3).normalize(); // лунный свет с другой стороны
   sunDir.copy(_sd);
   sun.intensity = (2.5 * day * (1 - gloom * .7) + .28 * nightK) * (1 - world.fogK * .3);
-  sun.color.setHex(0xfff2dc).lerp(_lc1.setHex(0xff9a50), dusk * .8).lerp(_lc2.setHex(0x8fa8ff), nightK);
+  sun.color.setHex(0xfff2dc).lerp(_lc1.setHex(0xff9a50), dusk * .8).lerp(_lc2.setHex(0xaab6cc), nightK); // луна — холодная, но не синяя: синий блеск на асфальте читался как вода
   // рассеянный свет неба: отражённое небо приглушено к серому, поэтому тени подсвечиваем чуть сильнее, иначе асфальт в тени чёрный
   hemi.intensity = (.14 + .5 * day * (1 - gloom * .3) + gloom * .1) * (scene.environment ? .8 : 1);
-  hemi.color.setHex(0xe4eaf2).lerp(_lc1.setHex(0x3a4a70), nightK);
+  hemi.color.setHex(0xe4eaf2).lerp(_lc1.setHex(0x464e66), nightK);
   R3.toneMappingExposure = 1 - nightK * .05 + world.flash * 2;
   const sp = camera.position;
   sunDisc.position.set(sp.x - Math.cos(az) * 7000, Math.sin((h - 6) / 12 * Math.PI) * 6000, sp.z - Math.sin(az) * 4000 - 2500);
