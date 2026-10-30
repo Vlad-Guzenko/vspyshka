@@ -350,6 +350,18 @@ const STYLES = [
   { wall: "#d8d0b8", glass: "#3c4a55", frame: "#8a6a48", win: .36, house: true }, // дом фермера
   { wall: "#f0e6d0", glass: "#33414c", frame: "#ffffff", win: .4, arch: true, house: true }, // усадьба
   { wall: "#8f8a80", metal: true, blank: true }, // гаражи
+  { wall: "#eadcbc", glass: "#2c3a48", frame: "#fbf6ea", win: .4, arch: true, house: true }, // театр, библиотека, особняки (38)
+  { wall: "#aaa69d", glass: "#2c3a48", frame: "#e8e4da", win: .4, arch: true, house: true }, // серый камень: ратуша, башня с часами, кирха (39)
+  { wall: "#c2a888", glass: "#3a4650", frame: "#efe7d8", win: .55 }, // гостиница, кирпично-бежевые дома (40)
+  { wall: "#4a3c30", glass: "#8a7650", frame: "#b8a07a", win: .96, curtain: true }, // офисы: бронзовое стекло (41)
+  { wall: "#5c6a70", glass: "#9ab8c8", frame: "#d8e0e4", win: .96, curtain: true }, // офисы: серебристое стекло (42)
+  { wall: "#e6ecf0", glass: "#4a6a86", frame: "#8aa8c8", win: .6 }, // поликлиника (43)
+  { wall: "#cfd6d8", glass: "#3f6a8a", frame: "#7a868c", win: .85 }, // спорткомплекс и бассейн: широкие окна (44)
+  { wall: "#b4c4d0", glass: "#3c4a55", frame: "#eef2f4", win: .5 }, { wall: "#dcc2a6", glass: "#3c4a55", frame: "#f6eee4", win: .5 }, // панельные дома: голубые и персиковые (45, 46)
+  { wall: "#9fb08a", glass: "#3c4a55", frame: "#ffffff", win: .38, house: true }, // частный дом: оливковый (47)
+  { wall: "#9a4e36", glass: "#3a4650", frame: "#d8d0c0", win: .42 }, // промышленный кирпич: хлебозавод (48)
+  { wall: "#4f6f8f", glass: "#4b5a64", frame: "#7a8a96", win: .2, metal: true }, // синий профлист: склады, автомойка (49)
+  { wall: "#8a4632", glass: "#2c3a48", frame: "#e8dcc4", win: .3, arch: true, house: true }, // кирпичная кирха: арочные окна, без витрин (50)
 ];
 // кирпичные — красные и рыжие стены
 function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && r > g + 25 && r > b + 30 && r < 200; }
@@ -479,6 +491,7 @@ function buildCity() {
     const cx = obj.position.x, cz = obj.position.z, by = b.baseY;
     if (landmarkMesh(b, obj, mesh, w, d)) { if (b.anim) cityGroup.add(obj); obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (districtMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
+    if (newKindMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (b.kind === "cathedral") {
       // собор: неф, барабан с куполом, две башни со шпилями
       const stone = facadeMats[21], gold = new THREE.MeshStandardMaterial({ color: 0xc9a14a, roughness: .25, metalness: .9 }), dark = new THREE.MeshStandardMaterial({ color: 0x3f5a4e, roughness: .5, metalness: .4 });
@@ -494,13 +507,8 @@ function buildCity() {
       b.h += 33; continue;
     }
     if (b.kind === "house" || b.kind === "oldhouse" || b.kind === "barn") {
-      // двускатная крыша
-      const rh = Math.min(w, d) * (b.kind === "oldhouse" ? .3 : .38), along = b.ridge === "x", span = along ? d : w, len = along ? w : d;
-      const sh = new THREE.Shape([new THREE.Vector2(-span / 2 - 1.2, 0), new THREE.Vector2(span / 2 + 1.2, 0), new THREE.Vector2(0, rh)]);
-      const rg = new THREE.ExtrudeGeometry(sh, { depth: len + 2, bevelEnabled: false }); rg.translate(0, 0, -(len + 2) / 2);
-      if (along) rg.rotateY(Math.PI / 2);
-      const roof = new THREE.Mesh(rg, pick(tileMats)); roof.position.y = b.h; roof.castShadow = roof.receiveShadow = true; obj.add(roof);
-      if (b.kind === "oldhouse") roof.material = pick(tileMats.slice(0, 2));
+      // крыша: двускатная, у части домов вальмовая, мансардная или с пристройкой (buildings.js)
+      const rh = houseRoof(b, obj, mesh, w, d);
       if (Math.random() < .5) { const ch = new THREE.Mesh(new THREE.BoxGeometry(2.2, rh + 3, 2.2), parapetMat); ch.position.set(rnd(-w / 4, w / 4), b.h + rh * .6, rnd(-d / 4, d / 4)); ch.castShadow = true; ch.userData.chim = 1; obj.add(ch); }
       houseDetails(b, obj, w, d); facadeDetails(b, obj, w, d);
       b.h += rh * .6;
@@ -509,19 +517,15 @@ function buildCity() {
     if (b.kind === "container") continue;
     // парапет и оборудование на крыше
     const rr = rotated ? b.rot : 0, rc = Math.cos(rr), rs = Math.sin(rr), at = (lx, lz) => [cx + lx * rc - lz * rs, cz + lx * rs + lz * rc];
+    aptBays(b, obj, w, d, fm); // эркеры (buildings.js) — до балконов: на их местах балконов нет
     facadeDetails(b, obj, w, d);
     if (pitchedRoof(b, obj, w, d)) continue;
     for (const [px, pz, sx, sz] of [[0, -d / 2 + .6, w, 1.2], [0, d / 2 - .6, w, 1.2], [-w / 2 + .6, 0, 1.2, d], [w / 2 - .6, 0, 1.2, d]]) { const [qx, qz] = at(px, pz); instBoxes.push([qx, by + b.h + 1.2, qz, sx, 2.4, sz, 0x77756f, b, -rr]); }
     const n = Math.floor(w * d / 700) + 1;
     for (let i = 0; i < n; i++) { const sx = rnd(3, 8), sz = rnd(3, 8), sy = rnd(2, 5), [qx, qz] = at(rnd(-w / 2 + 6, w / 2 - 6), rnd(-d / 2 + 6, d / 2 - 6)); instBoxes.push([qx, by + b.h + sy / 2, qz, sx, sy, sz, pick([0x8d8f90, 0x9c9a94, 0x6f7173, 0xb0aea6]), b]); }
-    if (b.kind === "tower") {
-      // верхушка небоскрёба: уступ, техэтаж и антенна
-      const k = rnd(.55, .75), cw = w * k, cd = d * k, chh = rnd(14, 30);
-      const cg = new THREE.BoxGeometry(cw, chh, cd); boxUV(cg, cw, cd, chh / 12, 0);
-      const crown = new THREE.Mesh(cg, [fm, fm, roofMat, roofMat, fm, fm]); crown.position.y = b.h + chh / 2; crown.castShadow = true; obj.add(crown);
-      if (Math.random() < .6) { const ant = new THREE.Mesh(new THREE.CylinderGeometry(.4, .7, rnd(20, 45), 6), parapetMat); ant.position.y = b.h + chh + ant.geometry.parameters.height / 2; obj.add(ant); b.antenna = ant; }
-      b.h += chh;
-    } else if (b.floors > 5 && Math.random() < .5) { const [qx, qz] = at(w * rnd(-.25, .25), d * rnd(-.25, .25)); instBoxes.push([qx, by + b.h + 5, qz, 10, 10, 12, 0x6a6862, b, -rr]); } // выход на крышу
+    if (b.kind === "tower") towerTop(b, obj, w, d, fm); // верхушка небоскрёба: уступы, техэтаж, шпиль, антенна (buildings.js)
+    else if (aptStep(b, obj, w, d, fm)) { } // ступенчатый объём: над частью дома ещё несколько этажей (buildings.js)
+    else if (b.floors > 5 && Math.random() < .5) { const [qx, qz] = at(w * rnd(-.25, .25), d * rnd(-.25, .25)); instBoxes.push([qx, by + b.h + 5, qz, 10, 10, 12, 0x6a6862, b, -rr]); } // выход на крышу
     if (b.kind === "power" || b.kind === "water" || b.kind === "radio") decorateInfra(b, obj, w, d);
     if (b.kind === "hospital") hospitalExtras(b, obj, w, d);
     if (b.kind === "fire") {

@@ -26,13 +26,14 @@ SPEC.suburb = (x, y) => {
     const shape = pick(COTTAGE_SHAPES);
     return { lot: rnd(42, 54), w: shape === "garage" ? rnd(25, 30) : rnd(19, 24), d: [15, 21], set: rnd(8, 13), kind: "cottage", floors: shape === "mansard" ? 1 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x", shape };
   }
-  return { lot: rnd(34, 46), w: rnd(16, 23), d: [14, 20], set: rnd(9, 14), kind: "house", floors: Math.random() < .55 ? 1 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x" };
+  return { lot: rnd(34, 46), w: rnd(16, 23), d: [14, 20], set: rnd(9, 14), kind: "house", floors: Math.random() < .55 ? 1 : 2, style: pick([11, 12, 13, 14, 47]), ridge: "x" };
 };
 // многоэтажки: в спальном районе длинные панельные пяти- и девятиэтажки с широкими дворами, ближе к центру — дома средней этажности
 SPEC.apt = (x, y) => {
   const b = blockAt(x, y), ch = b ? b.ch : "mid", r = Math.hypot((x - cityCX()) / (CITY_W / 2), (y - cityCY()) / (CITY_H / 2));
-  if (ch === "sleep") return { w: rnd(40, 76), d: [12, 16], set: rnd(3, 7), gap: rnd(12, 24), kind: "apt", floors: pick([5, 5, 9, 9, 12]), style: 29 + Math.floor(Math.random() * 2) };
-  return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(5, 12) * (1.25 - r * .7)), 4, 12), style: Math.floor(Math.random() * 5) };
+  if (ch === "sleep") return { w: rnd(40, 76), d: [12, 16], set: rnd(3, 7), gap: rnd(12, 24), kind: "apt", floors: pick([5, 5, 9, 9, 12, 14]), style: pick([29, 30, 45, 46]) };
+  if (ch === "mid" && Math.random() < .14) return officeSpec(5, 10);
+  return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(5, 12) * (1.25 - r * .7)), 4, 12), style: pick([0, 1, 2, 3, 4, 40, 45]) };
 };
 // учреждения районов: рынок у спального района, автосервис на краю промзоны и частного сектора, кафе в центре, усадьба с участком в частном секторе
 Object.assign(SPECIAL, {
@@ -105,7 +106,78 @@ function placeDistrictBuildings() {
     const [px, py] = P(bb.w / 2 - 6, bb.faceSgn * (bb.d / 2 + 6)); props.push({ k: "play", x: px, y: py, a: bb.rot + (bb.faceSgn > 0 ? 0 : Math.PI), v: Math.floor(Math.random() * 3) });
   }
   for (const b of blocks) if (b.kind === "garages") fillGarages(b);
+  placeNewKinds();
 }
+
+/* ---------- новые виды зданий по характеру районов ----------
+   Центр и средняя этажность: театр, библиотека, гостиница; спальные районы: поликлиника, спорткомплекс, бассейн, магазины;
+   старый город: ратуша, особняки с колоннами (в рядовой застройке, SPEC.old), башня с часами на площади; окраины и промзона:
+   склад-логистика, элеватор, автомойка, хлебозавод. Ещё школы и церкви других форм (вид тот же — school и church, форма в b.shape).
+   Офисы со стеклянными фасадами (office) ставит рядовая застройка центра и средней этажности. Формы — buildings.js */
+const isCh = (...cs) => (k, b) => !!b && cs.includes(b.ch);
+Object.assign(SPECIAL, {
+  theater: { w: 48, d: 34, set: 6, floors: 3, style: 38, lot: [74, 66, 7], ok: isCh("center", "old", "mid"), d0: 1 },
+  library: { w: 36, d: 22, set: 8, floors: 2, style: 38, ok: isCh("center", "mid", "old"), d0: 1 },
+  hotel: { w: 38, d: 20, set: 8, floors: 10, style: 40, ok: isCh("center", "mid"), d0: 1 },
+  townhall: { w: 40, d: 24, set: 6, floors: 3, style: 39, lot: [56, 44, 7], ok: (k, b) => !!b && b.kind !== "square" && (b.ch === "old" || b.ch === "center" || b.ch === "mid"), d0: 1 },
+  clinic: { w: 50, d: 18, set: 8, floors: 4, style: 43, ok: isCh("sleep", "mid"), d0: 2 },
+  gym: { w: 44, d: 30, set: 8, floors: 2, style: 44, ok: isCh("sleep", "mid", "private"), d0: 2 },
+  pool: { w: 52, d: 28, set: 10, floors: 2, style: 44, ok: isCh("sleep", "mid", "center"), d0: 2 },
+  shop: { w: 24, d: 14, set: 8, floors: 1, style: 3, ok: isCh("sleep", "private", "cottage", "mid"), d0: 2 },
+  storage: { w: 72, d: 30, set: 4, floors: 1, style: 49, lot: [92, 60, 0], ok: isCh("industry", "sleep", "private"), d0: 2 },
+  elevator: { w: 40, d: 16, set: 12, floors: 4, style: 15, lot: [66, 44, 0], ok: (k, b) => !!b && (b.ch === "industry" || (b.ch === "private" && b.d >= 2)), d0: 2 },
+  carwash: { w: 26, d: 12, set: 12, floors: 1, style: 49, lot: [44, 38, 0], ok: isCh("sleep", "private", "industry"), d0: 2 },
+  bakery: { w: 46, d: 26, set: 6, floors: 2, style: 48, lot: [70, 52, 0], ok: isCh("industry", "sleep", "private"), d0: 2 },
+  // вторые школы и церкви других форм: после постановки вид меняется на school / church, форма — в b.shape
+  school2: { w: 64, d: 40, set: 10, floors: 3, style: 3, ok: isCh("sleep", "mid", "private"), d0: 2 },
+  church2: { w: 22, d: 36, set: 10, floors: 2, style: 50, lot: [44, 58, 7], ok: isCh("old", "mid", "sleep", "private", "cottage"), d0: 2 },
+  chapel: { w: 14, d: 22, set: 10, floors: 1, style: 27, lot: [32, 40, 7], ok: isCh("private", "cottage", "sleep", "old"), d0: 2 },
+});
+// машины на площадке перед зданием: [сдвиг вдоль фасада, модель, цвет, длина]
+function parkFront(bb, list, v = 9) {
+  const f = bb.front; if (!f) return;
+  const ang = Math.atan2(f.uy, f.ux);
+  for (const [u, model, col, len] of list) {
+    const x = bb.cx + f.ux * u + f.nx * (bb.d / 2 + v), y = bb.cy + f.uy * u + f.ny * (bb.d / 2 + v), cs = rotCells(x, y, len * 17, 7, ang);
+    if (!cs.length || cs.some(i => grid[i] !== 0)) continue;
+    for (const i of cs) grid[i] = 5;
+    cars.push({ x, y, ang, model, len, col, wreck: false, boomT: 0, burnT: 0 });
+  }
+}
+// башня с часами на площади: в стороне от середины (там фонтан или стела) и подальше от собора старого города
+function placeClockTower() {
+  const cands = blocks.filter(b => !b.rural && (b.kind === "square" || b.kind === "plaza") && b.n > 50).sort(() => Math.random() - .5);
+  for (const b of cands) for (let k = 0; k < 30; k++) {
+    const a = rnd(0, TAU), r = rnd(.25, .38), x = b.cx + Math.cos(a) * (b.x1 - b.x0) * r, y = b.cy + Math.sin(a) * (b.y1 - b.y0) * r;
+    if (Math.hypot(x - b.cx, y - b.cy) < 26 || (oldTown && Math.hypot(x - oldTown.x, y - oldTown.y) < 80)) continue;
+    const rot = nearestEdgeAng(x, y);
+    if (!footFree(x, y, 22, 22, rot, b.id, g => g === 7 || g === 1 || g === 2)) continue;
+    const bb = addRotBuilding(x, y, 10, 10, rot, { kind: "clocktower", floors: 4, style: 39 });
+    for (const i of rotCells(x, y, 18, 18, rot)) usedMask[i] = 1;
+    return bb;
+  }
+  return null;
+}
+function placeNewKinds() {
+  const big = mapSize === "big", n = (a, b) => big ? b : a;
+  placeMany("theater", 1); placeMany("library", 1); placeMany("hotel", n(1, 2), bb => { bb.floors = 8 + Math.floor(Math.random() * 5); bb.h = bb.floors * floorH("hotel"); bb.hp = bb.maxHp = 100 + bb.floors * 6 + bb.w * bb.d / 400; });
+  placeMany("townhall", 1); placeClockTower();
+  placeMany("clinic", n(1, 2)); placeMany("gym", n(1, 2)); placeMany("pool", 1);
+  placeMany("shop", n(3, 6), bb => { bb.style = pick([3, 0, 44, 45]); });
+  placeMany("storage", n(1, 2), bb => parkFront(bb, [[-18, "truck", "#e9e9e4", 1.4], [6, "truck", pick(["#2a4a7a", "#a8322a"]), 1.4]], 12));
+  placeMany("elevator", 1);
+  placeMany("carwash", n(1, 2), bb => parkFront(bb, [[-6, pickCarModel(true).k, pick(CARC), 1]], 10));
+  placeMany("bakery", 1, bb => parkFront(bb, [[-8, "van", "#f2efe6", 1], [8, "van", "#c98a2a", 1]], 9));
+  placeMany("school2", n(1, 2), bb => { bb.kind = "school"; bb.shape = pick(["U", "L"]); });
+  placeMany("church2", n(1, 2), bb => { bb.kind = "church"; bb.shape = "gothic"; bb.style = pick([50, 39]); });
+  placeMany("chapel", n(1, 2), bb => { bb.kind = "church"; bb.shape = "chapel"; });
+}
+// рядовая застройка: особняки с колоннами в старом городе, офисы со стеклянными фасадами в центре и средней этажности
+const SPEC_OLD0 = SPEC.old, SPEC_MID0 = SPEC.mid, SPEC_TOWERS0 = SPEC.towers;
+SPEC.old = (x, y) => Math.random() < .12 ? { w: rnd(22, 28), d: [18, 26], set: rnd(3, 6), gap: rnd(3, 6), kind: "mansion", floors: Math.random() < .4 ? 3 : 2, style: pick([38, 39, 22, 24]) } : SPEC_OLD0(x, y);
+const officeSpec = (fl0, fl1) => ({ w: rnd(28, 46), d: [18, 26], set: rnd(4, 9), gap: rnd(8, 14), kind: "office", floors: Math.round(rnd(fl0, fl1)), style: pick([8, 9, 10, 41, 42]) });
+SPEC.mid = (x, y) => Math.random() < .3 ? officeSpec(5, 11) : SPEC_MID0(x, y);
+SPEC.towers = (x, y) => Math.random() < .22 ? officeSpec(6, 14) : SPEC_TOWERS0(x, y);
 
 /* ---------- озёра ---------- */
 // место свободно: контур озера с запасом не задевает дорог и края карты

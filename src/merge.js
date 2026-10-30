@@ -30,7 +30,7 @@ function rebuildChunk(key) {
     g.setAttribute("normal", new THREE.Float32BufferAttribute(bk.n, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(bk.u, 2));
     g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; cityGroup.add(m); out.push(m);
+    const m = new THREE.Mesh(g, mat); m.castShadow = !mat.userData.noShadow; m.receiveShadow = true; m.matrixAutoUpdate = false; cityGroup.add(m); out.push(m);
   }
   chunkMeshes.set(key, out);
 }

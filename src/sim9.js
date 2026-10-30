@@ -1,5 +1,6 @@
 /* ---------- укрытия: люди прячутся в домах и на крышах, зомби ломают двери ---------- */
-const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire", "church", "station", "school", "cottage", "dacha", "manor", "farmhouse", "barn", "hangar", "market", "garages", "autoservice", "cafe", "kinder", "kom", "stroy"]);
+const HIDE_KINDS = new Set(["apt", "house", "tower", "mall", "police", "hospital", "warehouse", "fire", "church", "station", "school", "cottage", "dacha", "manor", "farmhouse", "barn", "hangar", "market", "garages", "autoservice", "cafe", "kinder", "kom", "stroy",
+  "oldhouse", "mansion", "office", "hotel", "theater", "library", "townhall", "clinic", "gym", "pool", "shop", "storage", "elevator", "carwash", "bakery"]);
 function computeDoors() {
   for (const b of buildings) {
     b.occ = []; b.door = null;

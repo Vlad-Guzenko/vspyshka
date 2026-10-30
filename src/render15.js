@@ -22,6 +22,7 @@ function swapBody(b, obj, box, mesh) { obj.remove(box); box.geometry.dispose(); 
 function landmarkMesh(b, obj, box, w, d) {
   const h = b.h;
   if (b.kind === "church") {
+    if (b.shape) return churchShape(b, obj, box, w, d); // кирха или часовня (buildings.js)
     // неф с апсидой, барабан с луковичным куполом, четыре малые главки, шатровая колокольня у входа
     lmAdd(obj, new THREE.CylinderGeometry(w * .32, w * .32, h * .8, 18, 1, false, Math.PI / 2, Math.PI), facadeMats[27], 0, h * .4, -d / 2);
     lmAdd(obj, new THREE.CylinderGeometry(6.5, 6.5, 10, 18), facadeMats[27], 0, h + 5, -2);
@@ -46,10 +47,11 @@ function landmarkMesh(b, obj, box, w, d) {
     b.h += 20; return true;
   }
   if (b.kind === "school") {
+    if (b.shape) schoolShape(b, obj, box, w, d); // корпус буквой П или Г (buildings.js)
     // крыльцо с козырьком, вывеска, флагшток; поле и дорожка нарисованы на земле, ворота стоят на поле
     lmAdd(obj, new THREE.BoxGeometry(16, .6, 6), whiteMat, 0, 10, d / 2 + 3);
     for (const s of [-1, 1]) lmAdd(obj, new THREE.BoxGeometry(.6, 10, .6), whiteMat, s * 7.4, 5, d / 2 + 5.6);
-    landSign(obj, "ШКОЛА № 1", "#f4f1e8", "#1d3566", 22, 13.5, d / 2 + .35);
+    landSign(obj, b.shape ? "ШКОЛА № " + (2 + bId(b) % 30) : "ШКОЛА № 1", "#f4f1e8", "#1d3566", 22, 13.5, d / 2 + .35);
     lmAdd(obj, new THREE.CylinderGeometry(.25, .3, 24, 6), steelPostMat, w / 2 - 6, 12, d / 2 + 10);
     lmAdd(obj, new THREE.BoxGeometry(.1, 3.2, 5), redMat2, w / 2 - 6, 21.8, d / 2 + 12.6);
     if (b.pitch) {

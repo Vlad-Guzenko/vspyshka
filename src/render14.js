@@ -10,7 +10,7 @@ function textTex(w, h, bg, fg, text, font, frame) {
     g.fillText(text, w / 2, h / 2 + 2);
   });
 }
-function signMat(tex) { const m = new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0, roughness: .6 }); glowSignMats.push(m); return m; }
+function signMat(tex) { const m = new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0, roughness: .6 }); m.userData.noShadow = true; glowSignMats.push(m); return m; } // noShadow: плоская вывеска тени почти не даёт — в склейке (merge.js) без прохода теней
 const SHOP_SIGNS = [["ПРОДУКТЫ", "#1f6a3a", "#fff"], ["АПТЕКА", "#ffffff", "#1a8a3a"], ["КАФЕ", "#5a2a1a", "#f4d9a0"], ["БАНК", "#1d3566", "#f4f1e8"], ["ЦВЕТЫ", "#e8e2d6", "#c8285a"], ["ОПТИКА", "#22324a", "#9fd0ff"],
   ["ХЛЕБ", "#c98a2a", "#3a2412"], ["ПАРИКМАХЕРСКАЯ", "#f4f1e8", "#7a2a6a"], ["КНИГИ", "#7a2a24", "#f4e9c8"], ["24 ЧАСА", "#c81e1e", "#fff"], ["ОДЕЖДА", "#222", "#f0f0f0"], ["ШАУРМА", "#e8a81a", "#5a1a0a"],
   ["ПИЦЦА", "#2e6a3c", "#fff4d6"], ["ОБУВЬ", "#4a4a52", "#ffd28a"], ["СВЯЗЬ", "#e0601a", "#fff"], ["ЗООТОВАРЫ", "#2a7a8a", "#fff"], ["ХОЗТОВАРЫ", "#8a6a20", "#fff"], ["ПОЧТА", "#1f4f9a", "#fff"]]
@@ -37,7 +37,7 @@ function facadeDetails(b, obj, w, d) {
     for (const s of [1, -1]) {
       if (s < 0 && Math.random() < .4) continue;
       bayCenters(w, s < 0).forEach((lx, i) => {
-        if (pat === 1 && i % 2) return; if (pat === 2 && i % 3 === 1) return;
+        if (pat === 1 && i % 2) return; if (pat === 2 && i % 3 === 1) return; if (s > 0 && b.erk && b.erk.has(i)) return; // на месте эркера балкона нет
         for (let f = 1; f < b.floors; f++) {
           const y = by + f * fh + 1.2, glazed = Math.random() < glazeK;
           const box = (ox, oy, oz, sx, sy, sz, c) => { const [qx, qz] = at(lx + ox, s * (d / 2 + oz)); instBoxes.push([qx, y + oy, qz, sx, sy, sz, c, b, -rr]); };

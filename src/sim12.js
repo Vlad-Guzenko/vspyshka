@@ -115,7 +115,8 @@ function hungryCount() { let n = 0; for (const b of buildings) if (b.occ && b.oc
    Авария или удар по ТЭЦ гасит город за 20–40 с, удар по подстанции — только её район; генератор держит свет в своём квартале. */
 let blackout = null, pwLoad = null;
 let pwBlocks = null, pwCell = null, pwGrid = null, pwWant = null, pwSw = null, pwOn = null, pwGen = null, pwSubOf = null, pwSubs = [], pwPlant = false, pwOffK = 0, pwStepB = null;
-const SUB_KINDS = new Set(["warehouse", "hangar", "garages", "container", "autoservice", "barn"]), SUB_NO = new Set(["monument", "ferris", "tvtower", "stadium", "church", "wtower", "gas", "barracks", "basehq", "kinder", "school", "cafe"]);
+const SUB_KINDS = new Set(["warehouse", "hangar", "garages", "container", "autoservice", "barn", "storage", "carwash", "bakery"]), SUB_NO = new Set(["monument", "ferris", "tvtower", "stadium", "church", "wtower", "gas", "barracks", "basehq", "kinder", "school", "cafe",
+  "theater", "library", "townhall", "clocktower", "clinic", "pool", "gym", "elevator", "mansion"]);
 function pwReady() { if (pwBlocks !== blocks || !pwCell || pwCell.length !== GW * GH) pwBuild(); return blocks.length > 0; }
 function pwBlockAt(x, y) { if (!pwReady()) return -1; const gx = Math.floor(x / CS), gy = Math.floor(y / CS); return pwCell[(gy < 0 ? 0 : gy >= GH ? GH - 1 : gy) * GW + (gx < 0 ? 0 : gx >= GW ? GW - 1 : gx)]; }
 function powerAt(x, y) { const b = pwBlockAt(x, y); return b < 0 || pwOn[b] === 1; }

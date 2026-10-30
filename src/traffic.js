@@ -700,7 +700,8 @@ function gasTick(dt) {
    вечером домой. Маршрут считает routeTo (как у служб); у нужной улицы машина встаёт у бордюра на полминуты, если ширина
    позволяет разойтись с проезжающими, и выбирает новую цель. Недостижимая или слишком долгая цель меняется */
 let tripPools = null, tripPoolT = -1e9;
-const TRIP_HOME = new Set(["house", "apt", "oldhouse", "cottage", "dacha", "manor", "farmhouse"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar", "barn", "garages", "autoservice", "kinder", "kom", "stroy"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral", "market", "cafe", "church"]);
+const TRIP_HOME = new Set(["house", "apt", "oldhouse", "cottage", "dacha", "manor", "farmhouse", "mansion"]), TRIP_WORK = new Set(["tower", "warehouse", "hospital", "police", "fire", "power", "water", "radio", "school", "station", "depot", "hangar", "barn", "garages", "autoservice", "kinder", "kom", "stroy",
+  "office", "hotel", "townhall", "clinic", "storage", "elevator", "carwash", "bakery"]), TRIP_SHOP = new Set(["mall", "gas", "stadium", "cathedral", "market", "cafe", "church", "theater", "library", "gym", "pool", "shop"]);
 function tripPool() {
   if (tripPools && simT - tripPoolT < 30) return tripPools;
   const P = { home: [], work: [], shop: [] };

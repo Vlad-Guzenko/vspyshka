@@ -27,7 +27,7 @@ for (let gy = 0; gy < R.GH; gy++) for (let gx = 0; gx < R.GW; gx++) { const gi =
 const put = (x, y, c) => { x = Math.round(x / R.CS * S); y = Math.round(y / R.CS * S); if (x < 0 || y < 0 || x >= w || y >= h) return; const i = (y * w + x) * 3; img[i] = c[0]; img[i + 1] = c[1]; img[i + 2] = c[2]; };
 // контуры зданий
 for (const b of R.buildings) {
-  const c = b.kind === 'tower' ? [80, 70, 140] : b.kind === 'house' || b.kind === 'cottage' || b.kind === 'dacha' ? [160, 90, 70] : b.kind === 'farmhouse' || b.kind === 'barn' ? [200, 120, 60] : ['market', 'cafe', 'kinder', 'autoservice', 'manor', 'garages', 'kom', 'stroy'].includes(b.kind) ? [240, 60, 200] : [110, 90, 70];
+  const c = b.kind === 'tower' ? [80, 70, 140] : b.kind === 'house' || b.kind === 'cottage' || b.kind === 'dacha' ? [160, 90, 70] : b.kind === 'farmhouse' || b.kind === 'barn' ? [200, 120, 60] : ['market', 'cafe', 'kinder', 'autoservice', 'manor', 'garages', 'kom', 'stroy', 'theater', 'library', 'hotel', 'townhall', 'clocktower', 'mansion', 'office', 'clinic', 'gym', 'pool', 'shop', 'storage', 'elevator', 'carwash', 'bakery'].includes(b.kind) ? [240, 60, 200] : [110, 90, 70];
   if (b.rot !== undefined) { const ca = Math.cos(b.rot), sa = Math.sin(b.rot); for (let u = -b.w / 2; u <= b.w / 2; u += 1) for (const v of [-b.d / 2, b.d / 2]) { put(b.cx + u * ca - v * sa, b.cy + u * sa + v * ca, c); } for (let v = -b.d / 2; v <= b.d / 2; v += 1) for (const u of [-b.w / 2, b.w / 2]) put(b.cx + u * ca - v * sa, b.cy + u * sa + v * ca, c); }
   else { for (let x = b.x0; x <= b.x1; x += 1) { put(x, b.y0, c); put(x, b.y1, c); } for (let y = b.y0; y <= b.y1; y += 1) { put(b.x0, y, c); put(b.x1, y, c); } }
 }
