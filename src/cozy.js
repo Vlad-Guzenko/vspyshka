@@ -48,7 +48,7 @@ function cozyMat(m, kind = 0) {
         float czS = czSnow * smoothstep(.4, .85, czUp.y) * smoothstep(.2, .5, czn + czSnow * .6 - .3);
         if (czKind > .5 && czKind < 1.5) { vec3 dc = diffuseColor.rgb; float sat = max(max(dc.r, dc.g), dc.b) - min(min(dc.r, dc.g), dc.b); czS *= mix(.35, 1., smoothstep(.01, .035, sat)); }
         if (czKind > 1.5) czS *= .8;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.84, .88, .93), czS);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.74, .77, .82), czS); // лежалый, слежавшийся: свежие кучи (render20.js) на нём заметно ярче
         roughnessFactor = mix(roughnessFactor, .72, czS); metalnessFactor *= 1. - czS;
       }`);
   };

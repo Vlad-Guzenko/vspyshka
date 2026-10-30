@@ -12165,7 +12165,7 @@ function snapTree(T, t, i) {
 // снег — сплошной покров, натянутый по рельефу участками 128 × 128 с шагом 4: высота — сглаженная глубина из клеток,
 // край рваный (шум в шейдере), где снег тонкий — серая каша; так сугроб читается валом и наносом, а не клетками
 const SNOW_TILE = 128, SNOW_RES = 4, snowTiles = new Map();
-const snowMat = new THREE.MeshStandardMaterial({ color: 0xe4e9f0, roughness: .78, envMapIntensity: .6 });
+const snowMat = new THREE.MeshStandardMaterial({ color: 0xf2f6fa, roughness: .74, envMapIntensity: .6 });
 snowMat.onBeforeCompile = sh => {
   sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute float depth; varying float vDepth; varying vec2 vSW; varying float vUp;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvDepth = depth; vSW = position.xz; vUp = normal.y;");
   sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
@@ -12174,7 +12174,7 @@ float snH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); 
 float snN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(snH(i), snH(i + vec2(1., 0.)), f.x), mix(snH(i + vec2(0., 1.)), snH(i + 1.), f.x), f.y); }`)
     .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n  float snE = snN(vSW * .3) * .6 + snN(vSW * 1.1) * .4; if (vDepth + (snE - .5) * .3 < .07) discard;")
     .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  totalEmissiveRadiance += vec3(.9, .95, 1.) * step(.992, snH(floor(vSW * 5.))) * smoothstep(.3, 1., vDepth) * smoothstep(.85, 1., vUp) * .5;") // редкие искры на солнце
-    .replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= .92 + .08 * snN(vSW * 2.3); diffuseColor.rgb = mix(diffuseColor.rgb * vec3(.62, .58, .53), diffuseColor.rgb, smoothstep(.07, .5, vDepth)); diffuseColor.rgb *= mix(vec3(.68, .74, .86), vec3(1.), smoothstep(.55, .97, vUp));"); // склоны и ямки — в голубой тени
+    .replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= .92 + .08 * snN(vSW * 2.3); diffuseColor.rgb = mix(diffuseColor.rgb * vec3(.62, .58, .53), diffuseColor.rgb, smoothstep(.07, .5, vDepth)); diffuseColor.rgb *= mix(vec3(.55, .63, .8), vec3(1.), smoothstep(.6, .98, vUp));"); // склоны и ямки — в голубой тени
 };
 // глубина в точке: билинейно по центрам клеток и усреднение по кругу — без ступенек на границах клеток
 function snowRaw(x, y) {
@@ -12190,7 +12190,8 @@ function buildSnowTile(tx, ty) {
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const x = tx * SNOW_TILE + i * SNOW_RES, y = ty * SNOW_TILE + j * SNOW_RES, d = snowSmooth(x, y), k = j * n + i;
     // у самого края покров уходит под землю, чтобы не было ступеньки
-    pos[k * 3] = X(x); pos[k * 3 + 1] = gY(Math.min(W - .01, Math.max(0, x)), Math.min(H - .01, Math.max(0, y))) + (d > .04 ? (d < 3 ? d * 2 : 6 + (d - 3) * 1.3) + .12 + snowLump(x, y) * Math.min(1, d) : -.6); // большая куча выше, но круче не становится pos[k * 3 + 2] = Z(y); dep[k] = d;
+    // большая куча выше, но круче не становится
+    pos[k * 3] = X(x); pos[k * 3 + 1] = gY(Math.min(W - .01, Math.max(0, x)), Math.min(H - .01, Math.max(0, y))) + (d > .04 ? (d < 3 ? d * 2 : 6 + (d - 3) * 1.3) + .12 + snowLump(x, y) * Math.min(1, d) : -.6); pos[k * 3 + 2] = Z(y); dep[k] = d;
   }
   for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) { const a = j * n + i, b = a + 1, c = a + n, d = c + 1; if (dep[a] + dep[b] + dep[c] + dep[d] < .02) continue; idx.push(a, c, b, b, c, d); }
   const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("depth", new THREE.BufferAttribute(dep, 1)); g.setIndex(idx); g.computeVertexNormals(); g.computeBoundingSphere();
@@ -13726,7 +13727,7 @@ function cozyMat(m, kind = 0) {
         float czS = czSnow * smoothstep(.4, .85, czUp.y) * smoothstep(.2, .5, czn + czSnow * .6 - .3);
         if (czKind > .5 && czKind < 1.5) { vec3 dc = diffuseColor.rgb; float sat = max(max(dc.r, dc.g), dc.b) - min(min(dc.r, dc.g), dc.b); czS *= mix(.35, 1., smoothstep(.01, .035, sat)); }
         if (czKind > 1.5) czS *= .8;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.84, .88, .93), czS);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.74, .77, .82), czS); // лежалый, слежавшийся: свежие кучи (render20.js) на нём заметно ярче
         roughnessFactor = mix(roughnessFactor, .72, czS); metalnessFactor *= 1. - czS;
       }`);
   };
