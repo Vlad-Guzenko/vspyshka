@@ -12,7 +12,7 @@ function resetServices2() { utilT = 20; patrolT = 30; busT = 10; supplyT = 30; c
 function stepServices2(dt) {
   // перекрытия считаются и при выключенных службах: завалы и баррикады бывают и без них
   closedT -= dt; if (closedT <= 0) { closedT = 3; updateClosedRoads(); }
-  stepBuses(dt);
+  stepBuses(dt); stepSnowRoads(dt);
   if (!settings.services) return;
   stepPatrols(dt); stepUtilities(dt); stepSupply(dt); stepNests(dt); stepPatients(dt);
 }
@@ -215,9 +215,9 @@ function stepNests(dt) {
 }
 
 /* ---------- объезды: улица с завалом на проезжей части закрыта, знаки на въездах, трафик идёт в обход ---------- */
-// перекрытие по полосам: вдоль каждой полосы смотрим её ось и ±3 (ширина кузова) — завал, дом, баррикада или забор;
+// перекрытие по полосам: вдоль каждой полосы смотрим её ось и ±3 (ширина кузова) — завал, дом, баррикада, забор или сугроб;
 // улица закрыта, если заблокированы все полосы, иначе это сужение (машины объезжают по встречной); e.blk — какие полосы
-function laneBlocked(l) { for (let s = laneStart(l) - 4; s < laneEnd(l) + 4; s += 4) { const q = lanePos(l, clamp(s, 0, l.e.len)); for (const o of [-3, 0, 3]) { const c = cellAt(q.x + q.ty * o, q.y - q.tx * o); if (c === 8 || c === 3 || c === 6) return true; } } return false; }
+function laneBlocked(l) { for (let s = laneStart(l) - 4; s < laneEnd(l) + 4; s += 4) { const q = lanePos(l, clamp(s, 0, l.e.len)); for (const o of [-3, 0, 3]) { const px = q.x + q.ty * o, py = q.y - q.tx * o, c = cellAt(px, py); if (c === 8 || c === 3 || c === 6 || (c === 11 && roadMask[snowIdx(px, py)] === 1)) return true; } } return false; } // сугроб на бордюре полосу не закрывает
 function updateClosedRoads() {
   let changed = 0, closedNew = 0;
   for (const e of RE) {
@@ -238,4 +238,215 @@ function fireRate(a) {
   const u = a.unit; if (!u) return 1.6;
   if (u.hydrant === undefined) { u.hydrant = hydrants.some(h => Math.abs(h.x - u.x) < 48 && Math.abs(h.y - u.y) < 48); if (u.hydrant) logT("hydrant", "Пожарные подключились к гидранту", "good", 40); }
   return u.hydrant ? 3.2 : 1.6;
+}
+
+/* ---------- снег на дорогах: игрок насыпает его инструментом «Снег», он тает (летом медленно, у огня быстро, зимой никак),
+   снегоуборщики расчищают, эвакуатор вытягивает застрявших лебёдкой; у въезда на любую перекрытую улицу встаёт регулировщик ----------
+   snowD — глубина снега в клетке; от SNOW_BLOCK клетка становится сугробом (код 11): машины в неё не въезжают, люди бредут медленно,
+   улица, где сугробом занесены все полосы, закрыта (laneBlocked) — маршруты объезжают, подъехавшие разворачиваются. Картинка — render20.js */
+const SNOW_BLOCK = 1;
+let snowD = null, snowUnder = null, snowCells = new Set(), snowCity = null, snowT = 0, snowDirty = false, snowBox = null, plowT = 0, regulT = 0;
+function snowInit() { if (!snowD || snowD.length !== grid.length) { snowD = new Float32Array(grid.length); snowUnder = new Uint8Array(grid.length); snowCells = new Set(); } snowCity = buildings; }
+function snowMark(x, y) { snowDirty = true; snowBox = snowBox ? [Math.min(snowBox[0], x - 8), Math.min(snowBox[1], y - 8), Math.max(snowBox[2], x + 8), Math.max(snowBox[3], y + 8)] : [x - 8, y - 8, x + 8, y + 8]; }
+// клетка становится сугробом или перестаёт им быть; под сугробом помним, что там было
+function snowSync(i) {
+  const d = snowD[i], g = grid[i];
+  if (d >= SNOW_BLOCK) { if (g === 0 || g === 1 || g === 2 || g === 7) { snowUnder[i] = g; grid[i] = 11; barrDirty = true; fieldT = 0; } }
+  else if (g === 11) { grid[i] = snowUnder[i]; barrDirty = true; fieldT = 0; }
+  if (d <= .02) { snowD[i] = 0; snowCells.delete(i); }
+}
+// насыпать снег кругом радиуса R: в середине глубже, к краю тоньше; в дома и воду не сыплется. Клик за кликом куча растёт
+// (до SNOW_MAX) и расползается: чем она уже выше, тем шире ложится новый снег
+const SNOW_MAX = 12, SNOW_BURY = 1.2;
+function pourSnow(x, y, amt = 2.4, R = 18) {
+  snowInit(); R += snowD[snowIdx(x, y)] * 2.2;
+  for (let gy = Math.floor((y - R) / CS); gy <= Math.floor((y + R) / CS); gy++) for (let gx = Math.floor((x - R) / CS); gx <= Math.floor((x + R) / CS); gx++) {
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+    const i = gy * GW + gx, cx = gx * CS + CS / 2, cy = gy * CS + CS / 2, d = Math.hypot(cx - x, cy - y); if (d > R) continue;
+    const g = grid[i]; if (g === 3 || g === 9 || g === 10) continue;
+    snowD[i] = Math.min(SNOW_MAX, snowD[i] + amt * (1 - (d / R) ** 2) * rnd(.85, 1.15)); snowCells.add(i); snowSync(i);
+  }
+  snowMark(x - R, y - R); snowMark(x + R, y + R);
+  // кого накрыло с головой (глубже SNOW_BURY) — засыпан: выбраться сам не может, мёрзнет (stepBuried)
+  for (const a of agents) if (Math.abs(a.x - x) < R && Math.abs(a.y - y) < R && a.state === "alive" && !a.hidden && !a.buried && snowD[snowIdx(a.x, a.y)] >= SNOW_BURY) { a.buried = true; a.cold = a.cold || 0; a.dugOut = false; a.vx = a.vy = 0; logT("buried", a.role === "zombie" ? "Зомби засыпало снегом" : "Человека засыпало снегом: он замерзает", a.role === "zombie" ? "" : "bad", 20); }
+  logT("snowpour", "Снег завалил улицу", "", 30);
+}
+// отвал снегоуборщика снимает с проезжей части в радиусе r не больше rate глубины в секунду: глубокую кучу — за несколько проходов
+const PLOW_RATE = .16; // клетка остаётся под отвалом секунды, пока он ползёт: за проход снимается 3–5 глубины
+function plowAt(x, y, r, dt) {
+  if (!snowD) return 0; let moved = 0;
+  for (let gy = Math.floor((y - r) / CS); gy <= Math.floor((y + r) / CS); gy++) for (let gx = Math.floor((x - r) / CS); gx <= Math.floor((x + r) / CS); gx++) {
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+    const i = gy * GW + gx; if (!(snowD[i] > 0) || roadMask[i] !== 1) continue;
+    if (Math.hypot(gx * CS + CS / 2 - x, gy * CS + CS / 2 - y) > r) continue;
+    const k = Math.min(snowD[i], PLOW_RATE * dt); moved += k; snowD[i] -= k; snowSync(i);
+  }
+  if (moved) snowMark(x, y);
+  return moved;
+}
+const snowIdx = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+// сколько тает за секунду в точке: от сезона, солнца, дождя и огня рядом
+function meltRate(x, y, heat) {
+  const season = world.season || "summer";
+  let m = (season === "winter" ? 0 : season === "autumn" ? .004 : .009) * (world.hour > 7 && world.hour < 19 ? 1.3 : .6) * (1 + (world.rain || 0) * .8);
+  for (const [hx, hy, hr, hk] of heat) { const d = Math.hypot(x - hx, y - hy); if (d < hr) m += hk * (1 - d / hr); }
+  return m;
+}
+function heatSources() {
+  const heat = [];
+  for (const f of fires) heat.push([f.x, f.y, f.r + 26, .3]);
+  for (const b of buildings) if (b.fire > 0 && b.state === "ok") heat.push([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + 18, .12]);
+  for (const c of cars) if (c.burnT > 0 && !c.gone) heat.push([c.x, c.y, 18, .2]);
+  return heat;
+}
+function stepSnowRoads(dt) {
+  if (snowCity === "load") snowCity = buildings; // партия загружена: снег из сохранения
+  else if (snowCity !== buildings) { snowD = null; snowCells = new Set(); snowCity = buildings; }
+  stepRegulators(dt);
+  if (!snowD || !snowCells.size) return;
+  snowT -= dt; if (snowT > 0) return; snowT += 1;
+  // таяние
+  const heat = heatSources();
+  stepBuried(heat);
+  for (const i of [...snowCells]) {
+    const x = (i % GW) * CS + CS / 2, y = ((i / GW) | 0) * CS + CS / 2, m = meltRate(x, y, heat);
+    if (m <= 0) continue; snowD[i] -= m; snowSync(i); snowMark(x, y);
+  }
+  // машины в сугробе застревают; когда снег сошёл или его расчистили — едут дальше
+  for (const c of cars) {
+    if (c.gone || c.service === "plow" || c.towedBy || c.z > 0) continue;
+    const d = snowD[snowIdx(c.x, c.y)];
+    if (!c.snowStuck && d >= SNOW_BLOCK * .8 && (c.moving || c.lane)) { c.snowStuck = true; c.snowWas = !!c.moving; c.moving = false; c.stopped = true; c.stopT = simT; c.v = 0; logT("snowstuck", "Машины застряли в снегу", "", 40); }
+    else if (c.snowStuck && d < .4) { c.snowStuck = false; c.winchBy = null; if (c.snowWas && !c.wreck) { c.stopped = false; c.moving = true; } }
+  }
+  // снегоуборщики: на улицу, которую снег закрыл надолго (зимой — сразу)
+  plowT -= 1; if (plowT > 0 || !settings.services) return; plowT = 4;
+  for (const e of RE) {
+    if (e.plowBy && (e.plowBy.gone || e.plowBy.leaving)) e.plowBy = null;
+    if (!(e.closed || e.narrow) || e.plowBy || e.rural) continue;
+    let deep = 0, at = null;
+    for (const l of e.L) if (l) for (let s = 0; s < e.len; s += 6) { const q = lanePos(l, s), i = snowIdx(q.x, q.y); if (grid[i] === 11 && snowD[i] > deep) { deep = snowD[i]; at = q; } }
+    if (!at) continue;
+    const m = meltRate(at.x, at.y, heat), wait = m > 0 ? (deep - SNOW_BLOCK * .5) / m : 1e9;
+    if (wait < 60) continue; // скоро растает само
+    if (activeUnits("plow") >= 3) break;
+    callPlow(e, at.x, at.y);
+    logT("plow_go", "Снегоуборщик выехал расчищать занесённую улицу", "good", 30);
+  }
+}
+// засыпанные снегом: человек и зомби мёрзнут — тем быстрее, чем глубже снег, и тем медленнее, чем быстрее он рядом тает (огонь);
+// замёрзли насовсем (cold до 1) — погибли, тела забирают санитары. Снег сошёл раньше: откопали спасатели — цел и невредим,
+// вытаял (огонь, оттепель) — обморожен, его везёт скорая. За засыпанным человеком диспетчер шлёт пожарных-спасателей с лопатами
+function stepBuried(heat) {
+  let digging = cars.filter(c => !c.gone && !c.leaving && c.job && c.job.dig).length;
+  for (const a of agents) {
+    if (!a.buried) continue;
+    if (a.state !== "alive") { a.buried = false; continue; }
+    const d = snowD[snowIdx(a.x, a.y)], m = meltRate(a.x, a.y, heat);
+    if (d < .6) {
+      a.buried = false;
+      if (a.role !== "zombie") {
+        if (a.dugOut) { a.cold = 0; logT("dugout", "Спасатели откопали человека из-под снега: жив и цел", "good", 20); }
+        else { a.frost = Math.max(a.cold, .1); a.hp = Math.min(a.hp, 40 - a.cold * 25); a.ambAssigned = false; logT("thawed", "Человек вытаял из сугроба обмороженным: его везут в больницу", "", 20); }
+      }
+      continue;
+    }
+    a.cold = (a.cold || 0) + (.0015 + d * .001) * clamp(1 - m * 25, .15, 1); // под небольшой кучей держится минуты три-четыре, под огромной — минуту с небольшим
+    if (a.cold >= 1) {
+      a.frozen = true; a.buried = false;
+      if (a.role === "zombie") destroyZombie(a, false); else { kill(a, false, "frost"); a.reanimate = false; }
+      logT("frozen", a.role === "zombie" ? "Засыпанный снегом зомби замёрз" : "Засыпанный снегом человек замёрз насмерть", a.role === "zombie" ? "" : "bad", 20);
+      continue;
+    }
+    // спасатели: к человеку под снегом, не больше трёх машин сразу
+    if (a.role !== "zombie" && settings.services && digging < 3 && (!a.rescueBy || a.rescueBy.gone || a.rescueBy.leaving)) {
+      const c = spawnService("fire", a.x, a.y, special.fire); c.job = { dig: a }; a.rescueBy = c; digging++;
+      logT("dig_go", "Пожарные-спасатели выехали откапывать человека из-под снега", "good", 20);
+    }
+  }
+}
+// спасатель с лопатой: идёт к засыпанному и копает вокруг него; откопал или поздно — к машине
+function digStep(a, dt) {
+  const v = a.job.dig;
+  if (!v.buried || v.state !== "alive") { a.done = true; return a.unit ? goTo(a, a.unit.x, a.unit.y, 9) : [0, 0, 0]; }
+  a.done = false; // у пожарных нет пожара — сами они сочли бы работу сделанной
+  const d = Math.hypot(v.x - a.x, v.y - a.y);
+  if (d > 5) return goTo(a, v.x, v.y, 9);
+  a.tool = .3; a.dir = Math.atan2(v.y - a.y, v.x - a.x);
+  // лопатой — аккуратно и медленно: снег вокруг человека, а не по нему
+  let left = 0;
+  for (let gy = Math.floor((v.y - 6) / CS); gy <= Math.floor((v.y + 6) / CS); gy++) for (let gx = Math.floor((v.x - 6) / CS); gx <= Math.floor((v.x + 6) / CS); gx++) {
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx; if (!(snowD[i] > 0)) continue;
+    snowD[i] = Math.max(0, snowD[i] - .22 * dt); snowSync(i); left += snowD[i];
+  }
+  snowMark(v.x, v.y);
+  if (snowD[snowIdx(v.x, v.y)] < .6) v.dugOut = true;
+  return [0, 0, 0];
+}
+// снегоуборщик на улицу e: сначала к точке (x, y) на ней — иначе маршрут объехал бы закрытую улицу кругом; на ней — дальше по ходу, насквозь.
+// Его же вызывает игрок (инструмент «Снегоуборщик»): снега нет — проедет улицу и уедет
+function callPlow(e, x, y) { const c = spawnService("plow", x, y, null); c.job = { plow: e }; c.plowPass = 0; c.plowIn = false; e.plowBy = c; return c; }
+// остался ли на полосах улицы снег, который стоит чистить
+function snowLeft(e) { if (!snowD) return false; for (const l of e.L) if (l) for (let s = 0; s < e.len; s += 6) { const q = lanePos(l, s); if (snowD[snowIdx(q.x, q.y)] >= .3) return true; } return false; }
+// снегоуборщик ведёт отвалом перед собой по всей ширине проезжей части; проходит улицу туда и обратно, потом берёт следующую
+function stepPlow(c, dt) {
+  const e = c.job && c.job.plow, hw = c.lane ? c.lane.e.hw + Math.abs(c.lane.off || 0) : 10, dx = Math.cos(c.ang), dy = Math.sin(c.ang); // отвал — на всю проезжую часть
+  const ahead = snowD ? snowD[snowIdx(c.x + dx * 12, c.y + dy * 12)] : 0;
+  if (ahead > .2) c.v = Math.min(c.v, clamp(9 - ahead * 1.4, 1.2, 7)); // в снегу медленно, в глубоком — ползком
+  if (plowAt(c.x + dx * 9, c.y + dy * 9, hw + 3, dt) + plowAt(c.x, c.y, hw + 3, dt) > 0) c.plowing = 1; else c.plowing = Math.max(0, (c.plowing || 0) - dt);
+  if (!e) { releaseUnit(c); return; }
+  const left = snowLeft(e);
+  // упёрся (впереди застрявшая машина, затор): дотягивается отвалом дальше; улица чиста — работа сделана, долго стоит — уезжает
+  if (c.wait > 6 && left) plowAt(c.x + dx * 18, c.y + dy * 18, hw + 6, dt);
+  if (!c.plowIn && c.wait > 25 && c.lane) { c.lane.e.blockT = simT; c.next = null; c.route = null; c.wait = 8; } // в пробке по пути — другой дорогой
+  if ((c.wait > 10 && !left) || (c.plowIn && c.wait > 90)) { e.plowBy = null; if (!left) logT("plow_done", "Улицу расчистили от снега", "good", 30); releaseUnit(c); return; }
+  // подъезжает к концу своей улицы — сворачивает на неё (маршрут сам привёл бы только к узлу)
+  if (!c.plowIn && c.lane && c.lane.e !== e && (c.lane.to === e.a || c.lane.to === e.b)) { const m = e.L.find(l => l && l.from === c.lane.to); if (m) c.next = m; }
+  // въехал на свою улицу: цель — её конец по ходу, сугроб проходит насквозь
+  if (!c.plowIn && c.lane && c.lane.e === e) { c.plowIn = true; const to = c.lane.to; c.goal = { x: to.x, y: to.y }; c.next = null; c.route = null; }
+  // дошёл до конца: разворачивается и идёт обратно; проходов столько, сколько нужно, чтобы снять всю кучу
+  if (c.plowIn && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 30) {
+    c.plowPass++;
+    if (!left || c.plowPass >= 14) { e.plowBy = null; logT("plow_done", "Улицу расчистили от снега", "good", 30); releaseUnit(c); return; }
+    const other = Math.hypot(c.goal.x - e.a.x, c.goal.y - e.a.y) < 5 ? e.b : e.a; c.goal = { x: other.x, y: other.y }; c.next = null; c.route = null;
+  }
+}
+// эвакуатор с лебёдкой: подъезжает к краю сугроба и вытягивает машину к себе, потом забирает
+function winchStep(c, w, dt) {
+  if (!w.snowStuck) return true;
+  w.winchBy = c; c.winchT = (c.winchT || 0) + dt;
+  const tx = c.x - Math.cos(c.ang) * 14, ty = c.y - Math.sin(c.ang) * 14, d = Math.hypot(tx - w.x, ty - w.y);
+  if (c.winchT < 2) return false; // крюк цепляют
+  if (d > 3) { const v = Math.min(d, 4 * dt); w.x += (tx - w.x) / d * v; w.y += (ty - w.y) / d * v; plowAt(w.x, w.y, 4, 9); return false; }
+  w.snowStuck = false; w.winchBy = null; logT("winch", "Эвакуатор вытянул лебёдкой застрявшую в снегу машину", "good", 30);
+  return true;
+}
+// регулировщик: у въезда на перекрытую улицу (или в перекрытое направление при сужении) встаёт полицейский и заворачивает машины в объезд;
+// не больше четырёх постов, к зомби не шлют
+function stepRegulators(dt) {
+  regulT -= dt; if (regulT > 0) return; regulT = 4;
+  // регулировщиков привозит машина и сразу уезжает (на въезде она мешала бы технике); улица открылась — они уходят в участок
+  for (const a of agents) {
+    if (!a.regul || a.state !== "alive") continue;
+    const e = a.regul;
+    if (!e.closed && !e.narrow) { a.regul = null; a.order = special.police ? { x: special.police.x, y: special.police.y } : null; a.standDown = true; a.standT = simT; continue; }
+    if (a.regulDir === undefined && a.order) { const nd = Math.hypot(a.order.x - e.a.x, a.order.y - e.a.y) < Math.hypot(a.order.x - e.b.x, a.order.y - e.b.y) ? e.a : e.b; a.regulDir = Math.atan2(nd.y - a.order.y, nd.x - a.order.x); }
+  }
+  for (const e of RE) e.regulBy = null;
+  for (const a of agents) if (a.regul && a.state === "alive") a.regul.regulBy = a;
+  for (const c of cars) if (c.regul && !c.gone && !c.deployed && !c.leaving) c.regul.regulBy = c; // ещё в пути
+  if (!settings.services) return;
+  let n = RE.filter(e => e.regulBy).length;
+  for (const e of RE) {
+    if (n >= 4) break;
+    const dirA = e.closed || (e.blk && e.blk[0]), dirB = e.closed || (e.blk && e.blk[1]); // заблокированы полосы от a к b и от b к a
+    if (!(dirA || dirB) || e.rural || e.regulBy || e.len < 30) continue;
+    let z = 0; nearZ((e.a.x + e.b.x) / 2, (e.a.y + e.b.y) / 2, 120, () => z++); if (z) continue; // к зомби на регулировку не шлют
+    const posts = [];
+    // стоит на тротуаре у въезда, лицом к подъезжающим: не на дуге поворота, иначе машины (и снегоуборщик) ждали бы его как пешехода
+    for (const [nd, s, on] of [[e.a, 18, dirA], [e.b, e.len - 18, dirB]]) { if (!on || nd.ed.length < 3 || nd.exit) continue; const p = edgePos(e, s), q = edgePos(e, Math.min(e.len, s + 2)), L = Math.hypot(q.x - p.x, q.y - p.y) || 1, sd = s < 30 ? 1 : -1, o = e.hw + 3; posts.push([p.x - (q.y - p.y) / L * o * sd, p.y + (q.x - p.x) / L * o * sd]); }
+    if (!posts.length) continue;
+    const c = spawnService("police", posts[0][0], posts[0][1], special.police); c.posts = posts; c.dropOnly = true; c.regul = e; e.regulBy = c; n++;
+    logT("regul", "Регулировщик встал у въезда на перекрытую улицу: машины идут в объезд", "good", 60);
+  }
 }

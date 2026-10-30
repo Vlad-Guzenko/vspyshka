@@ -3,7 +3,7 @@ let tlPoles = null, tlHeads = null, tlLamps = null, tlList = [];
 function buildTrafficLights() {
   for (const m of [tlPoles, tlHeads, tlLamps]) if (m) { scene.remove(m); m.dispose(); }
   tlList = [];
-  for (const n of RN) { if (!n.sig) continue; for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (l) tlList.push({ n, e, l }); } }
+  for (const n of RN) { if (!n.sig && !n.sigBroken) continue; for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (l) tlList.push({ n, e, l }); } } // поваленные взрывом тоже рисуются — лёжа (render19.js)
   const cnt = Math.max(1, tlList.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
   tlPoles = new THREE.InstancedMesh(new THREE.CylinderGeometry(.25, .3, 14, 6).translate(0, 7, 0), new THREE.MeshStandardMaterial({ color: 0x2a2d30, metalness: .5, roughness: .5 }), cnt);
   tlHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 3.4, 1.1), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: .6 }), cnt);
@@ -27,7 +27,7 @@ function updateTrafficLights(dt) {
   if (!tlLamps || !tlList.length) return; tlT -= dt; if (tlT > 0) return; tlT = .25;
   const dark = typeof settings !== "undefined" && settings.dark;
   tlList.forEach((t, j) => {
-    const st = dark ? "off" : lightFor(t.n, t.e);
+    const st = dark || t.n.sigBroken ? "off" : lightFor(t.n, t.e);
     // верхняя лампа — красный/жёлтый, нижняя — зелёный
     tlLamps.setColorAt(j * 2, st === "g" || st === "off" ? TL_COL.off : TL_COL[st]);
     tlLamps.setColorAt(j * 2 + 1, st === "g" ? TL_COL.g : TL_COL.off);

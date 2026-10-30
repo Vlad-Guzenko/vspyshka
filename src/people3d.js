@@ -102,7 +102,7 @@ function makeSlot() {
   hat.add(capM, visM, domeM); hat.userData = { capM, visM, domeM, hatMat };
   // исходная поза костей, которые подправляются поверх анимации: у части из них в анимации нет ключей,
   // и без сброса правка копилась бы кадр за кадром
-  const rest = ["Body", "Hips", "Abdomen", "Torso", "Head", "UpperLegL", "UpperLegR", "UpperArmL", "UpperArmR", "LowerArmL", "LowerArmR", "FistL", "FistR"]
+  const rest = ["Body", "Hips", "Abdomen", "Torso", "Head", "UpperLegL", "UpperLegR", "LowerLegL", "LowerLegR", "FootL", "FootR", "UpperArmL", "UpperArmR", "LowerArmL", "LowerArmR", "FistL", "FistR"]
     .filter(n => bones[n]).map(n => [bones[n], bones[n].position.clone(), bones[n].quaternion.clone(), bones[n].scale.clone()]);
   return { holder, root, mesh, mixer, actions, cur: null, agent: null, bones, gun, hat, mats: {}, char: null, palKey: "", rest };
 }
@@ -117,12 +117,13 @@ function paintPalette(s, a) {
   const z = a.role === "zombie", burnt = a.burnt, dead = a.state === "dead", n = s.char, C = REAL.chars[n];
   const zskin = a.ztype === "spitter" ? "#9ab83a" : a.ztype === "titan" ? "#5a2620" : ["#7d8c69", "#9a9a8c", "#7f8a94", "#8a7a6a"][a.id % 4];
   const skin = burnt ? "#1b1512" : z ? mixHex(a.skin, zskin, .8) : a.burn > .3 ? mixHex(a.skin, "#7a2a18", a.burn * .8) : dead ? mixHex(a.skin, "#bdb7ad", .4) : a.skin;
-  const key = n + skin + a.cloth + a.pants + a.hair + (z ? "z" : "") + (dead ? "d" : "") + (burnt ? "b" : "");
+  const cold = a.frozen ? 1 : a.cold > .05 && (a.buried || a.frost) ? a.cold : 0; // замерзающий синеет (sim18.js)
+  const key = n + skin + a.cloth + a.pants + a.hair + (z ? "z" : "") + (dead ? "d" : "") + (burnt ? "b" : "") + Math.round(cold * 10);
   if (key === s.palKey) return; s.palKey = key;
   const own = UNIFORM.test(n) || /^Zombie/.test(n), dirt = (c, k) => z ? mixHex(c, "#3a2418", k) : c;
   for (const [m, base] of C.mats) {
     let col = base;
-    if (m === "Skin") col = skin;
+    if (m === "Skin") col = cold ? mixHex(skin, "#8fa8c8", cold * .75) : skin;
     else if (m === "Hair") col = z ? mixHex(a.hair, "#4a4a44", .3) : a.hair;
     else if (!own && /Shirt|Clothes|Top|Jacket|Coat/i.test(m) && !/Dark/i.test(m)) col = dirt(a.cloth, .45);
     else if (!own && /Pants|Trousers|Skirt/i.test(m)) col = dirt(a.pants, .35);
@@ -178,6 +179,8 @@ function updateRealPeople(dt) {
       const d = Math.hypot(X(a.x) - cp.x, Z(a.y) - cp.z, (a.onRoof ? a.roofZ : 0) - cp.y * .3);
       if (d < maxD) cand.push([d, a]);
     }
+    // горожане на скамейках и за столиками кафе (cozy.js): не агенты симуляции, только картинка вблизи камеры
+    if (prefs.realPeople !== false && (fps.on || camC.dist < 520)) for (const a of cozy.sitters) { const d = Math.hypot(X(a.x) - cp.x, Z(a.y) - cp.z, -cp.y * .3); if (d < maxD) cand.push([d + 12, a]); }
     cand.sort((p, q) => p[0] - q[0]);
     const want = new Set(cand.slice(0, REAL.N).map(p => p[1]));
     for (const s of REAL.slots) if (s.agent && !want.has(s.agent)) { s.agent.lod = false; s.agent = null; s.holder.visible = false; }
@@ -189,7 +192,7 @@ function updateRealPeople(dt) {
   }
   for (const s of REAL.slots) {
     const a = s.agent; if (!a) continue;
-    if (a.state === "saved" || (a.hidden && !a.onRoof)) { a.lod = false; s.agent = null; s.holder.visible = false; continue; }
+    if (a.state === "saved" || (a.hidden && !a.onRoof) || a.gone) { a.lod = false; s.agent = null; s.holder.visible = false; continue; }
     setChar(s, charOf(a)); paintPalette(s, a);
     const z = a.role === "zombie", dead = a.state === "dead", sp = a.speed || 0;
     const sc = a.size * (a.ztype === "brute" ? 1.2 : a.ztype === "titan" ? 1.65 : 1), bld = a.build || 1;
@@ -216,6 +219,7 @@ function updateRealPeople(dt) {
     for (const [b, p, q, sc] of s.rest) { b.position.copy(p); b.quaternion.copy(q); b.scale.copy(sc); }
     s.mixer.update(dt);
     applyProps(s.bones);
+    if (a.sit) sitPose(s, a);
     // осанка: зомби сутулятся и клонят голову набок, каждый по-своему; старики чуть горбятся; часть зомби хромает
     const upright = !dead && !(a.riseT > 0) && a.ztype !== "crawler";
     if (upright && (z || a.age === "old")) {
@@ -236,6 +240,8 @@ function updateRealPeople(dt) {
       if (arms !== 2) aimBone(s.bones.LeftForeArm, s.bones.LeftHand, _fw);
       aimBone(s.bones.RightForeArm, s.bones.RightHand, _fw);
     }
+    // регулировщик у перекрытой улицы (sim18.js): стоит лицом к подъезжающим и показывает объезд
+    if (a.regul && !dead && sp < 1 && a.order && Math.hypot(a.order.x - a.x, a.order.y - a.y) < 6) { s.holder.rotation.y = Math.PI / 2 - (a.regulDir || 0); regulPose(s, a); }
     // головной убор сидит на кости головы
     s.hat.visible = !!a.hat && !OWN_HAT.has(s.char) && s.bones.Head !== undefined;
     if (s.hat.visible) {

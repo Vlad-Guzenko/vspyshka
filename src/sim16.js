@@ -96,7 +96,7 @@ function oppClear(c, opp, dx, dy) {
     if (Math.abs(lt - off2) < 5 && al > -14 && al < 110 && (o.moving || o.stopped || o.wreck || o.tank)) busy = true;
   });
   if (busy) return false;
-  for (let k = 6; k < 90; k += 6) { const q = lanePos(opp, Math.max(0, so - k)), cc = cellAt(q.x, q.y); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4) return false; }
+  for (let k = 6; k < 90; k += 6) { const q = lanePos(opp, Math.max(0, so - k)), cc = cellAt(q.x, q.y); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4 || cc === 11) return false; }
   return true;
 }
 // в своей полосе на нашем месте никого: ни впереди, ни сзади ближе длины кузовов

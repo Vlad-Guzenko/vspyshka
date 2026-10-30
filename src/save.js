@@ -23,7 +23,7 @@ function serializeGame() {
   return {
     v: 3, date: Date.now(), layoutKey, mapSize, relief, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
     wallJobs: wallJobs.map(j => ({ ...j, cp: cps.indexOf(j.cp) })), zones: b64(zoneOf.subarray(0, GW * GH)), zoneSeq,
-    grid: b64(grid.subarray(0, GW * GH)), bhp16: b64(Uint16Array.from(bhp.subarray(0, GW * GH), v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask.subarray(0, GW * GH)),
+    grid: b64(grid.subarray(0, GW * GH)), snow: snowD && snowCells.size ? [...snowCells].map(i => [i, +snowD[i].toFixed(2), snowUnder[i]]) : null, bhp16: b64(Uint16Array.from(bhp.subarray(0, GW * GH), v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask.subarray(0, GW * GH)),
     buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
     roads: { nodes: RN.map(n => [n.x, n.y, n.off || 0, n.cul ? 1 : 0]), edges: RE.map(e => [e.a.id, e.b.id, e.pts, e.hw, e.kind, e.oneway ? 1 : 0, e.rural ? 1 : 0, e.boulevard ? 1 : 0, e.trees ? 1 : 0, e.sw]), rounds },
     roadMask: b64(roadMask.subarray(0, GW * GH)), regionOf: b64(Int16Array.from(regionOf.subarray(0, GW * GH), v => v)), patchOf: b64(patchOf.subarray(0, GW * GH)), patches,
@@ -32,7 +32,7 @@ function serializeGame() {
     special: Object.fromEntries(Object.entries(special).map(([k, v]) => [k, { x: v.x, y: v.y, b: bi.get(v.b) }])),
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
-    world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
+    world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather, season: world.season }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     camp, // кампания: день, итоги по дням, бюджет (campaign.js)
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
@@ -44,7 +44,7 @@ function loadGame(S) {
   layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
   relief = S.relief || "plain"; mapSize = S.mapSize || "normal"; setMapSize(mapSize);
   grid.fill(2); bhp.fill(0); wallMask.fill(0); roadMask.fill(0); regionOf.fill(-1); patchOf.fill(-1);
-  grid.set(unb64(S.grid, Uint8Array)); bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
+  grid.set(unb64(S.grid, Uint8Array)); snowD = null; if (S.snow) { snowInit(); for (const [i, d, u] of S.snow) { snowD[i] = d; snowUnder[i] = u; snowCells.add(i); } snowDirty = true; snowBox = [0, 0, W, H]; snowCity = "load"; } bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
   // сеть дорог: узлы, рёбра, полосы заново из сохранённой геометрии
   RN = []; RE = []; rounds = S.roads.rounds || [];
   for (const [x, y, off, cul] of S.roads.nodes) { const n = rnNew(x, y); n.off = off; n.cul = !!cul; }
@@ -63,7 +63,7 @@ function loadGame(S) {
   tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
   fires = S.fires; tents = S.tents; research = S.research; scientists = S.scientists; vaccineReady = S.vaccineReady; armyWaves = S.armyWaves; gangsSpawned = S.gangsSpawned;
   simT = S.simT; bites = S.bites; deaths = S.deaths; zkills = S.zkills; saved = S.saved; cured = S.cured; nextId = S.nextId;
-  Object.assign(settings, S.settings); Object.assign(world, S.world); if ($("threats")) $("threats").checked = settings.threats !== false; syncDayButton(); $("weather").value = world.weather;
+  Object.assign(settings, S.settings); Object.assign(world, S.world); if ($("threats")) $("threats").checked = settings.threats !== false; syncDayButton(); $("weather").value = world.weather; $("season").value = world.season || "summer";
   editRoads = S.editRoads || [];
   buildCrossings(); evac = null; strikes = []; noises = []; machines = []; nuke = null; radZones = []; timers = []; reports = []; wallJobs = []; interests = []; stats = []; events = []; firsts = { zombie: true, ...(S.firstsX || {}) };
   resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;

@@ -227,7 +227,7 @@ strikeMarks.visible = false; strikeMarks.renderOrder = 4; scene.add(strikeMarks)
 
 /* ---------- время суток и погода ---------- */
 // hour 0–24; солнце идёт по дуге, ночью светит луна; сумерки красят небо
-const world = { hour: 13, target: 13, cycle: false, weather: "clear", wet: 0, rain: 0, fogK: 0, flash: 0, nextBolt: 8 };
+const world = { hour: 13, target: 13, cycle: false, weather: "clear", season: "summer", wet: 0, rain: 0, fogK: 0, flash: 0, nextBolt: 8 };
 const C_SKY = { day: [0x4f86c6, 0xd5e2ea], dusk: [0x2b3a66, 0xf0a060], night: [0x04060c, 0x121a2c] };
 const starGeo = new THREE.BufferGeometry(), starPos = [];
 for (let i = 0; i < 1600; i++) { const u = Math.random(), v = rnd(.08, 1), th = u * TAU, r = 8500; starPos.push(Math.cos(th) * Math.sqrt(1 - v * v) * r, v * r, Math.sin(th) * Math.sqrt(1 - v * v) * r); }
@@ -260,7 +260,9 @@ function updateLighting(dt, simDt) {
   nightK = 1 - clamp(el * 4 + .35); carLightK = clamp((.35 - el) / .3);
   settings.night = nightK > .5;
   // погода
-  const wantRain = world.weather === "rain" || world.weather === "storm" ? 1 : 0, wantFog = world.weather === "fog" ? 1 : world.weather === "storm" ? .5 : wantRain * .3;
+  // зимой вместо дождя идёт снег (cozy.js), гроза становится метелью; в снегопад даль чуть в дымке
+  const winter = world.season === "winter", wantRain = !winter && (world.weather === "rain" || world.weather === "storm") ? 1 : 0;
+  const wantFog = world.weather === "fog" ? 1 : world.weather === "storm" ? .5 : world.weather === "snow" || (winter && world.weather === "rain") ? .35 : wantRain * .3;
   world.rain += (wantRain - world.rain) * Math.min(1, dt * .5); world.fogK += (wantFog - world.fogK) * Math.min(1, dt * .5);
   world.wet += ((wantRain ? 1 : 0) - world.wet) * Math.min(1, dt * (wantRain ? .15 : .03));
   const gloom = Math.max(world.rain * .55, world.fogK * .4);
@@ -302,7 +304,7 @@ function updateLighting(dt, simDt) {
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);
   // молнии в грозу
   world.flash = clamp(world.flash - Math.max(0, dt) * 4, 0, 1.5);
-  if (world.weather === "storm") { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = rnd(5, 16); world.flash = .9; sfx.thunder(); } }
+  if (world.weather === "storm" && !winter) { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = rnd(5, 16); world.flash = .9; sfx.thunder(); } }
   // капли
   rain.visible = world.rain > .02;
   if (rain.visible) {

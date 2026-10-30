@@ -47,17 +47,33 @@ function mergeGeoUV(list) {
   const out = new THREE.BufferGeometry(); out.setAttribute("position", new THREE.BufferAttribute(p, 3)); out.setAttribute("normal", new THREE.BufferAttribute(nr, 3)); out.setAttribute("uv", new THREE.BufferAttribute(uv, 2)); out.computeBoundingSphere();
   return out;
 }
+// разрушения (sim3.js): разлетевшееся (gone) не рисуется, опрокинутое лежит на боку там, куда его отбросило (tip, tipA, dx, dy),
+// у побывавших во взрыве выбиты стёкла (glass), горевшее чернеет по степени обгорания (char) — свой тёмный материал на ступень
+let propMeshes = [];
+const _prUp = new THREE.Vector3(0, 1, 0), _prT = new THREE.Quaternion(), _prAx = new THREE.Vector3(), charMats = new Map();
+function charMat(mat, lvl) {
+  let C = charMats.get(mat); if (!C) charMats.set(mat, C = []);
+  if (!C[lvl]) { const m = mat.clone(); m.color = (mat.color ? mat.color.clone() : new THREE.Color(1, 1, 1)).lerp(new THREE.Color(0x1b1714), lvl === 2 ? .93 : .55); if (m.emissive) m.emissive.setHex(0); m.roughness = 1; m.metalness = 0; C[lvl] = m; }
+  return C[lvl];
+}
 function buildProps() {
-  const buckets = new Map();
+  for (const m of propMeshes) { cityGroup.remove(m); m.geometry.dispose(); } propMeshes = [];
+  const buckets = new Map(), glassy = new Set([verandaMat, darkGlassMat]);
   for (const pr of props) {
-    const parts = PROP_PARTS[pr.k]; if (!parts) continue;
-    // лицевая сторона (+z) смотрит в направлении a
-    _prM.compose(_prV.set(X(pr.x), gY(pr.x, pr.y), Z(pr.y)), _prQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2 - pr.a), _prS.set(1, 1, 1));
+    const parts = PROP_PARTS[pr.k]; if (!parts || pr.gone) continue;
+    // лицевая сторона (+z) смотрит в направлении a; опрокинутое — ещё и повёрнуто от взрыва вокруг основания
+    const px = pr.x + (pr.dx || 0), py = pr.y + (pr.dy || 0);
+    _prQ.setFromAxisAngle(_prUp, Math.PI / 2 - pr.a);
+    if (pr.tip) { _prT.setFromAxisAngle(_prAx.set(Math.sin(pr.tipA), 0, -Math.cos(pr.tipA)), pr.tip); _prQ.premultiply(_prT); }
+    _prM.compose(_prV.set(X(px), gY(px, py), Z(py)), _prQ, _prS.set(1, 1, 1));
+    const ch = pr.char > .7 ? 2 : pr.char > .3 ? 1 : 0;
     for (const part of parts(pr.v || 0)) {
+      if (pr.glass && glassy.has(part.mat)) { part.geo.dispose(); continue; } // стёкла выбиты
       _prE.set(part.rx || 0, 0, 0); _prL.compose(_prV.set(part.x, part.y, part.z), _prQ.setFromEuler(_prE), _prS.set(1, 1, 1)).premultiply(_prM);
       const src = part.geo, g = (src.index ? src.toNonIndexed() : src).applyMatrix4(_prL); if (g !== src) src.dispose();
-      let list = buckets.get(part.mat); if (!list) buckets.set(part.mat, list = []); list.push(g);
+      const mat = ch ? charMat(part.mat, ch) : part.mat;
+      let list = buckets.get(mat); if (!list) buckets.set(mat, list = []); list.push(g);
     }
   }
-  for (const [mat, list] of buckets) { const m = new THREE.Mesh(mergeGeoUV(list), mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; cityGroup.add(m); }
+  for (const [mat, list] of buckets) { const m = new THREE.Mesh(mergeGeoUV(list), mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; cityGroup.add(m); propMeshes.push(m); }
 }

@@ -386,7 +386,7 @@ function facadeTex(st, emissive) {
       // стеклянная навесная стена: сплошное стекло, тонкие импосты
       for (let f = 0; f < TFL; f++) for (let b = 0; b < TBX * 2; b++) {
         const x0 = b * TPX / 2, y0 = h - (f + 1) * TPY;
-        if (emissive) { if (Math.random() < .3) { g.fillStyle = pick(["#dfe9ff", "#fff1d6", "#cfe0ff"]); g.globalAlpha = rnd(.4, .9); g.fillRect(x0 + 1, y0 + 3, TPX / 2 - 2, TPY - 6); g.globalAlpha = 1; } continue; }
+        if (emissive) { if (Math.random() < .8) { g.fillStyle = pick(["#dfe9ff", "#fff1d6", "#cfe0ff"]); g.globalAlpha = rnd(.4, .9); g.fillRect(x0 + 1, y0 + 3, TPX / 2 - 2, TPY - 6); g.globalAlpha = 1; } continue; }
         const gr = g.createLinearGradient(x0, y0, x0 + TPX / 2, y0 + TPY); gr.addColorStop(0, shade(st.glass, rnd(-10, 20))); gr.addColorStop(1, shade(st.glass, rnd(-30, 0)));
         g.fillStyle = gr; g.fillRect(x0 + 1, y0 + 2, TPX / 2 - 2, TPY - 4);
         if (Math.random() < .15) { g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(x0 + 1, y0 + 2, TPX / 2 - 2, TPY - 4); }
@@ -400,8 +400,8 @@ function facadeTex(st, emissive) {
       const ww = ground ? TPX * .86 : TPX * st.win, wh = ground ? TPY * .72 : TPY * .56;
       const wx = x0 + (TPX - ww) / 2, wy = ground ? y0 + TPY - wh - 3 : y0 + TPY * .22;
       if (emissive) {
-        // ночью горит каждое третье окно, цвет от тёплого до холодного
-        if (Math.random() < (ground ? .5 : .32)) { g.fillStyle = pick(["#ffcf8a", "#ffd9a0", "#f6e7c8", "#bcd4ff", "#ffb870"]); g.globalAlpha = rnd(.5, 1); g.fillRect(wx + 2, wy + 2, ww - 4, wh - 4); g.globalAlpha = 1; }
+        // в карте горят все окна, цвет от тёплого до холодного; какие светятся в этот час — решает шейдер фасада (cozy.js)
+        { g.fillStyle = pick(["#ffcf8a", "#ffd9a0", "#f6e7c8", "#bcd4ff", "#ffb870"]); g.globalAlpha = rnd(.5, 1); g.fillRect(wx + 2, wy + 2, ww - 4, wh - 4); g.globalAlpha = 1; }
         continue;
       }
       // откос: тень в проёме сверху и слева, рама
@@ -501,7 +501,7 @@ function buildCity() {
       if (along) rg.rotateY(Math.PI / 2);
       const roof = new THREE.Mesh(rg, pick(tileMats)); roof.position.y = b.h; roof.castShadow = roof.receiveShadow = true; obj.add(roof);
       if (b.kind === "oldhouse") roof.material = pick(tileMats.slice(0, 2));
-      if (Math.random() < .5) { const ch = new THREE.Mesh(new THREE.BoxGeometry(2.2, rh + 3, 2.2), parapetMat); ch.position.set(rnd(-w / 4, w / 4), b.h + rh * .6, rnd(-d / 4, d / 4)); ch.castShadow = true; obj.add(ch); }
+      if (Math.random() < .5) { const ch = new THREE.Mesh(new THREE.BoxGeometry(2.2, rh + 3, 2.2), parapetMat); ch.position.set(rnd(-w / 4, w / 4), b.h + rh * .6, rnd(-d / 4, d / 4)); ch.castShadow = true; ch.userData.chim = 1; obj.add(ch); }
       houseDetails(b, obj, w, d); facadeDetails(b, obj, w, d);
       b.h += rh * .6;
       continue;
@@ -606,7 +606,7 @@ function buildTrees() {
     outTr.push({ m: new THREE.Matrix4().makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)), c: null, r: h * .55 + 2 });
     for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); outCr.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)), c: new THREE.Color().setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)), r: r * 1.2 }); }
   }
-  buildTiles(cityTr, trunkGeo, trunkMat, true, "ct"); buildTiles(outTr, trunkGeo, trunkMat, false, "ot"); // лес за городом без теней: дорого, а издали не видно
+  const trunkT = buildTiles(cityTr, trunkGeo, trunkMat, true, "ct"); buildTiles(outTr, trunkGeo, trunkMat, false, "ot"); // лес за городом без теней: дорого, а издали не видно
   // кроны: сначала городские (крона k дерева i — номер i·3+k), за ними лес; дальние — упрощённые шары по участкам
   const all = cityCr.concat(outCr), n = all.length, M = new Float32Array(n * 16), C = new Float32Array(n * 3);
   all.forEach((it, j) => { it.m.toArray(M, j * 16); C[j * 3] = it.c.r; C[j * 3 + 1] = it.c.g; C[j * 3 + 2] = it.c.b; });
@@ -614,7 +614,7 @@ function buildTrees() {
   const tiles = ct.meshes.concat(ft.meshes), tileOf = new Int32Array(n), slotOf = new Int32Array(n);
   for (let j = 0; j < n; j++) { const o = j < cityCr.length; tileOf[j] = o ? ct.tileOf[j] : ft.tileOf[j - cityCr.length] + ct.meshes.length; slotOf[j] = o ? ct.slotOf[j] : ft.slotOf[j - cityCr.length]; }
   const detail = new THREE.InstancedMesh(crownGeo, sphereMat, CROWN_DETAIL_CAP); detail.count = 0; detail.castShadow = detail.receiveShadow = true; detail.frustumCulled = false; detail.setColorAt(0, _lc.setRGB(1, 1, 1)); cityGroup.add(detail);
-  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true };
+  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, trunk: trunkT, trunkM: cityTr.map(it => it.m), where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true };
 }
 // кроны по местам: 2 — листва, 1 — бугристый шар, 0 — упрощённый шар в своём участке
 function updateLeafLOD() {
@@ -643,7 +643,7 @@ function refreshTrees() {
   const T = trees3d; if (!T) return;
   T.dirty = true;
   const col = new THREE.Color("#1b1714"), touched = new Set();
-  trees.forEach((t, i) => { if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
+  trees.forEach((t, i) => { if (t.snap && !t.shownSnap) snapTree(T, t, i); if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
   for (const m of touched) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 function radialTex(stops) { return canvasTex(128, 128, (g) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); for (const [o, c] of stops) gr.addColorStop(o, c); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }); }
@@ -730,16 +730,19 @@ function buildFunicular() {
   const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({ color: 0x6f7378, roughness: .55, metalness: .6 }), rope = new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: .6, metalness: .5 });
   const nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, yaw = -Math.atan2(F.U[1] - F.L[1], F.U[0] - F.L[0]);
   // опоры и порталы
+  const pylons = [];
   for (const s of F.supports) {
-    const p = cablePoint(F, s.d), ground = gY(p[0], p[1]), hT = s.h - ground;
-    if (s.pylon) { const tw = new THREE.Mesh(new THREE.CylinderGeometry(.9, 2.2, hT, 6), steel); tw.position.set(X(p[0]), ground + hT / 2, Z(p[1])); tw.castShadow = true; g.add(tw); }
-    else for (const o of [-4, 4]) { const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, hT, 1.2), steel); post.position.set(X(p[0] + nx * o), ground + hT / 2, Z(p[1] + ny * o)); g.add(post); }
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(9, .8, 1.2), steel); arm.position.set(X(p[0]), s.h, Z(p[1])); arm.rotation.y = yaw; g.add(arm);
+    // опора — группа с началом у основания: взрыв валит её целиком (s.down — куда)
+    const p = cablePoint(F, s.d), ground = gY(p[0], p[1]), hT = s.h - ground, pg = new THREE.Group(); pg.position.set(X(p[0]), ground, Z(p[1])); g.add(pg); pylons.push(pg);
+    if (s.pylon) { const tw = new THREE.Mesh(new THREE.CylinderGeometry(.9, 2.2, hT, 6), steel); tw.position.set(0, hT / 2, 0); tw.castShadow = true; pg.add(tw); }
+    else for (const o of [-4, 4]) { const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, hT, 1.2), steel); post.position.set(nx * o, hT / 2, ny * o); pg.add(post); }
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(9, .8, 1.2), steel); arm.position.set(0, hT, 0); arm.rotation.y = yaw; pg.add(arm);
   }
+  const ropes = [];
   // тросы: две нитки с провисом
   for (const o of [-2.6, 2.6]) {
     const pts = []; for (let d = 0; d <= F.len; d += 6) { const p = cablePoint(F, Math.min(d, F.len)); pts.push(new THREE.Vector3(X(p[0] + nx * o), cableH(F, Math.min(d, F.len)) - .3, Z(p[1] + ny * o))); }
-    const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, pts.length * 2), .22, 5, false), rope); g.add(tube);
+    const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, pts.length * 2), .22, 5, false), rope); g.add(tube); ropes.push(tube);
   }
   // кабинки
   const cabins = [], body = new THREE.MeshStandardMaterial({ color: 0xc8342a, roughness: .5 }), glass = new THREE.MeshStandardMaterial({ color: 0x9fc1d4, roughness: .2, metalness: .3 });
@@ -749,11 +752,13 @@ function buildFunicular() {
     const wn = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.6, 4.2), glass); wn.position.y = -4.6; cab.add(wn);
     cab.rotation.y = yaw; g.add(cab); cabins.push(cab);
   }
-  cityGroup.add(g); funiObj = { g, cabins };
+  cityGroup.add(g); funiObj = { g, cabins, pylons, ropes, broken: false };
 }
 function updateFunicular() {
   const F = funicular; if (!funiObj || !F || !F.supports) return;
-  F.cabins.forEach((c, i) => { const m = funiObj.cabins[i]; if (!m) return; const p = cabinPos(F, c); m.position.set(X(p[0]), p[2] - .3, Z(p[1])); });
+  F.cabins.forEach((c, i) => { const m = funiObj.cabins[i]; if (!m) return; const p = cabinPos(F, c); m.position.set(X(p[0]), p[2] - .3, Z(p[1])); if (c.fallen && !m.userData.crashed) { m.userData.crashed = true; m.rotation.z = rnd(-.4, .4); m.rotation.x = rnd(-.3, .3); } });
+  // трос оборван: нитки пропадают, опора у места взрыва лежит
+  if (F.broken && !funiObj.broken) { funiObj.broken = true; for (const r of funiObj.ropes) r.visible = false; F.supports.forEach((s, i) => { if (s.down === undefined) return; const pg = funiObj.pylons[i]; pg.quaternion.setFromAxisAngle(new THREE.Vector3(Math.sin(s.down), 0, -Math.cos(s.down)), 1.45); }); }
 }
 // крепостная стена старого города: кольцо с зубцами и башнями, ворота на лучах
 function buildCityWalls() {
@@ -777,12 +782,13 @@ function buildCityWalls() {
   }
   cityGroup.add(g);
 }
+let fenceInst = null;
 function buildFences() {
-  if (!fences.length) return;
+  fenceInst = null; if (!fences.length) return;
   const m = new THREE.Matrix4(), f = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x8d7a5c, roughness: .9 }), fences.length);
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
   fences.forEach(([x0, y0, x1, y1], i) => { const L = Math.hypot(x1 - x0, y1 - y0); q.setFromAxisAngle(up, -Math.atan2(y1 - y0, x1 - x0)); m.compose(new THREE.Vector3(X((x0 + x1) / 2), gY((x0 + x1) / 2, (y0 + y1) / 2) - .5, Z((y0 + y1) / 2)), q, new THREE.Vector3(L, 4, .5)); f.setMatrixAt(i, m); });
-  f.castShadow = true; cityGroup.add(f);
+  f.castShadow = true; f.setColorAt(0, new THREE.Color(1, 1, 1)); fences.forEach((s, i) => f.setColorAt(i, new THREE.Color(1, 1, 1))); cityGroup.add(f); fenceInst = f; refreshFences();
 }
 
 /* ---------- обрушение зданий ---------- */

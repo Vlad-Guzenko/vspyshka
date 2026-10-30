@@ -107,6 +107,7 @@ function stepCost(j, mode, wall6) {
   if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) return 0;
   if (c === 8) return mode ? 3 : 0;
   if (c === 6) return wall6 || mode !== 1 ? 0 : 9;
+  if (c === 11) return 4; // сугроб: бредут медленно
   if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8;
   return mode === 2 && roadMask[j] !== 1 ? 2 : 1;
 }

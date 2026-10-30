@@ -60,7 +60,7 @@ function chooseNext(c, l = c.lane) {
     if (c.trip) pickTrip(c); else if (c.line >= 0 && c.bus && !c.service) busNextStop(c, "unreach"); // цель отсюда недостижима — новая
   }
   let tot = 0;
-  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
+  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if ((m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) && m.e.regulBy && !c.service) k = 0; else if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
   let r = Math.random() * tot; for (let i = 0; i < opts.length; i++) { r -= w[i]; if (r <= 0) return opts[i]; }
   return opts[0];
 }
@@ -103,7 +103,7 @@ function canEnter(c, l, m, deep) {
   const mine = makeTurn(l, m);
   if (!force && n.occ.length) for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false;
   // на следующей полосе нет завала
-  for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6) return false; }
+  for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6 || (cc === 11 && c.service !== "plow")) return false; }
   // за перекрёстком есть место для всего кузова: очередь на следующей полосе не доходит до её начала
   return nextLaneGap(c, m, laneStart(m), TRAFFIC_TUNE.bonus) > 2;
 }
@@ -324,7 +324,7 @@ function stepRoadCar(c, dt) {
   if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas && !(c.bus && c.line >= 0)) pickTrip(c); // маршрутный автобус по делам не ездит
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
-  if (c.goal && c.service && !c.leaving && !c.deployed) {
+  if (c.goal && c.service && c.service !== "plow" && !c.leaving && !c.deployed) { // снегоуборщик у цели не встаёт (sim18.js)
     c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" && c.phase === "go" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
     if (gd < 70 && R && l.e === R.e && !c.over) c.latTgt = curbShift(l);
@@ -340,7 +340,12 @@ function stepRoadCar(c, dt) {
   for (let k = 10; k < 40; k += 6) {
     const q = lanePos(l, Math.min(c.s + k, l.e.len)), qx = q.x + q.ty * (c.latOff || 0), qy = q.y - q.tx * (c.latOff || 0), cc = cellAt(qx, qy);
     if (cc === 5 && !c.over) { clear = Math.min(clear, k - 6); cellClear = k - 6; break; }
-    if (cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9) { clear = Math.min(clear, k); cellClear = k; break; }
+    if (cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9 || (cc === 11 && c.service !== "plow")) { clear = Math.min(clear, k); cellClear = k; break; }
+  }
+  // снег на дороге видно издалека: перед сугробом встают заранее, метров за пятнадцать, по тонкому снегу ползут
+  if (snowD && snowCells.size && c.service !== "plow") {
+    for (let k = 10; k < 92; k += 6) { const q = lanePos(l, Math.min(c.s + k, l.e.len)), cc = cellAt(q.x + q.ty * (c.latOff || 0), q.y - q.tx * (c.latOff || 0)); if (cc === 11) { clear = Math.min(clear, Math.max(0, k - 16)); cellClear = Math.min(cellClear, Math.max(0, k - 16)); break; } }
+    if (snowD[snowIdx(c.x + Math.cos(c.ang) * 8, c.y + Math.sin(c.ang) * 8)] > .2) c.v = Math.min(c.v, 10);
   }
   if ((c.stallT || 0) < 5) clear = zebraStop(c, l, clear);
   if (c.panic && A.ahead && A.clear < 11 && c.v > 16) { carCollide(c, A.ahead, c.v); return; }

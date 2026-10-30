@@ -281,7 +281,9 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         <label class="chk"><input type="radio" name="wTime" value="23"> Ночь</label>
       </fieldset>
       <div class="row"><label for="wWeather">Погода</label></div>
-      <select id="wWeather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option></select>
+      <select id="wWeather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option><option value="snow">Снегопад</option></select>
+      <div class="row"><label for="wSeason">Время года</label></div>
+      <select id="wSeason" class="sel"><option value="summer">Лето</option><option value="autumn">Осень: листопад</option><option value="winter">Зима: снег на крышах</option></select>
       <label class="chk" for="wSvc"><input type="checkbox" id="wSvc" checked> Город реагирует сам: полиция, пожарные, скорая, ремонтники, а штаб ЧС по уровню угрозы вводит армию, оцепление, лагеря, эвакуацию, танки и авиацию</label>
       <label class="chk" for="wThr"><input type="checkbox" id="wThr" checked> Внешние угрозы: орды с полей на шум города, беженцы на въездах, ультиматум федерального центра</label>
     </section>
@@ -479,7 +481,9 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         <input type="range" id="hour" min="0" max="23.9" step=".1" value="13">
         <label class="chk" for="cycle"><input type="checkbox" id="cycle"> Смена дня и ночи (сутки за 12 минут)</label>
         <div class="row"><label for="weather">Погода</label></div>
-        <select id="weather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option></select>
+        <select id="weather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option><option value="snow">Снегопад</option></select>
+        <div class="row"><label for="season">Время года</label></div>
+        <select id="season" class="sel"><option value="summer">Лето</option><option value="autumn">Осень</option><option value="winter">Зима</option></select>
         <label class="chk" for="marks"><input type="checkbox" id="marks" checked> Подсвечивать укушенных</label>
         <label class="chk" for="shadows"><input type="checkbox" id="shadows" checked> Тени (выключи, если тормозит)</label>
       </div>
@@ -619,6 +623,7 @@ function stepCost(j, mode, wall6) {
   if (c === 3 || c === 4 || c === 5 || c === 9 || c === 10) return 0;
   if (c === 8) return mode ? 3 : 0;
   if (c === 6) return wall6 || mode !== 1 ? 0 : 9;
+  if (c === 11) return 4; // сугроб: бредут медленно
   if (c === 0 && roadMask[j] === 1 && !crossMask[j]) return mode ? 1 : 8;
   return mode === 2 && roadMask[j] !== 1 ? 2 : 1;
 }
@@ -2298,7 +2303,7 @@ function chooseNext(c, l = c.lane) {
     if (c.trip) pickTrip(c); else if (c.line >= 0 && c.bus && !c.service) busNextStop(c, "unreach"); // цель отсюда недостижима — новая
   }
   let tot = 0;
-  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
+  const w = opts.map(m => { const a = turnAngle(l, m), aa = Math.abs(a); let k = aa < .5 ? 1 : aa < 2.2 ? (a > 0 ? .55 : .4) : .12; if (m.e.hw >= 20) k *= 1.4; if (m.to.ed.length === 1 && !m.to.exit) k *= .25; if (simT - m.e.blockT < 60) k *= .05; if ((m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) && m.e.regulBy && !c.service) k = 0; else if (m.e.closed || (m.e.blk && m.e.blk[m.d > 0 ? 0 : 1])) k *= .02; else if (m.e.narrow) k *= .5; if (m.e.quar && !c.service && quarAt(c.x, c.y) !== m.e.quar) k *= .01; tot += k; return k; });
   let r = Math.random() * tot; for (let i = 0; i < opts.length; i++) { r -= w[i]; if (r <= 0) return opts[i]; }
   return opts[0];
 }
@@ -2341,7 +2346,7 @@ function canEnter(c, l, m, deep) {
   const mine = makeTurn(l, m);
   if (!force && n.occ.length) for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return false;
   // на следующей полосе нет завала
-  for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6) return false; }
+  for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6 || (cc === 11 && c.service !== "plow")) return false; }
   // за перекрёстком есть место для всего кузова: очередь на следующей полосе не доходит до её начала
   return nextLaneGap(c, m, laneStart(m), TRAFFIC_TUNE.bonus) > 2;
 }
@@ -2562,7 +2567,7 @@ function stepRoadCar(c, dt) {
   if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas && !(c.bus && c.line >= 0)) pickTrip(c); // маршрутный автобус по делам не ездит
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
-  if (c.goal && c.service && !c.leaving && !c.deployed) {
+  if (c.goal && c.service && c.service !== "plow" && !c.leaving && !c.deployed) { // снегоуборщик у цели не встаёт (sim18.js)
     c.svcT = (c.svcT || 0) + dt; const gd = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if ((c.svcT > 120 && gd < (c.service === "bus" && c.phase === "go" ? 650 : 200)) || (c.service === "dump" && c.svcT > 240 && gd < 120) || (c.svcT > 300 && c.service !== "dump") || c.svcT > 600) { deployCrew(c); return; }
     const R = routeTo(c.goal.x, c.goal.y);
     if (gd < 70 && R && l.e === R.e && !c.over) c.latTgt = curbShift(l);
@@ -2578,7 +2583,12 @@ function stepRoadCar(c, dt) {
   for (let k = 10; k < 40; k += 6) {
     const q = lanePos(l, Math.min(c.s + k, l.e.len)), qx = q.x + q.ty * (c.latOff || 0), qy = q.y - q.tx * (c.latOff || 0), cc = cellAt(qx, qy);
     if (cc === 5 && !c.over) { clear = Math.min(clear, k - 6); cellClear = k - 6; break; }
-    if (cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9) { clear = Math.min(clear, k); cellClear = k; break; }
+    if (cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9 || (cc === 11 && c.service !== "plow")) { clear = Math.min(clear, k); cellClear = k; break; }
+  }
+  // снег на дороге видно издалека: перед сугробом встают заранее, метров за пятнадцать, по тонкому снегу ползут
+  if (snowD && snowCells.size && c.service !== "plow") {
+    for (let k = 10; k < 92; k += 6) { const q = lanePos(l, Math.min(c.s + k, l.e.len)), cc = cellAt(q.x + q.ty * (c.latOff || 0), q.y - q.tx * (c.latOff || 0)); if (cc === 11) { clear = Math.min(clear, Math.max(0, k - 16)); cellClear = Math.min(cellClear, Math.max(0, k - 16)); break; } }
+    if (snowD[snowIdx(c.x + Math.cos(c.ang) * 8, c.y + Math.sin(c.ang) * 8)] > .2) c.v = Math.min(c.v, 10);
   }
   if ((c.stallT || 0) < 5) clear = zebraStop(c, l, clear);
   if (c.panic && A.ahead && A.clear < 11 && c.v > 16) { carCollide(c, A.ahead, c.v); return; }
@@ -3696,9 +3706,10 @@ function planCableCar() {
   const loop = F.len * 2, nc = Math.max(4, Math.round(loop / 300)); F.cabins = []; for (let k = 0; k < nc; k++) F.cabins.push({ s: loop * k / nc, riders: [] });
 }
 // положение кабинки: s по кругу [0, 2·len): до len — вверх, дальше — вниз; поперёк троса нитки разнесены на ±2.6
-function cabinPos(F, c) { const up = c.s < F.len, d = up ? c.s : 2 * F.len - c.s, p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, o = up ? 2.6 : -2.6; return [p[0] + nx * o, p[1] + ny * o, cableH(F, d), d, up]; }
+function cabinPos(F, c) { if (c.fallZ !== undefined) return [c.fx, c.fy, c.fallZ, 0, true]; const up = c.s < F.len, d = up ? c.s : 2 * F.len - c.s, p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, o = up ? 2.6 : -2.6; return [p[0] + nx * o, p[1] + ny * o, cableH(F, d), d, up]; }
 function stepFunicular(dt) {
   const F = funicular; if (!F || !F.cabins.length) return;
+  if (F.broken) { stepCableFall(F, dt); return; } // трос оборван взрывом (sim3.js): канатка стоит
   const loop = F.len * 2;
   for (const c of F.cabins) {
     const [, , , d, up] = cabinPos(F, c), nearSt = Math.min(d, F.len - d) < 30, v = CABLE.speed * (nearSt ? .3 : 1);
@@ -3716,11 +3727,13 @@ function stepFunicular(dt) {
 
 // ---------- канатная дорога от первого лица: игрок садится у станции (E), едет в кабинке, выходит на другой станции ----------
 function cabinAtStation(F, lower) { // кабинка, стоящая у станции и идущая от неё: внизу — вверх, наверху — вниз
+  if (F.broken) return null;
   for (const c of F.cabins) { const [, , , d, up] = cabinPos(F, c); if (lower ? (up && d < 24) : (!up && d > F.len - 24)) return c; } return null;
 }
 function boardCable(a) {
   const F = funicular; if (!F) return "";
   const dl = Math.hypot(a.x - F.L[0], a.y - F.L[1]), du = Math.hypot(a.x - F.U[0], a.y - F.U[1]); if (Math.min(dl, du) > 34) return "";
+  if (F.broken) return "Канатка разрушена: трос оборван";
   const c = cabinAtStation(F, dl < du); if (!c) return "Кабинка ещё не подошла — подожди у станции";
   if (c.riders.length >= CABLE.cap) return "Кабинка полна, подожди следующую";
   a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; c.riders.push(a); fps.mode = "cable"; fps.cabin = c;
@@ -4237,19 +4250,22 @@ function step(dt) {
         }
       }
       a.bash = Math.max(0, (a.bash || 0) - dt);
+      if (a.buried) m = [0, 0, 0]; // засыпанный снегом зомби не выберется
     } else {
       if (a.player) {
         if (a.reload > 0) { a.reload -= dt; if (a.reload <= 0) { const n = Math.min(a.magMax - a.mag, a.ammo); a.mag += n; a.ammo -= n; } }
         if (a.grabT > 0) { a.grabT -= dt; m = [0, 0, 0]; } else m = playerMove(a, dt);
       } else { m = thinkHuman(a, dt); if (a.role === "civ" && a.panic < .3 && !a.unit && m[2] > 0) m = zebraWait(a, m); }
       if (a.post) { m = [0, 0, 0]; a.x = a.post.x; a.y = a.post.y; }
+      if (a.job && a.job.dig) m = digStep(a, dt); // спасатель откапывает засыпанного (sim18.js)
+      if (a.buried) m = [0, 0, 0]; // засыпан снегом — не выбраться
       if (a.state !== "alive") continue;
       if (a.bitten) {
         a.incT -= dt;
         if (a.incT <= 0) { a.state = "dead"; a.deadT = 0; a.reanimate = true; a.wakeAt = 3; deaths++; a.diedT = simT; a.deathBy = "conv"; a.deathWhere = placeName(a.x, a.y); logT("conv", "Укушенный упал в судорогах", "bad", 20); continue; }
       }
       if (a.bleed > 0) { a.bleed -= dt; if (Math.random() < dt * 2) addDecal(a.x + rnd(-1, 1), a.y + rnd(-1, 1), rnd(.3, .7), 0); }
-      if (a.hp < 100 && !(a.burn > .2)) a.hp = Math.min(100, a.hp + dt * .4);
+      if (a.hp < 100 && !(a.burn > .2) && !a.frost) a.hp = Math.min(100, a.hp + dt * .4); // обмороженный сам не поправится — ждёт скорую
     }
     // огонь: кто в очаге — загорается, ожоги копятся
     for (const f of fires) if (Math.hypot(a.x - f.x, a.y - f.y) < f.r) { ignite(a); a.hp -= dt * 18; a.burn = Math.min(1, (a.burn || 0) + dt * .1); }
@@ -4554,6 +4570,7 @@ function gutBuilding(b) {
   logT("gutted", b.kind === "tower" ? "Небоскрёб выгорел дотла: остался остов" : "Дом выгорел дотла", "bad", 20);
 }
 function stepBuildings(dt) {
+  stepWreck(dt);
   for (const b of buildings) {
     if (b.topple && !b.impacted && b.state === "collapsing" && b.cT > b.fallT) toppleImpact(b);
     // заправка: загорелась или её задело взрывом — через несколько секунд рвутся колонки и подземные ёмкости
@@ -4594,9 +4611,10 @@ function blastWorld(x, y, R, big) {
     const d = Math.hypot(c.x - x, c.y - y);
     if (d < R * 1.2) {
       const k = 1 - d / (R * 1.2), ang = Math.atan2(c.y - y, c.x - x);
-      // соседние машины загораются, а взрывается из них лишь каждая пятая (бензовоз — всегда); придавленные завалом не взрываются
-      if (!c.wreck && !c.crushed) { c.burnT = Math.max(c.burnT || 0, 40); if (c.tanker || (d < R * .8 && Math.random() < (big ? .4 : .2))) c.boomT = rnd(.6, 3); }
-      c.wreck = true;
+      // у центра машины загораются, а взрывается из них лишь каждая пятая (бензовоз — всегда); придавленные завалом не взрываются.
+      // Дальше волна только мнёт кузов, выбивает стёкла и отбрасывает
+      if (!c.wreck && !c.crushed && d < R * .75) { c.burnT = Math.max(c.burnT || 0, 40); if (c.tanker || (d < R * .6 && Math.random() < (big ? .4 : .2))) c.boomT = rnd(.6, 3); }
+      c.wreck = true; c.dent = Math.max(c.dent || 0, k); c.glass = true;
       if (c.moving) { c.moving = false; c.stopped = true; c.stopT = simT; }
       clearCarCells(c);
       c.vx = Math.cos(ang) * 50 * k; c.vy = Math.sin(ang) * 50 * k; c.vz = 20 + 50 * k * (big ? 1 : .6); c.z = .1;
@@ -4605,6 +4623,7 @@ function blastWorld(x, y, R, big) {
   }
   for (const l of lamps) if (!l.down && Math.hypot(l.x - x, l.y - y) < R * .9) l.down = rnd(1.2, 1.55) * (Math.random() < .5 ? 1 : -1);
   for (const t of trees) if (Math.hypot(t.x - x, t.y - y) < R * .9) t.burnt = true;
+  wreckBlast(x, y, R, big);
   gridDirty = true;
 }
 
@@ -4676,6 +4695,100 @@ let timers = [];
 function setTimeout0(t, fn) { timers.push({ t, fn }); }
 function stepTimers(dt) { if (!timers.length) return; const due = []; timers = timers.filter(x => (x.t -= dt) > 0 || (due.push(x), false)); for (const x of due) x.fn(); }
 
+/* ---------- огонь и взрыв для всего остального: машины, мелочи на улицах, гидранты, светофоры, заборы, деревья, канатка ----------
+   Огонь медленный: горит то, что может гореть (дерево, пластик, сено, бензин), обугливается до остова и перекидывается на соседей;
+   металл — фонари, гидранты, светофоры, опоры — огню не поддаётся. Взрыв мгновенный: ударная волна опрокидывает и отбрасывает,
+   выбивает стёкла, мнёт кузова, ломает гидранты (бьёт фонтан), валит светофоры, ломает деревья, рвёт заборы и трос канатки;
+   загорается только то, что у самого центра. Картинка — render19.js (wreckDirty — пора перерисовать мелочи) */
+const WRECK = {
+  burn: { bench: 1, play: 1, kiosk: 1.2, stop: .5, board: .8, umbrella: 1.5, pier: .7, hay: 3, trough: .4, tractor: .6, cow: .8, dps: .4 }, // скорость горения; кого нет — не горит
+  heavy: new Set(["silo", "helipad", "pier", "dps", "mine", "wire"]), // ударная волна их не опрокидывает
+  small: new Set(["bench", "umbrella", "trough", "barrel", "cow"]), // у центра взрыва разлетаются
+};
+let wreckT = 0, wreckDirty = false, treeHashOf = null, treeHash = null;
+function treesNear(x, y, r, fn) {
+  if (treeHashOf !== trees || treeHash.n !== trees.length) { treeHashOf = trees; treeHash = new Map(); treeHash.n = trees.length; for (const t of trees) { const k = Math.floor(t.y / 40) * 4096 + Math.floor(t.x / 40); let B = treeHash.get(k); if (!B) treeHash.set(k, B = []); B.push(t); } }
+  for (let gy = Math.floor((y - r) / 40); gy <= Math.floor((y + r) / 40); gy++) for (let gx = Math.floor((x - r) / 40); gx <= Math.floor((x + r) / 40); gx++) { const B = treeHash.get(gy * 4096 + gx); if (B) for (const t of B) if (Math.hypot(t.x - x, t.y - y) < r) fn(t); }
+}
+function igniteProp(p, t = rnd(18, 35)) { const k = WRECK.burn[p.k]; if (!k || p.burnT > 0 || (p.char || 0) >= 1 || p.gone) return; p.burnT = t / Math.sqrt(k); wreckDirty = true; }
+function igniteTree(t) { if (t.burnt || t.burnT > 0 || t.snap) return; t.burnT = rnd(14, 28); }
+function igniteCar(c) { if (c.gone || c.burnT > 0 || (c.char || 0) >= 1 || c.z > 0) return; c.burnT = rnd(25, 45); c.burnAge = 0; }
+function stepWreck(dt) {
+  // горящие машины обугливаются; долго горящая может рвануть баком (бензовоз рвётся и так)
+  for (const c of cars) if (c.burnT > 0) {
+    c.char = Math.min(1, (c.char || 0) + dt / 22); c.burnAge = (c.burnAge || 0) + dt;
+    if (!c.exploded && !(c.boomT > 0) && !c.tanker && !c.boomTried && c.burnAge > 10) { c.boomTried = true; if (Math.random() < .25) c.boomT = rnd(.5, 3); }
+  }
+  wreckT -= dt; if (wreckT > 0) return; const T = .5; wreckT += T;
+  const wet = (world.rain || 0) > .5 ? .25 : 1, src = [];
+  // что горит и докуда достаёт огонь
+  for (const f of fires) src.push([f.x, f.y, f.r + 3]);
+  for (const b of buildings) if (b.fire > 0 && b.state === "ok") src.push([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + 6]);
+  for (const c of cars) if (c.burnT > 0 && !c.gone) src.push([c.x, c.y, 8]);
+  for (const p of props) if (p.burnT > 0) { src.push([p.x + (p.dx || 0), p.y + (p.dy || 0), 6]); p.burnT -= T; p.char = Math.min(1, (p.char || 0) + T / 16 * Math.sqrt(WRECK.burn[p.k] || 1)); if (p.burnT <= 0) p.char = Math.max(p.char, .85); wreckDirty = true; }
+  for (const t of trees) if (t.burnT > 0) { src.push([t.x, t.y, 10]); t.burnT -= T; if (t.burnT <= 0) { t.burnt = true; t.burnT = 0; gridDirty = true; } }
+  for (const f of fences) if (f.burnT > 0) { src.push([(f[0] + f[2]) / 2, (f[1] + f[3]) / 2, 5]); f.burnT -= T; f.char = Math.min(1, (f.char || 0) + T / 10); wreckDirty = true; }
+  // сломанный гидрант бьёт фонтаном: рядом гаснет
+  for (const h of hydrants) if (h.spray > 0) {
+    h.spray -= T;
+    for (const f of fires) if (Math.hypot(f.x - h.x, f.y - h.y) < f.r + 14) f.l -= T * 2;
+    for (const c of cars) if (c.burnT > 0 && Math.hypot(c.x - h.x, c.y - h.y) < 16) c.burnT -= T * 3;
+    for (const p of props) if (p.burnT > 0 && Math.hypot(p.x - h.x, p.y - h.y) < 16) p.burnT -= T * 3;
+  }
+  if (!src.length) return;
+  for (const [x, y, r] of src) {
+    for (const p of props) if (!(p.burnT > 0) && Math.abs(p.x - x) < r + 4 && Math.abs(p.y - y) < r + 4 && Math.random() < T * .25 * wet) igniteProp(p);
+    for (const c of cars) if (!(c.burnT > 0) && Math.abs(c.x - x) < r + 2 && Math.abs(c.y - y) < r + 2 && Math.random() < T * .1 * wet) igniteCar(c);
+    treesNear(x, y, r + 5, t => { if (Math.random() < T * .18 * wet) igniteTree(t); });
+    for (const f of fences) if (!(f.burnT > 0) && !f.gone && (f.char || 0) < 1 && Math.abs((f[0] + f[2]) / 2 - x) < r + 3 && Math.abs((f[1] + f[3]) / 2 - y) < r + 3 && Math.random() < T * .2 * wet) f.burnT = rnd(8, 16);
+    // от горящих машин, мелочей и деревьев занимаются стоящие вплотную дома
+    if (r <= 10) for (const b of buildings) if (b.state === "ok" && !(b.fire > 0) && x > b.x0 - 5 && x < b.x1 + 5 && y > b.y0 - 5 && y < b.y1 + 5 && Math.random() < T * (b.kind === "house" || b.kind === "dacha" || b.kind === "barn" ? .05 : .015) * wet) { b.fire = rnd(30, 60); first("bfire", "Горит здание", "bad"); }
+  }
+}
+// ударная волна: зовётся из blastWorld
+function wreckBlast(x, y, R, big) {
+  for (const p of props) {
+    if (p.gone) continue;
+    const d = Math.hypot(p.x - x, p.y - y); if (d > R) continue;
+    const k = 1 - d / R, ang = Math.atan2(p.y - y, p.x - x);
+    p.glass = true; wreckDirty = true;
+    if (WRECK.small.has(p.k) && k > .45) { p.gone = true; fxDebris(p.x, p.y); continue; }
+    if (!WRECK.heavy.has(p.k) && k > .2) { p.tip = Math.min(1.55, Math.max(p.tip || 0, k * 2.4)); p.tipA = ang; const push = R * .22 * k; p.dx = (p.dx || 0) + Math.cos(ang) * push; p.dy = (p.dy || 0) + Math.sin(ang) * push; }
+    if (k > .55) igniteProp(p, rnd(12, 25));
+  }
+  for (const h of hydrants) if (!h.broken && Math.hypot(h.x - x, h.y - y) < R * .8) { h.broken = true; h.spray = rnd(90, 150); h.tipA = Math.atan2(h.y - y, h.x - x); wreckDirty = true; }
+  for (const n of RN) if (n.sig && !n.sigBroken && Math.hypot(n.x - x, n.y - y) < R * .9 + 20) { n.sigBroken = true; n.sig = false; n.sigA = Math.atan2(n.y - y, n.x - x); wreckDirty = true; } // светофоры повалены: перекрёсток по старшинству
+  for (const f of fences) {
+    if (f.gone) continue;
+    const d = Math.hypot((f[0] + f[2]) / 2 - x, (f[1] + f[3]) / 2 - y);
+    if (d < R * .7) { f.gone = true; wreckDirty = true; } else if (d < R) { f.char = Math.max(f.char || 0, (1 - d / R) * .8); wreckDirty = true; }
+  }
+  treesNear(x, y, R * .45, t => { if (!t.snap) { t.snap = true; t.burnt = true; t.burnT = 0; } });
+  const F = funicular;
+  if (F && F.supports && !F.broken && R >= 28) {
+    for (const s of F.supports) { const p = cablePoint(F, s.d); if (Math.hypot(p[0] - x, p[1] - y) < R * .5) { breakCable(F, s, Math.atan2(p[1] - y, p[0] - x)); break; } }
+    if (!F.broken) for (const c of F.cabins) { if (c.fallZ !== undefined) continue; const p = cabinPos(F, c); if (Math.hypot(p[0] - x, p[1] - y, (p[2] - 6 - gY(x, y)) * .7) < R * .6) dropCabin(F, c, p); }
+  }
+}
+// трос порван: все кабинки падают, опора у места взрыва валится
+function breakCable(F, s, ang) {
+  F.broken = true; s.down = ang; logE("Взрыв повалил опору канатки: трос оборван, кабинки упали", "bad");
+  for (const c of F.cabins) if (c.fallZ === undefined) dropCabin(F, c, cabinPos(F, c));
+}
+function dropCabin(F, c, p) { c.fx = p[0]; c.fy = p[1]; c.fallZ = p[2]; c.fallV = 0; c.fallen = false; wreckDirty = true; }
+function stepCableFall(F, dt) {
+  for (const c of F.cabins) {
+    if (c.fallZ === undefined || c.fallen) continue;
+    const g = gY(c.fx, c.fy) + 7.6; c.fallV += 40 * dt; c.fallZ -= c.fallV * dt;
+    for (const a of c.riders) { a.x = c.fx; a.y = c.fy; }
+    if (c.fallZ <= g) {
+      c.fallZ = g; c.fallen = true; fxDebris(c.fx, c.fy); sfx.crash({ x: c.fx, y: c.fy });
+      for (const a of c.riders) { a.hidden = false; a.onBus = null; const [x, y] = freeNear(c.fx, c.fy, 8); a.x = x; a.y = y; kill(a, false, "fall"); }
+      c.riders = [];
+    }
+  }
+}
+
 /* ---------- городские службы: выезжают сами по вызовам ---------- */
 // полиция из участка, пожарные из части, скорая из больницы, ремонтники и армия въезжают в город с окраины
 const SERVICE = {
@@ -4685,6 +4798,7 @@ const SERVICE = {
   repair: { col: "#e0a020", len: 1.25, crew: "worker", n: 3, siren: "amber", name: "Ремонтники" },
   army: { col: "#4d5634", len: 1.6, crew: "army", n: 8, siren: null, name: "Армия" },
   tow: { col: "#f0c020", len: 1.3, crew: null, n: 0, siren: "amber", name: "Эвакуатор" },
+  plow: { col: "#e8781c", len: 1.4, crew: null, n: 0, siren: "amber", name: "Снегоуборщик" },
   dump: { col: "#c9701c", len: 1.6, crew: null, n: 0, siren: null, name: "Самосвал" },
   mixer: { col: "#f2efe6", len: 1.4, crew: null, n: 0, siren: null, name: "Бетономешалка" },
   sanit: { col: "#e4ece6", len: 1.3, crew: "sanitar", n: 3, siren: null, name: "Санитары" },
@@ -4737,7 +4851,7 @@ function dressCrew(a, c, i) {
   if ((a.role === "worker" || a.role === "builder") && v === 1) { a.cloth = "#2c4a7a"; a.pants = "#24395e"; }
 }
 // кузов служебной машины
-const SERVICE_MODEL = { lowboy: "lowboy", police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
+const SERVICE_MODEL = { lowboy: "lowboy", police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", plow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
 function clearCarCells(c) {
   if (c.cells) { for (let k = 0; k < c.cells.length; k += 2) if (grid[c.cells[k]] === 5) grid[c.cells[k]] = c.cells[k + 1]; c.cells = null; fieldT = 0; return; }
   for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0;
@@ -4771,7 +4885,8 @@ function pullOver(c) {
   const q = lanePos(l, c.s); c.x = q.x + q.ty * c.latOff + (c.offx || 0); c.y = q.y - q.tx * c.latOff + (c.offy || 0);
 }
 function deployCrew(c) {
-  if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
+  if (c.deployed || c.service === "plow") return; // снегоуборщик не встаёт у цели, а проходит улицу (sim18.js)
+  c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
   pullOver(c);
   const S = SERVICE[c.service], sid = S.crew === "army" && !c.posts ? ++squadSeq : 0;
   for (let i = 0; i < (c.crewN || S.n); i++) {
@@ -4783,7 +4898,7 @@ function deployCrew(c) {
   }
   if (sid) squads.set(sid, { id: sid, members: c.crew.map(m => m.id), leader: c.crew[0].id, state: "advance", holdAt: null, holdT: 0, regroupT: 0, slots: [] });
   // посты: высаженные занимают заданные точки; машина, которая только привезла, уезжает
-  if (c.posts && c.posts.length) c.crew.forEach((a, i) => { const p = c.posts[i % c.posts.length]; a.order = { x: p[0], y: p[1] }; if (c.fed) a.fed = true; if (c.guardJob) a.guardJob = c.guardJob; if (c.cp) a.cp = c.cp; if (c.guardB) a.guardB = c.guardB; });
+  if (c.posts && c.posts.length) c.crew.forEach((a, i) => { const p = c.posts[i % c.posts.length]; a.order = { x: p[0], y: p[1] }; if (c.fed) a.fed = true; if (c.guardJob) a.guardJob = c.guardJob; if (c.cp) a.cp = c.cp; if (c.guardB) a.guardB = c.guardB; if (c.regul) a.regul = c.regul; });
   if (c.dropOnly) { for (const a of c.crew) { a.unit = null; a.job = null; } c.crew = []; releaseUnit(c); }
   logT("svc" + c.service, `${S.name} на месте`, "good", 10);
 }
@@ -4802,6 +4917,7 @@ function releaseJob(j) {
   if (j.car && j.car.burnT > 0) j.car.fireAssigned = false;
   if (j.f) j.f.assigned = false;
   if (j.tow && !j.tow.towedBy) j.tow.towAssigned = false;
+  if (j.dig) j.dig.rescueBy = null;
   if (j.lamp && j.lamp.down) j.lamp.fixAssigned = false;
   if (j.body && j.body.state === "dead") { j.body.sanitAssigned = 0; j.body.carried = null; }
 }
@@ -4818,8 +4934,9 @@ function stepServiceCar(c, dt) {
   // экипаж погиб: машина брошена, новых людей из неё не появляется
   if (c.abandonedSvc) return;
   if (c.leaving && !c.moving) c.moving = true;
+  if (c.service === "plow" && !c.leaving) { stepPlow(c, dt); return; } // снегоуборщик не встаёт у цели, а проходит улицу насквозь (sim18.js)
   if (c.deployed && !SERVICE[c.service].crew) {
-    if (c.service === "tow") { const w = c.job && c.job.tow; if (w && !w.gone && !w.towedBy && !w.player) { w.towedBy = c; w.stopped = false; w.moving = false; clearCarCells(w); logT("tow", w.wreck ? "Эвакуатор забрал разбитую машину" : "Эвакуатор увёз брошенную машину", "good", 20); } releaseUnit(c); }
+    if (c.service === "tow") { const w = c.job && c.job.tow; if (w && c.job.winch && !w.gone) { if (Math.hypot(w.x - c.x, w.y - c.y) > 80) { w.towAssigned = false; c.job = null; releaseUnit(c); return; } if (!winchStep(c, w, dt)) return; } if (w && !w.gone && !w.towedBy && !w.player) { w.towedBy = c; w.stopped = false; w.moving = false; clearCarCells(w); logT("tow", w.wreck ? "Эвакуатор забрал разбитую машину" : "Эвакуатор увёз брошенную машину", "good", 20); } releaseUnit(c); }
     else if (c.service === "dump") { const r = c.job && c.job.dump; if (!machines.some(m => !m.gone && m.job && (m.job.ruin === r || m.job.demo === r))) releaseUnit(c); }
     else if (c.service === "mixer") { const b = c.job && c.job.build; if (!b || b.state !== "construct") releaseUnit(c); }
     else if (c.service === "bus") stepBusStop(c, dt);
@@ -4845,6 +4962,7 @@ function stepServiceCar(c, dt) {
   // на месте: у цели; в пробке — только если цель уже близко, иначе ищем другой путь
   if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.service === "dump" ? c.wait > 8 && d < 60 : c.wait > 25 && d < 260)) deployCrew(c); else if (c.wait > 40 && c.lane && c.service !== "dump") { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }
 }
+const czRand = c => ((Math.imul(c.id | 0, 2654435761) >>> 0) % 1000) / 1000; // постоянный жребий машины
 function serviceTarget(type) {
   if (type === "fire") {
     // горящий дом: важнее тот, где люди и соседи вплотную; машина встаёт у ближайшего гидранта, если он не дальше 70
@@ -4856,7 +4974,9 @@ function serviceTarget(type) {
   }
   if (type === "tow") {
     const quiet = (x, y) => { let z = 0; nearZ(x, y, 120, () => z++); return z === 0; };
-    for (const c of cars) if ((c.wreck || c.stopped) && !c.moving && !c.service && !c.tank && !c.gone && !c.towAssigned && !c.towedBy && !(c.burnT > 0) && simT - (c.stopT || 0) > 60 && quiet(c.x, c.y)) { c.towAssigned = true; return { x: c.x, y: c.y, job: { tow: c } }; }
+    // застрявшую в снегу с водителем — иногда вытягивает лебёдкой (sim18.js); остальные застрявшие ждут снегоуборщика или оттепели
+    for (const c of cars) if (c.snowStuck && c.snowWas && !c.towAssigned && !c.towedBy && !c.gone && !c.service && simT - (c.stopT || 0) > 20 && czRand(c) < .5) { c.towAssigned = true; return { x: c.x, y: c.y, job: { tow: c, winch: true } }; }
+    for (const c of cars) if ((c.wreck || c.stopped) && !c.moving && !c.snowStuck && !c.service && !c.tank && !c.gone && !c.towAssigned && !c.towedBy && !(c.burnT > 0) && simT - (c.stopT || 0) > 60 && quiet(c.x, c.y)) { c.towAssigned = true; return { x: c.x, y: c.y, job: { tow: c } }; }
   }
   if (type === "repair") {
     // завалы, упавшие фонари, разбитые машины подальше от зомби
@@ -4924,7 +5044,7 @@ function stepServices(dt) {
     reports = reports.filter(q => Math.hypot(q.x - r.x, q.y - r.y) > 120);
   }
   if (activeUnits("fire") < Math.min(10, 3 + Math.ceil(buildings.filter(b => b.fire > 0 && b.state === "ok").length / 3))) { const t = serviceTarget("fire"); if (t) { const c = spawnService("fire", t.x, t.y, special.fire); c.job = t.job; logT("disp_fire", "Пожарные выехали на вызов", "good", 15); } }
-  const wounded = agents.find(a => a.state === "alive" && a.role === "civ" && (a.hp < 45 || (a.burn > .25)) && !a.ambAssigned);
+  const wounded = agents.find(a => a.state === "alive" && a.role === "civ" && (a.hp < 45 || (a.burn > .25) || a.frost) && !a.buried && !a.ambAssigned);
   if (wounded && activeUnits("ambulance") < 3) { wounded.ambAssigned = true; spawnService("ambulance", wounded.x, wounded.y, special.hospital); logT("disp_amb", "Скорая выехала к пострадавшему", "good", 20); }
   if (activeUnits("tow") < 4) { const t = serviceTarget("tow"); if (t) { const c = spawnService("tow", t.x, t.y, null); c.job = t.job; } }
   if (activeUnits("repair") < Math.min(14, 3 + Math.ceil(buildings.filter(b => b.state === "ruin" || b.state === "construct").length / 2))) {
@@ -5574,8 +5694,18 @@ function stepMachines(dt) {
     if (scoop(t)) m.carry = 1;
   }
   machines = machines.filter(m => !m.gone);
-  // эвакуатор тащит машину за собой
-  for (const c of cars) if (c.towedBy) { const t = c.towedBy; if (t.gone) { c.gone = true; continue; } c.x = t.x - Math.cos(t.ang) * 20; c.y = t.y - Math.sin(t.ang) * 20; c.ang = t.ang; c.z = 0; c.roll = 0; }
+  // эвакуатор увозит машину: легковую — погрузив на платформу, большую (автобус, грузовик, фургон) — на тросе: она передом к сцепке
+  // и тянется по следу, заворачивая за эвакуатором, как прицеп
+  for (const c of cars) if (c.towedBy) {
+    const t = c.towedBy; if (t.gone) { c.gone = true; continue; }
+    const ca = Math.cos(t.ang), sa = Math.sin(t.ang);
+    c.onDeck = (c.len || 1) <= 1.15 && !c.bus && !c.tanker; c.z = 0; c.roll = 0;
+    if (c.onDeck) { c.x = t.x - ca * 3; c.y = t.y - sa * 3; c.ang = t.ang; continue; }
+    const hx = t.x - ca * (9 * (t.len || 1) + 1), hy = t.y - sa * (9 * (t.len || 1) + 1), L = 5 + 9 * (c.len || 1);
+    let dx = c.x - hx, dy = c.y - hy, d = Math.hypot(dx, dy);
+    if (d < 1 || d > L * 3) { dx = -ca; dy = -sa; d = 1; } // только прицепили или далеко отстала: ставим ровно за эвакуатором
+    c.x = hx + dx / d * L; c.y = hy + dy / d * L; c.ang = Math.atan2(-dy, -dx); c.hitch = [hx, hy];
+  }
 }
 
 /* ---------- укрытия: люди прячутся в домах и на крышах, зомби ломают двери ---------- */
@@ -7089,7 +7219,7 @@ function oppClear(c, opp, dx, dy) {
     if (Math.abs(lt - off2) < 5 && al > -14 && al < 110 && (o.moving || o.stopped || o.wreck || o.tank)) busy = true;
   });
   if (busy) return false;
-  for (let k = 6; k < 90; k += 6) { const q = lanePos(opp, Math.max(0, so - k)), cc = cellAt(q.x, q.y); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4) return false; }
+  for (let k = 6; k < 90; k += 6) { const q = lanePos(opp, Math.max(0, so - k)), cc = cellAt(q.x, q.y); if (cc === 5 || cc === 3 || cc === 6 || cc === 8 || cc === 4 || cc === 11) return false; }
   return true;
 }
 // в своей полосе на нашем месте никого: ни впереди, ни сзади ближе длины кузовов
@@ -7272,7 +7402,7 @@ function resetServices2() { utilT = 20; patrolT = 30; busT = 10; supplyT = 30; c
 function stepServices2(dt) {
   // перекрытия считаются и при выключенных службах: завалы и баррикады бывают и без них
   closedT -= dt; if (closedT <= 0) { closedT = 3; updateClosedRoads(); }
-  stepBuses(dt);
+  stepBuses(dt); stepSnowRoads(dt);
   if (!settings.services) return;
   stepPatrols(dt); stepUtilities(dt); stepSupply(dt); stepNests(dt); stepPatients(dt);
 }
@@ -7475,9 +7605,9 @@ function stepNests(dt) {
 }
 
 /* ---------- объезды: улица с завалом на проезжей части закрыта, знаки на въездах, трафик идёт в обход ---------- */
-// перекрытие по полосам: вдоль каждой полосы смотрим её ось и ±3 (ширина кузова) — завал, дом, баррикада или забор;
+// перекрытие по полосам: вдоль каждой полосы смотрим её ось и ±3 (ширина кузова) — завал, дом, баррикада, забор или сугроб;
 // улица закрыта, если заблокированы все полосы, иначе это сужение (машины объезжают по встречной); e.blk — какие полосы
-function laneBlocked(l) { for (let s = laneStart(l) - 4; s < laneEnd(l) + 4; s += 4) { const q = lanePos(l, clamp(s, 0, l.e.len)); for (const o of [-3, 0, 3]) { const c = cellAt(q.x + q.ty * o, q.y - q.tx * o); if (c === 8 || c === 3 || c === 6) return true; } } return false; }
+function laneBlocked(l) { for (let s = laneStart(l) - 4; s < laneEnd(l) + 4; s += 4) { const q = lanePos(l, clamp(s, 0, l.e.len)); for (const o of [-3, 0, 3]) { const px = q.x + q.ty * o, py = q.y - q.tx * o, c = cellAt(px, py); if (c === 8 || c === 3 || c === 6 || (c === 11 && roadMask[snowIdx(px, py)] === 1)) return true; } } return false; } // сугроб на бордюре полосу не закрывает
 function updateClosedRoads() {
   let changed = 0, closedNew = 0;
   for (const e of RE) {
@@ -7498,6 +7628,217 @@ function fireRate(a) {
   const u = a.unit; if (!u) return 1.6;
   if (u.hydrant === undefined) { u.hydrant = hydrants.some(h => Math.abs(h.x - u.x) < 48 && Math.abs(h.y - u.y) < 48); if (u.hydrant) logT("hydrant", "Пожарные подключились к гидранту", "good", 40); }
   return u.hydrant ? 3.2 : 1.6;
+}
+
+/* ---------- снег на дорогах: игрок насыпает его инструментом «Снег», он тает (летом медленно, у огня быстро, зимой никак),
+   снегоуборщики расчищают, эвакуатор вытягивает застрявших лебёдкой; у въезда на любую перекрытую улицу встаёт регулировщик ----------
+   snowD — глубина снега в клетке; от SNOW_BLOCK клетка становится сугробом (код 11): машины в неё не въезжают, люди бредут медленно,
+   улица, где сугробом занесены все полосы, закрыта (laneBlocked) — маршруты объезжают, подъехавшие разворачиваются. Картинка — render20.js */
+const SNOW_BLOCK = 1;
+let snowD = null, snowUnder = null, snowCells = new Set(), snowCity = null, snowT = 0, snowDirty = false, snowBox = null, plowT = 0, regulT = 0;
+function snowInit() { if (!snowD || snowD.length !== grid.length) { snowD = new Float32Array(grid.length); snowUnder = new Uint8Array(grid.length); snowCells = new Set(); } snowCity = buildings; }
+function snowMark(x, y) { snowDirty = true; snowBox = snowBox ? [Math.min(snowBox[0], x - 8), Math.min(snowBox[1], y - 8), Math.max(snowBox[2], x + 8), Math.max(snowBox[3], y + 8)] : [x - 8, y - 8, x + 8, y + 8]; }
+// клетка становится сугробом или перестаёт им быть; под сугробом помним, что там было
+function snowSync(i) {
+  const d = snowD[i], g = grid[i];
+  if (d >= SNOW_BLOCK) { if (g === 0 || g === 1 || g === 2 || g === 7) { snowUnder[i] = g; grid[i] = 11; barrDirty = true; fieldT = 0; } }
+  else if (g === 11) { grid[i] = snowUnder[i]; barrDirty = true; fieldT = 0; }
+  if (d <= .02) { snowD[i] = 0; snowCells.delete(i); }
+}
+// насыпать снег кругом радиуса R: в середине глубже, к краю тоньше; в дома и воду не сыплется. Клик за кликом куча растёт
+// (до SNOW_MAX) и расползается: чем она уже выше, тем шире ложится новый снег
+const SNOW_MAX = 12, SNOW_BURY = 1.2;
+function pourSnow(x, y, amt = 2.4, R = 18) {
+  snowInit(); R += snowD[snowIdx(x, y)] * 2.2;
+  for (let gy = Math.floor((y - R) / CS); gy <= Math.floor((y + R) / CS); gy++) for (let gx = Math.floor((x - R) / CS); gx <= Math.floor((x + R) / CS); gx++) {
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+    const i = gy * GW + gx, cx = gx * CS + CS / 2, cy = gy * CS + CS / 2, d = Math.hypot(cx - x, cy - y); if (d > R) continue;
+    const g = grid[i]; if (g === 3 || g === 9 || g === 10) continue;
+    snowD[i] = Math.min(SNOW_MAX, snowD[i] + amt * (1 - (d / R) ** 2) * rnd(.85, 1.15)); snowCells.add(i); snowSync(i);
+  }
+  snowMark(x - R, y - R); snowMark(x + R, y + R);
+  // кого накрыло с головой (глубже SNOW_BURY) — засыпан: выбраться сам не может, мёрзнет (stepBuried)
+  for (const a of agents) if (Math.abs(a.x - x) < R && Math.abs(a.y - y) < R && a.state === "alive" && !a.hidden && !a.buried && snowD[snowIdx(a.x, a.y)] >= SNOW_BURY) { a.buried = true; a.cold = a.cold || 0; a.dugOut = false; a.vx = a.vy = 0; logT("buried", a.role === "zombie" ? "Зомби засыпало снегом" : "Человека засыпало снегом: он замерзает", a.role === "zombie" ? "" : "bad", 20); }
+  logT("snowpour", "Снег завалил улицу", "", 30);
+}
+// отвал снегоуборщика снимает с проезжей части в радиусе r не больше rate глубины в секунду: глубокую кучу — за несколько проходов
+const PLOW_RATE = .16; // клетка остаётся под отвалом секунды, пока он ползёт: за проход снимается 3–5 глубины
+function plowAt(x, y, r, dt) {
+  if (!snowD) return 0; let moved = 0;
+  for (let gy = Math.floor((y - r) / CS); gy <= Math.floor((y + r) / CS); gy++) for (let gx = Math.floor((x - r) / CS); gx <= Math.floor((x + r) / CS); gx++) {
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+    const i = gy * GW + gx; if (!(snowD[i] > 0) || roadMask[i] !== 1) continue;
+    if (Math.hypot(gx * CS + CS / 2 - x, gy * CS + CS / 2 - y) > r) continue;
+    const k = Math.min(snowD[i], PLOW_RATE * dt); moved += k; snowD[i] -= k; snowSync(i);
+  }
+  if (moved) snowMark(x, y);
+  return moved;
+}
+const snowIdx = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+// сколько тает за секунду в точке: от сезона, солнца, дождя и огня рядом
+function meltRate(x, y, heat) {
+  const season = world.season || "summer";
+  let m = (season === "winter" ? 0 : season === "autumn" ? .004 : .009) * (world.hour > 7 && world.hour < 19 ? 1.3 : .6) * (1 + (world.rain || 0) * .8);
+  for (const [hx, hy, hr, hk] of heat) { const d = Math.hypot(x - hx, y - hy); if (d < hr) m += hk * (1 - d / hr); }
+  return m;
+}
+function heatSources() {
+  const heat = [];
+  for (const f of fires) heat.push([f.x, f.y, f.r + 26, .3]);
+  for (const b of buildings) if (b.fire > 0 && b.state === "ok") heat.push([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + 18, .12]);
+  for (const c of cars) if (c.burnT > 0 && !c.gone) heat.push([c.x, c.y, 18, .2]);
+  return heat;
+}
+function stepSnowRoads(dt) {
+  if (snowCity === "load") snowCity = buildings; // партия загружена: снег из сохранения
+  else if (snowCity !== buildings) { snowD = null; snowCells = new Set(); snowCity = buildings; }
+  stepRegulators(dt);
+  if (!snowD || !snowCells.size) return;
+  snowT -= dt; if (snowT > 0) return; snowT += 1;
+  // таяние
+  const heat = heatSources();
+  stepBuried(heat);
+  for (const i of [...snowCells]) {
+    const x = (i % GW) * CS + CS / 2, y = ((i / GW) | 0) * CS + CS / 2, m = meltRate(x, y, heat);
+    if (m <= 0) continue; snowD[i] -= m; snowSync(i); snowMark(x, y);
+  }
+  // машины в сугробе застревают; когда снег сошёл или его расчистили — едут дальше
+  for (const c of cars) {
+    if (c.gone || c.service === "plow" || c.towedBy || c.z > 0) continue;
+    const d = snowD[snowIdx(c.x, c.y)];
+    if (!c.snowStuck && d >= SNOW_BLOCK * .8 && (c.moving || c.lane)) { c.snowStuck = true; c.snowWas = !!c.moving; c.moving = false; c.stopped = true; c.stopT = simT; c.v = 0; logT("snowstuck", "Машины застряли в снегу", "", 40); }
+    else if (c.snowStuck && d < .4) { c.snowStuck = false; c.winchBy = null; if (c.snowWas && !c.wreck) { c.stopped = false; c.moving = true; } }
+  }
+  // снегоуборщики: на улицу, которую снег закрыл надолго (зимой — сразу)
+  plowT -= 1; if (plowT > 0 || !settings.services) return; plowT = 4;
+  for (const e of RE) {
+    if (e.plowBy && (e.plowBy.gone || e.plowBy.leaving)) e.plowBy = null;
+    if (!(e.closed || e.narrow) || e.plowBy || e.rural) continue;
+    let deep = 0, at = null;
+    for (const l of e.L) if (l) for (let s = 0; s < e.len; s += 6) { const q = lanePos(l, s), i = snowIdx(q.x, q.y); if (grid[i] === 11 && snowD[i] > deep) { deep = snowD[i]; at = q; } }
+    if (!at) continue;
+    const m = meltRate(at.x, at.y, heat), wait = m > 0 ? (deep - SNOW_BLOCK * .5) / m : 1e9;
+    if (wait < 60) continue; // скоро растает само
+    if (activeUnits("plow") >= 3) break;
+    callPlow(e, at.x, at.y);
+    logT("plow_go", "Снегоуборщик выехал расчищать занесённую улицу", "good", 30);
+  }
+}
+// засыпанные снегом: человек и зомби мёрзнут — тем быстрее, чем глубже снег, и тем медленнее, чем быстрее он рядом тает (огонь);
+// замёрзли насовсем (cold до 1) — погибли, тела забирают санитары. Снег сошёл раньше: откопали спасатели — цел и невредим,
+// вытаял (огонь, оттепель) — обморожен, его везёт скорая. За засыпанным человеком диспетчер шлёт пожарных-спасателей с лопатами
+function stepBuried(heat) {
+  let digging = cars.filter(c => !c.gone && !c.leaving && c.job && c.job.dig).length;
+  for (const a of agents) {
+    if (!a.buried) continue;
+    if (a.state !== "alive") { a.buried = false; continue; }
+    const d = snowD[snowIdx(a.x, a.y)], m = meltRate(a.x, a.y, heat);
+    if (d < .6) {
+      a.buried = false;
+      if (a.role !== "zombie") {
+        if (a.dugOut) { a.cold = 0; logT("dugout", "Спасатели откопали человека из-под снега: жив и цел", "good", 20); }
+        else { a.frost = Math.max(a.cold, .1); a.hp = Math.min(a.hp, 40 - a.cold * 25); a.ambAssigned = false; logT("thawed", "Человек вытаял из сугроба обмороженным: его везут в больницу", "", 20); }
+      }
+      continue;
+    }
+    a.cold = (a.cold || 0) + (.0015 + d * .001) * clamp(1 - m * 25, .15, 1); // под небольшой кучей держится минуты три-четыре, под огромной — минуту с небольшим
+    if (a.cold >= 1) {
+      a.frozen = true; a.buried = false;
+      if (a.role === "zombie") destroyZombie(a, false); else { kill(a, false, "frost"); a.reanimate = false; }
+      logT("frozen", a.role === "zombie" ? "Засыпанный снегом зомби замёрз" : "Засыпанный снегом человек замёрз насмерть", a.role === "zombie" ? "" : "bad", 20);
+      continue;
+    }
+    // спасатели: к человеку под снегом, не больше трёх машин сразу
+    if (a.role !== "zombie" && settings.services && digging < 3 && (!a.rescueBy || a.rescueBy.gone || a.rescueBy.leaving)) {
+      const c = spawnService("fire", a.x, a.y, special.fire); c.job = { dig: a }; a.rescueBy = c; digging++;
+      logT("dig_go", "Пожарные-спасатели выехали откапывать человека из-под снега", "good", 20);
+    }
+  }
+}
+// спасатель с лопатой: идёт к засыпанному и копает вокруг него; откопал или поздно — к машине
+function digStep(a, dt) {
+  const v = a.job.dig;
+  if (!v.buried || v.state !== "alive") { a.done = true; return a.unit ? goTo(a, a.unit.x, a.unit.y, 9) : [0, 0, 0]; }
+  a.done = false; // у пожарных нет пожара — сами они сочли бы работу сделанной
+  const d = Math.hypot(v.x - a.x, v.y - a.y);
+  if (d > 5) return goTo(a, v.x, v.y, 9);
+  a.tool = .3; a.dir = Math.atan2(v.y - a.y, v.x - a.x);
+  // лопатой — аккуратно и медленно: снег вокруг человека, а не по нему
+  let left = 0;
+  for (let gy = Math.floor((v.y - 6) / CS); gy <= Math.floor((v.y + 6) / CS); gy++) for (let gx = Math.floor((v.x - 6) / CS); gx <= Math.floor((v.x + 6) / CS); gx++) {
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx; if (!(snowD[i] > 0)) continue;
+    snowD[i] = Math.max(0, snowD[i] - .22 * dt); snowSync(i); left += snowD[i];
+  }
+  snowMark(v.x, v.y);
+  if (snowD[snowIdx(v.x, v.y)] < .6) v.dugOut = true;
+  return [0, 0, 0];
+}
+// снегоуборщик на улицу e: сначала к точке (x, y) на ней — иначе маршрут объехал бы закрытую улицу кругом; на ней — дальше по ходу, насквозь.
+// Его же вызывает игрок (инструмент «Снегоуборщик»): снега нет — проедет улицу и уедет
+function callPlow(e, x, y) { const c = spawnService("plow", x, y, null); c.job = { plow: e }; c.plowPass = 0; c.plowIn = false; e.plowBy = c; return c; }
+// остался ли на полосах улицы снег, который стоит чистить
+function snowLeft(e) { if (!snowD) return false; for (const l of e.L) if (l) for (let s = 0; s < e.len; s += 6) { const q = lanePos(l, s); if (snowD[snowIdx(q.x, q.y)] >= .3) return true; } return false; }
+// снегоуборщик ведёт отвалом перед собой по всей ширине проезжей части; проходит улицу туда и обратно, потом берёт следующую
+function stepPlow(c, dt) {
+  const e = c.job && c.job.plow, hw = c.lane ? c.lane.e.hw + Math.abs(c.lane.off || 0) : 10, dx = Math.cos(c.ang), dy = Math.sin(c.ang); // отвал — на всю проезжую часть
+  const ahead = snowD ? snowD[snowIdx(c.x + dx * 12, c.y + dy * 12)] : 0;
+  if (ahead > .2) c.v = Math.min(c.v, clamp(9 - ahead * 1.4, 1.2, 7)); // в снегу медленно, в глубоком — ползком
+  if (plowAt(c.x + dx * 9, c.y + dy * 9, hw + 3, dt) + plowAt(c.x, c.y, hw + 3, dt) > 0) c.plowing = 1; else c.plowing = Math.max(0, (c.plowing || 0) - dt);
+  if (!e) { releaseUnit(c); return; }
+  const left = snowLeft(e);
+  // упёрся (впереди застрявшая машина, затор): дотягивается отвалом дальше; улица чиста — работа сделана, долго стоит — уезжает
+  if (c.wait > 6 && left) plowAt(c.x + dx * 18, c.y + dy * 18, hw + 6, dt);
+  if (!c.plowIn && c.wait > 25 && c.lane) { c.lane.e.blockT = simT; c.next = null; c.route = null; c.wait = 8; } // в пробке по пути — другой дорогой
+  if ((c.wait > 10 && !left) || (c.plowIn && c.wait > 90)) { e.plowBy = null; if (!left) logT("plow_done", "Улицу расчистили от снега", "good", 30); releaseUnit(c); return; }
+  // подъезжает к концу своей улицы — сворачивает на неё (маршрут сам привёл бы только к узлу)
+  if (!c.plowIn && c.lane && c.lane.e !== e && (c.lane.to === e.a || c.lane.to === e.b)) { const m = e.L.find(l => l && l.from === c.lane.to); if (m) c.next = m; }
+  // въехал на свою улицу: цель — её конец по ходу, сугроб проходит насквозь
+  if (!c.plowIn && c.lane && c.lane.e === e) { c.plowIn = true; const to = c.lane.to; c.goal = { x: to.x, y: to.y }; c.next = null; c.route = null; }
+  // дошёл до конца: разворачивается и идёт обратно; проходов столько, сколько нужно, чтобы снять всю кучу
+  if (c.plowIn && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 30) {
+    c.plowPass++;
+    if (!left || c.plowPass >= 14) { e.plowBy = null; logT("plow_done", "Улицу расчистили от снега", "good", 30); releaseUnit(c); return; }
+    const other = Math.hypot(c.goal.x - e.a.x, c.goal.y - e.a.y) < 5 ? e.b : e.a; c.goal = { x: other.x, y: other.y }; c.next = null; c.route = null;
+  }
+}
+// эвакуатор с лебёдкой: подъезжает к краю сугроба и вытягивает машину к себе, потом забирает
+function winchStep(c, w, dt) {
+  if (!w.snowStuck) return true;
+  w.winchBy = c; c.winchT = (c.winchT || 0) + dt;
+  const tx = c.x - Math.cos(c.ang) * 14, ty = c.y - Math.sin(c.ang) * 14, d = Math.hypot(tx - w.x, ty - w.y);
+  if (c.winchT < 2) return false; // крюк цепляют
+  if (d > 3) { const v = Math.min(d, 4 * dt); w.x += (tx - w.x) / d * v; w.y += (ty - w.y) / d * v; plowAt(w.x, w.y, 4, 9); return false; }
+  w.snowStuck = false; w.winchBy = null; logT("winch", "Эвакуатор вытянул лебёдкой застрявшую в снегу машину", "good", 30);
+  return true;
+}
+// регулировщик: у въезда на перекрытую улицу (или в перекрытое направление при сужении) встаёт полицейский и заворачивает машины в объезд;
+// не больше четырёх постов, к зомби не шлют
+function stepRegulators(dt) {
+  regulT -= dt; if (regulT > 0) return; regulT = 4;
+  // регулировщиков привозит машина и сразу уезжает (на въезде она мешала бы технике); улица открылась — они уходят в участок
+  for (const a of agents) {
+    if (!a.regul || a.state !== "alive") continue;
+    const e = a.regul;
+    if (!e.closed && !e.narrow) { a.regul = null; a.order = special.police ? { x: special.police.x, y: special.police.y } : null; a.standDown = true; a.standT = simT; continue; }
+    if (a.regulDir === undefined && a.order) { const nd = Math.hypot(a.order.x - e.a.x, a.order.y - e.a.y) < Math.hypot(a.order.x - e.b.x, a.order.y - e.b.y) ? e.a : e.b; a.regulDir = Math.atan2(nd.y - a.order.y, nd.x - a.order.x); }
+  }
+  for (const e of RE) e.regulBy = null;
+  for (const a of agents) if (a.regul && a.state === "alive") a.regul.regulBy = a;
+  for (const c of cars) if (c.regul && !c.gone && !c.deployed && !c.leaving) c.regul.regulBy = c; // ещё в пути
+  if (!settings.services) return;
+  let n = RE.filter(e => e.regulBy).length;
+  for (const e of RE) {
+    if (n >= 4) break;
+    const dirA = e.closed || (e.blk && e.blk[0]), dirB = e.closed || (e.blk && e.blk[1]); // заблокированы полосы от a к b и от b к a
+    if (!(dirA || dirB) || e.rural || e.regulBy || e.len < 30) continue;
+    let z = 0; nearZ((e.a.x + e.b.x) / 2, (e.a.y + e.b.y) / 2, 120, () => z++); if (z) continue; // к зомби на регулировку не шлют
+    const posts = [];
+    // стоит на тротуаре у въезда, лицом к подъезжающим: не на дуге поворота, иначе машины (и снегоуборщик) ждали бы его как пешехода
+    for (const [nd, s, on] of [[e.a, 18, dirA], [e.b, e.len - 18, dirB]]) { if (!on || nd.ed.length < 3 || nd.exit) continue; const p = edgePos(e, s), q = edgePos(e, Math.min(e.len, s + 2)), L = Math.hypot(q.x - p.x, q.y - p.y) || 1, sd = s < 30 ? 1 : -1, o = e.hw + 3; posts.push([p.x - (q.y - p.y) / L * o * sd, p.y + (q.x - p.x) / L * o * sd]); }
+    if (!posts.length) continue;
+    const c = spawnService("police", posts[0][0], posts[0][1], special.police); c.posts = posts; c.dropOnly = true; c.regul = e; e.regulBy = c; n++;
+    logT("regul", "Регулировщик встал у въезда на перекрытую улицу: машины идут в объезд", "good", 60);
+  }
 }
 
 /* ---------- внешние угрозы: шум города, орды с окраин, беженцы, внешнее оцепление и ультиматум ---------- */
@@ -8590,7 +8931,7 @@ function facadeTex(st, emissive) {
       // стеклянная навесная стена: сплошное стекло, тонкие импосты
       for (let f = 0; f < TFL; f++) for (let b = 0; b < TBX * 2; b++) {
         const x0 = b * TPX / 2, y0 = h - (f + 1) * TPY;
-        if (emissive) { if (Math.random() < .3) { g.fillStyle = pick(["#dfe9ff", "#fff1d6", "#cfe0ff"]); g.globalAlpha = rnd(.4, .9); g.fillRect(x0 + 1, y0 + 3, TPX / 2 - 2, TPY - 6); g.globalAlpha = 1; } continue; }
+        if (emissive) { if (Math.random() < .8) { g.fillStyle = pick(["#dfe9ff", "#fff1d6", "#cfe0ff"]); g.globalAlpha = rnd(.4, .9); g.fillRect(x0 + 1, y0 + 3, TPX / 2 - 2, TPY - 6); g.globalAlpha = 1; } continue; }
         const gr = g.createLinearGradient(x0, y0, x0 + TPX / 2, y0 + TPY); gr.addColorStop(0, shade(st.glass, rnd(-10, 20))); gr.addColorStop(1, shade(st.glass, rnd(-30, 0)));
         g.fillStyle = gr; g.fillRect(x0 + 1, y0 + 2, TPX / 2 - 2, TPY - 4);
         if (Math.random() < .15) { g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(x0 + 1, y0 + 2, TPX / 2 - 2, TPY - 4); }
@@ -8604,8 +8945,8 @@ function facadeTex(st, emissive) {
       const ww = ground ? TPX * .86 : TPX * st.win, wh = ground ? TPY * .72 : TPY * .56;
       const wx = x0 + (TPX - ww) / 2, wy = ground ? y0 + TPY - wh - 3 : y0 + TPY * .22;
       if (emissive) {
-        // ночью горит каждое третье окно, цвет от тёплого до холодного
-        if (Math.random() < (ground ? .5 : .32)) { g.fillStyle = pick(["#ffcf8a", "#ffd9a0", "#f6e7c8", "#bcd4ff", "#ffb870"]); g.globalAlpha = rnd(.5, 1); g.fillRect(wx + 2, wy + 2, ww - 4, wh - 4); g.globalAlpha = 1; }
+        // в карте горят все окна, цвет от тёплого до холодного; какие светятся в этот час — решает шейдер фасада (cozy.js)
+        { g.fillStyle = pick(["#ffcf8a", "#ffd9a0", "#f6e7c8", "#bcd4ff", "#ffb870"]); g.globalAlpha = rnd(.5, 1); g.fillRect(wx + 2, wy + 2, ww - 4, wh - 4); g.globalAlpha = 1; }
         continue;
       }
       // откос: тень в проёме сверху и слева, рама
@@ -8705,7 +9046,7 @@ function buildCity() {
       if (along) rg.rotateY(Math.PI / 2);
       const roof = new THREE.Mesh(rg, pick(tileMats)); roof.position.y = b.h; roof.castShadow = roof.receiveShadow = true; obj.add(roof);
       if (b.kind === "oldhouse") roof.material = pick(tileMats.slice(0, 2));
-      if (Math.random() < .5) { const ch = new THREE.Mesh(new THREE.BoxGeometry(2.2, rh + 3, 2.2), parapetMat); ch.position.set(rnd(-w / 4, w / 4), b.h + rh * .6, rnd(-d / 4, d / 4)); ch.castShadow = true; obj.add(ch); }
+      if (Math.random() < .5) { const ch = new THREE.Mesh(new THREE.BoxGeometry(2.2, rh + 3, 2.2), parapetMat); ch.position.set(rnd(-w / 4, w / 4), b.h + rh * .6, rnd(-d / 4, d / 4)); ch.castShadow = true; ch.userData.chim = 1; obj.add(ch); }
       houseDetails(b, obj, w, d); facadeDetails(b, obj, w, d);
       b.h += rh * .6;
       continue;
@@ -8810,7 +9151,7 @@ function buildTrees() {
     outTr.push({ m: new THREE.Matrix4().makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)), c: null, r: h * .55 + 2 });
     for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); outCr.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)), c: new THREE.Color().setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)), r: r * 1.2 }); }
   }
-  buildTiles(cityTr, trunkGeo, trunkMat, true, "ct"); buildTiles(outTr, trunkGeo, trunkMat, false, "ot"); // лес за городом без теней: дорого, а издали не видно
+  const trunkT = buildTiles(cityTr, trunkGeo, trunkMat, true, "ct"); buildTiles(outTr, trunkGeo, trunkMat, false, "ot"); // лес за городом без теней: дорого, а издали не видно
   // кроны: сначала городские (крона k дерева i — номер i·3+k), за ними лес; дальние — упрощённые шары по участкам
   const all = cityCr.concat(outCr), n = all.length, M = new Float32Array(n * 16), C = new Float32Array(n * 3);
   all.forEach((it, j) => { it.m.toArray(M, j * 16); C[j * 3] = it.c.r; C[j * 3 + 1] = it.c.g; C[j * 3 + 2] = it.c.b; });
@@ -8818,7 +9159,7 @@ function buildTrees() {
   const tiles = ct.meshes.concat(ft.meshes), tileOf = new Int32Array(n), slotOf = new Int32Array(n);
   for (let j = 0; j < n; j++) { const o = j < cityCr.length; tileOf[j] = o ? ct.tileOf[j] : ft.tileOf[j - cityCr.length] + ct.meshes.length; slotOf[j] = o ? ct.slotOf[j] : ft.slotOf[j - cityCr.length]; }
   const detail = new THREE.InstancedMesh(crownGeo, sphereMat, CROWN_DETAIL_CAP); detail.count = 0; detail.castShadow = detail.receiveShadow = true; detail.frustumCulled = false; detail.setColorAt(0, _lc.setRGB(1, 1, 1)); cityGroup.add(detail);
-  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true };
+  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, trunk: trunkT, trunkM: cityTr.map(it => it.m), where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true };
 }
 // кроны по местам: 2 — листва, 1 — бугристый шар, 0 — упрощённый шар в своём участке
 function updateLeafLOD() {
@@ -8847,7 +9188,7 @@ function refreshTrees() {
   const T = trees3d; if (!T) return;
   T.dirty = true;
   const col = new THREE.Color("#1b1714"), touched = new Set();
-  trees.forEach((t, i) => { if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
+  trees.forEach((t, i) => { if (t.snap && !t.shownSnap) snapTree(T, t, i); if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
   for (const m of touched) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 function radialTex(stops) { return canvasTex(128, 128, (g) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); for (const [o, c] of stops) gr.addColorStop(o, c); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }); }
@@ -8934,16 +9275,19 @@ function buildFunicular() {
   const g = new THREE.Group(), steel = new THREE.MeshStandardMaterial({ color: 0x6f7378, roughness: .55, metalness: .6 }), rope = new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: .6, metalness: .5 });
   const nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, yaw = -Math.atan2(F.U[1] - F.L[1], F.U[0] - F.L[0]);
   // опоры и порталы
+  const pylons = [];
   for (const s of F.supports) {
-    const p = cablePoint(F, s.d), ground = gY(p[0], p[1]), hT = s.h - ground;
-    if (s.pylon) { const tw = new THREE.Mesh(new THREE.CylinderGeometry(.9, 2.2, hT, 6), steel); tw.position.set(X(p[0]), ground + hT / 2, Z(p[1])); tw.castShadow = true; g.add(tw); }
-    else for (const o of [-4, 4]) { const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, hT, 1.2), steel); post.position.set(X(p[0] + nx * o), ground + hT / 2, Z(p[1] + ny * o)); g.add(post); }
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(9, .8, 1.2), steel); arm.position.set(X(p[0]), s.h, Z(p[1])); arm.rotation.y = yaw; g.add(arm);
+    // опора — группа с началом у основания: взрыв валит её целиком (s.down — куда)
+    const p = cablePoint(F, s.d), ground = gY(p[0], p[1]), hT = s.h - ground, pg = new THREE.Group(); pg.position.set(X(p[0]), ground, Z(p[1])); g.add(pg); pylons.push(pg);
+    if (s.pylon) { const tw = new THREE.Mesh(new THREE.CylinderGeometry(.9, 2.2, hT, 6), steel); tw.position.set(0, hT / 2, 0); tw.castShadow = true; pg.add(tw); }
+    else for (const o of [-4, 4]) { const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, hT, 1.2), steel); post.position.set(nx * o, hT / 2, ny * o); pg.add(post); }
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(9, .8, 1.2), steel); arm.position.set(0, hT, 0); arm.rotation.y = yaw; pg.add(arm);
   }
+  const ropes = [];
   // тросы: две нитки с провисом
   for (const o of [-2.6, 2.6]) {
     const pts = []; for (let d = 0; d <= F.len; d += 6) { const p = cablePoint(F, Math.min(d, F.len)); pts.push(new THREE.Vector3(X(p[0] + nx * o), cableH(F, Math.min(d, F.len)) - .3, Z(p[1] + ny * o))); }
-    const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, pts.length * 2), .22, 5, false), rope); g.add(tube);
+    const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, pts.length * 2), .22, 5, false), rope); g.add(tube); ropes.push(tube);
   }
   // кабинки
   const cabins = [], body = new THREE.MeshStandardMaterial({ color: 0xc8342a, roughness: .5 }), glass = new THREE.MeshStandardMaterial({ color: 0x9fc1d4, roughness: .2, metalness: .3 });
@@ -8953,11 +9297,13 @@ function buildFunicular() {
     const wn = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.6, 4.2), glass); wn.position.y = -4.6; cab.add(wn);
     cab.rotation.y = yaw; g.add(cab); cabins.push(cab);
   }
-  cityGroup.add(g); funiObj = { g, cabins };
+  cityGroup.add(g); funiObj = { g, cabins, pylons, ropes, broken: false };
 }
 function updateFunicular() {
   const F = funicular; if (!funiObj || !F || !F.supports) return;
-  F.cabins.forEach((c, i) => { const m = funiObj.cabins[i]; if (!m) return; const p = cabinPos(F, c); m.position.set(X(p[0]), p[2] - .3, Z(p[1])); });
+  F.cabins.forEach((c, i) => { const m = funiObj.cabins[i]; if (!m) return; const p = cabinPos(F, c); m.position.set(X(p[0]), p[2] - .3, Z(p[1])); if (c.fallen && !m.userData.crashed) { m.userData.crashed = true; m.rotation.z = rnd(-.4, .4); m.rotation.x = rnd(-.3, .3); } });
+  // трос оборван: нитки пропадают, опора у места взрыва лежит
+  if (F.broken && !funiObj.broken) { funiObj.broken = true; for (const r of funiObj.ropes) r.visible = false; F.supports.forEach((s, i) => { if (s.down === undefined) return; const pg = funiObj.pylons[i]; pg.quaternion.setFromAxisAngle(new THREE.Vector3(Math.sin(s.down), 0, -Math.cos(s.down)), 1.45); }); }
 }
 // крепостная стена старого города: кольцо с зубцами и башнями, ворота на лучах
 function buildCityWalls() {
@@ -8981,12 +9327,13 @@ function buildCityWalls() {
   }
   cityGroup.add(g);
 }
+let fenceInst = null;
 function buildFences() {
-  if (!fences.length) return;
+  fenceInst = null; if (!fences.length) return;
   const m = new THREE.Matrix4(), f = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: 0x8d7a5c, roughness: .9 }), fences.length);
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
   fences.forEach(([x0, y0, x1, y1], i) => { const L = Math.hypot(x1 - x0, y1 - y0); q.setFromAxisAngle(up, -Math.atan2(y1 - y0, x1 - x0)); m.compose(new THREE.Vector3(X((x0 + x1) / 2), gY((x0 + x1) / 2, (y0 + y1) / 2) - .5, Z((y0 + y1) / 2)), q, new THREE.Vector3(L, 4, .5)); f.setMatrixAt(i, m); });
-  f.castShadow = true; cityGroup.add(f);
+  f.castShadow = true; f.setColorAt(0, new THREE.Color(1, 1, 1)); fences.forEach((s, i) => f.setColorAt(i, new THREE.Color(1, 1, 1))); cityGroup.add(f); fenceInst = f; refreshFences();
 }
 
 /* ---------- обрушение зданий ---------- */
@@ -9660,7 +10007,7 @@ strikeMarks.visible = false; strikeMarks.renderOrder = 4; scene.add(strikeMarks)
 
 /* ---------- время суток и погода ---------- */
 // hour 0–24; солнце идёт по дуге, ночью светит луна; сумерки красят небо
-const world = { hour: 13, target: 13, cycle: false, weather: "clear", wet: 0, rain: 0, fogK: 0, flash: 0, nextBolt: 8 };
+const world = { hour: 13, target: 13, cycle: false, weather: "clear", season: "summer", wet: 0, rain: 0, fogK: 0, flash: 0, nextBolt: 8 };
 const C_SKY = { day: [0x4f86c6, 0xd5e2ea], dusk: [0x2b3a66, 0xf0a060], night: [0x04060c, 0x121a2c] };
 const starGeo = new THREE.BufferGeometry(), starPos = [];
 for (let i = 0; i < 1600; i++) { const u = Math.random(), v = rnd(.08, 1), th = u * TAU, r = 8500; starPos.push(Math.cos(th) * Math.sqrt(1 - v * v) * r, v * r, Math.sin(th) * Math.sqrt(1 - v * v) * r); }
@@ -9693,7 +10040,9 @@ function updateLighting(dt, simDt) {
   nightK = 1 - clamp(el * 4 + .35); carLightK = clamp((.35 - el) / .3);
   settings.night = nightK > .5;
   // погода
-  const wantRain = world.weather === "rain" || world.weather === "storm" ? 1 : 0, wantFog = world.weather === "fog" ? 1 : world.weather === "storm" ? .5 : wantRain * .3;
+  // зимой вместо дождя идёт снег (cozy.js), гроза становится метелью; в снегопад даль чуть в дымке
+  const winter = world.season === "winter", wantRain = !winter && (world.weather === "rain" || world.weather === "storm") ? 1 : 0;
+  const wantFog = world.weather === "fog" ? 1 : world.weather === "storm" ? .5 : world.weather === "snow" || (winter && world.weather === "rain") ? .35 : wantRain * .3;
   world.rain += (wantRain - world.rain) * Math.min(1, dt * .5); world.fogK += (wantFog - world.fogK) * Math.min(1, dt * .5);
   world.wet += ((wantRain ? 1 : 0) - world.wet) * Math.min(1, dt * (wantRain ? .15 : .03));
   const gloom = Math.max(world.rain * .55, world.fogK * .4);
@@ -9735,7 +10084,7 @@ function updateLighting(dt, simDt) {
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);
   // молнии в грозу
   world.flash = clamp(world.flash - Math.max(0, dt) * 4, 0, 1.5);
-  if (world.weather === "storm") { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = rnd(5, 16); world.flash = .9; sfx.thunder(); } }
+  if (world.weather === "storm" && !winter) { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = rnd(5, 16); world.flash = .9; sfx.thunder(); } }
   // капли
   rain.visible = world.rain > .02;
   if (rain.visible) {
@@ -10134,7 +10483,7 @@ function updateMachines() {
   for (const [m, o] of machineObjs) if (!machines.includes(m)) { scene.remove(o); machineObjs.delete(m); }
   // кузов самосвала, барабан бетономешалки, стрела эвакуатора
   for (const c of cars) {
-    if (!c.service || !(c.service === "dump" || c.service === "mixer" || c.service === "tow" || c.service === "fire")) continue;
+    if (!c.service || !(c.service === "dump" || c.service === "mixer" || c.service === "tow" || c.service === "fire" || c.service === "plow")) continue;
     let o = carExtras.get(c);
     if (!o) {
       o = new THREE.Group();
@@ -10148,6 +10497,7 @@ function updateMachines() {
         o.userData.bed = bed; o.userData.heap = heap;
       }
       if (c.service === "mixer") { const drum = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 4.2, 12, 14).rotateZ(Math.PI / 2 - .25), new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: .5, metalness: .3 })); drum.position.set(-4, 9, 0); drum.castShadow = true; o.add(drum); const stripe = new THREE.Mesh(new THREE.TorusGeometry(3.9, .4, 6, 18).rotateY(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd2552a })); stripe.position.set(-4, 9, 0); o.add(stripe); o.userData.drum = drum; o.userData.stripe = stripe; }
+      if (c.service === "plow") { const blade = new THREE.MeshStandardMaterial({ color: 0xe8781c, roughness: .5, metalness: .4 }); const b = addBox(o, blade, 1.2, 3.6, 13, 12.5, 1.9, 0); b.rotation.y = .3; addBox(o, steelMat, 3, .8, 1, 10.5, 2.4, 2.5); addBox(o, steelMat, 3, .8, 1, 10.5, 2.4, -2.5); addBox(o, blade, 1.4, .8, 1.4, -2, 9.2, 0); } // отвал спереди и маячок
       if (c.service === "tow" && c.model !== "tow") { const boom = addBox(o, steelMat, 12, 1, 1, -9, 8, 0); boom.rotation.z = -.35; addBox(o, steelMat, 2, 6, 6, -6, 6, 0); }
       if (c.service === "fire" && c.model === "ladder") { const base = new THREE.Group(); base.position.set(-6, 7.2, 0); o.add(base); addBox(base, steelMat, 3, 1.4, 3, 0, 0, 0); const lad = new THREE.Group(); base.add(lad); const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: .6, roughness: .4 }); for (const s of [-1, 1]) addBox(lad, rail, 22, .35, .35, 11, .6, s * 1.1); for (let x = 1; x < 22; x += 2.2) addBox(lad, rail, .3, .3, 2.2, x, .6, 0); const ext = new THREE.Group(); ext.position.set(10, .9, 0); lad.add(ext); for (const s of [-1, 1]) addBox(ext, rail, 20, .3, .3, 10, 0, s * .8); ext.scale.x = .3; o.userData.ladder = lad; o.userData.ext = ext; }
       const FM = CAR_MODELS[c.model]; if (FM && FM.fit) o.scale.set(1, FM.fit[0], FM.fit[1]);
@@ -10170,7 +10520,7 @@ let tlPoles = null, tlHeads = null, tlLamps = null, tlList = [];
 function buildTrafficLights() {
   for (const m of [tlPoles, tlHeads, tlLamps]) if (m) { scene.remove(m); m.dispose(); }
   tlList = [];
-  for (const n of RN) { if (!n.sig) continue; for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (l) tlList.push({ n, e, l }); } }
+  for (const n of RN) { if (!n.sig && !n.sigBroken) continue; for (const e of n.ed) { const l = e.b === n ? e.L[0] : e.L[1]; if (l) tlList.push({ n, e, l }); } } // поваленные взрывом тоже рисуются — лёжа (render19.js)
   const cnt = Math.max(1, tlList.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
   tlPoles = new THREE.InstancedMesh(new THREE.CylinderGeometry(.25, .3, 14, 6).translate(0, 7, 0), new THREE.MeshStandardMaterial({ color: 0x2a2d30, metalness: .5, roughness: .5 }), cnt);
   tlHeads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 3.4, 1.1), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: .6 }), cnt);
@@ -10194,7 +10544,7 @@ function updateTrafficLights(dt) {
   if (!tlLamps || !tlList.length) return; tlT -= dt; if (tlT > 0) return; tlT = .25;
   const dark = typeof settings !== "undefined" && settings.dark;
   tlList.forEach((t, j) => {
-    const st = dark ? "off" : lightFor(t.n, t.e);
+    const st = dark || t.n.sigBroken ? "off" : lightFor(t.n, t.e);
     // верхняя лампа — красный/жёлтый, нижняя — зелёный
     tlLamps.setColorAt(j * 2, st === "g" || st === "off" ? TL_COL.off : TL_COL[st]);
     tlLamps.setColorAt(j * 2 + 1, st === "g" ? TL_COL.g : TL_COL.off);
@@ -10422,7 +10772,7 @@ function updateWorld2(dt) {
 }
 // инфраструктура: трубы электростанции, баки водонасосной, мачта радиовышки
 function decorateInfra(b, obj, w, d) {
-  if (b.kind === "power") { for (const s of [-1, 1]) { const ch = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3, 42, 12), parapetMat); ch.position.set(s * w * .25, b.h + 21, -d * .2); ch.castShadow = true; obj.add(ch); } b.chimneys = true; }
+  if (b.kind === "power") { for (const s of [-1, 1]) { const ch = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3, 42, 12), parapetMat); ch.position.set(s * w * .25, b.h + 21, -d * .2); ch.castShadow = true; ch.userData.chim = 2; obj.add(ch); } b.chimneys = true; }
   if (b.kind === "water") { for (const [x, z] of [[-w * .28, d * .25], [w * .28, d * .25]]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 16, 16), new THREE.MeshStandardMaterial({ color: 0x7fa7c7, metalness: .4, roughness: .4 })); t.position.set(x, b.h + 8, z); t.castShadow = true; obj.add(t); } }
   if (b.kind === "radio") { const mast = new THREE.Mesh(new THREE.CylinderGeometry(.4, 1.6, 110, 6), new THREE.MeshStandardMaterial({ color: 0xc8c8c0, metalness: .6, roughness: .4 })); mast.position.set(0, b.h + 55, 0); mast.castShadow = true; obj.add(mast); for (let i = 1; i <= 4; i++) { const ring = new THREE.Mesh(new THREE.TorusGeometry(2 + i * .6, .12, 6, 16).rotateX(Math.PI / 2), parapetMat); ring.position.set(0, b.h + 10 + i * 22, 0); obj.add(ring); } const top = new THREE.Mesh(new THREE.SphereGeometry(.8, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3030 })); top.position.set(0, b.h + 110, 0); obj.add(top); b.beacon = top; }
 }
@@ -11092,15 +11442,15 @@ function updateCars() {
   for (const k in cm.byModel) cm.byModel[k].n = 0;
   let wi = 0, li = 0, bi = 0, bar = 0;
   for (const c of list) {
-    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.vlen || c.len || 1) * 18 / M.L, dead = c.wreck && c.boomT <= 0;
+    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.vlen || c.len || 1) * 18 / M.L, dead = (c.char || 0) > .5 || c.exploded, glassOut = dead || c.glass || c.wreck;
     carTilt(c, Math.max(12, M.L * sx), Math.max(3, M.track)); _ce.set((c.roll || 0) + c.tR, -c.ang, c.tP, "YXZ"); _cq.setFromEuler(_ce);
-    _cs.set(sx, c.crushed ? .35 : 1, 1);
+    _cs.set(sx, c.crushed ? .35 : 1 - (c.dent || 0) * .22, 1);
     if (c.rx === undefined || Math.hypot(c.rx - c.x, c.ry - c.y) > 40) { c.rx = c.x; c.ry = c.y; } const rk = c.turnT > 0 ? .12 : .25; c.rx += (c.x - c.rx) * rk; c.ry += (c.y - c.ry) * rk;
-    _cm.compose(_cv.set(X(c.rx), (c.z || 0) + (c.roll ? Math.abs(Math.sin(c.roll)) * 3.6 : 0) + gY(c.rx, c.ry), Z(c.ry)), _cq, _cs);
+    _cm.compose(_cv.set(X(c.rx), (c.z || 0) + (c.towedBy && c.onDeck ? 3.6 : 0) + (c.roll ? Math.abs(Math.sin(c.roll)) * 3.6 : 0) + gY(c.rx, c.ry), Z(c.ry)), _cq, _cs); // на платформе эвакуатора — выше
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : part.p === "base" ? (dead ? "#2a2724" : "#ffffff") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (glassOut ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : part.p === "base" ? (dead ? "#2a2724" : "#ffffff") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим
@@ -11440,19 +11790,35 @@ function mergeGeoUV(list) {
   const out = new THREE.BufferGeometry(); out.setAttribute("position", new THREE.BufferAttribute(p, 3)); out.setAttribute("normal", new THREE.BufferAttribute(nr, 3)); out.setAttribute("uv", new THREE.BufferAttribute(uv, 2)); out.computeBoundingSphere();
   return out;
 }
+// разрушения (sim3.js): разлетевшееся (gone) не рисуется, опрокинутое лежит на боку там, куда его отбросило (tip, tipA, dx, dy),
+// у побывавших во взрыве выбиты стёкла (glass), горевшее чернеет по степени обгорания (char) — свой тёмный материал на ступень
+let propMeshes = [];
+const _prUp = new THREE.Vector3(0, 1, 0), _prT = new THREE.Quaternion(), _prAx = new THREE.Vector3(), charMats = new Map();
+function charMat(mat, lvl) {
+  let C = charMats.get(mat); if (!C) charMats.set(mat, C = []);
+  if (!C[lvl]) { const m = mat.clone(); m.color = (mat.color ? mat.color.clone() : new THREE.Color(1, 1, 1)).lerp(new THREE.Color(0x1b1714), lvl === 2 ? .93 : .55); if (m.emissive) m.emissive.setHex(0); m.roughness = 1; m.metalness = 0; C[lvl] = m; }
+  return C[lvl];
+}
 function buildProps() {
-  const buckets = new Map();
+  for (const m of propMeshes) { cityGroup.remove(m); m.geometry.dispose(); } propMeshes = [];
+  const buckets = new Map(), glassy = new Set([verandaMat, darkGlassMat]);
   for (const pr of props) {
-    const parts = PROP_PARTS[pr.k]; if (!parts) continue;
-    // лицевая сторона (+z) смотрит в направлении a
-    _prM.compose(_prV.set(X(pr.x), gY(pr.x, pr.y), Z(pr.y)), _prQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2 - pr.a), _prS.set(1, 1, 1));
+    const parts = PROP_PARTS[pr.k]; if (!parts || pr.gone) continue;
+    // лицевая сторона (+z) смотрит в направлении a; опрокинутое — ещё и повёрнуто от взрыва вокруг основания
+    const px = pr.x + (pr.dx || 0), py = pr.y + (pr.dy || 0);
+    _prQ.setFromAxisAngle(_prUp, Math.PI / 2 - pr.a);
+    if (pr.tip) { _prT.setFromAxisAngle(_prAx.set(Math.sin(pr.tipA), 0, -Math.cos(pr.tipA)), pr.tip); _prQ.premultiply(_prT); }
+    _prM.compose(_prV.set(X(px), gY(px, py), Z(py)), _prQ, _prS.set(1, 1, 1));
+    const ch = pr.char > .7 ? 2 : pr.char > .3 ? 1 : 0;
     for (const part of parts(pr.v || 0)) {
+      if (pr.glass && glassy.has(part.mat)) { part.geo.dispose(); continue; } // стёкла выбиты
       _prE.set(part.rx || 0, 0, 0); _prL.compose(_prV.set(part.x, part.y, part.z), _prQ.setFromEuler(_prE), _prS.set(1, 1, 1)).premultiply(_prM);
       const src = part.geo, g = (src.index ? src.toNonIndexed() : src).applyMatrix4(_prL); if (g !== src) src.dispose();
-      let list = buckets.get(part.mat); if (!list) buckets.set(part.mat, list = []); list.push(g);
+      const mat = ch ? charMat(part.mat, ch) : part.mat;
+      let list = buckets.get(mat); if (!list) buckets.set(mat, list = []); list.push(g);
     }
   }
-  for (const [mat, list] of buckets) { const m = new THREE.Mesh(mergeGeoUV(list), mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; cityGroup.add(m); }
+  for (const [mat, list] of buckets) { const m = new THREE.Mesh(mergeGeoUV(list), mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; cityGroup.add(m); propMeshes.push(m); }
 }
 
 /* ---------- указатели угроз в сцене ----------
@@ -11554,7 +11920,7 @@ function gableRoof(obj, w, d, h, rh, along, mat, over = 1.2, cx = 0, cz = 0) {
   const roof = new THREE.Mesh(rg, mat); roof.position.set(cx, h, cz); roof.castShadow = roof.receiveShadow = true; obj.add(roof); return roof;
 }
 function facadeBox(b, w, h, d, x, y, z, fm, top) { const geo = new THREE.BoxGeometry(w, h, d); boxUV(geo, w, d, b.floors * 1.6, Math.floor(rnd(0, 8)) / TBX); const m = new THREE.Mesh(geo, [fm, fm, top || roofMat, top || roofMat, fm, fm]); m.position.set(x, y, z); return m; }
-function chimney(obj, w, d, y) { lmAdd(obj, new THREE.BoxGeometry(2.2, 5, 2.2), parapetMat, rnd(-w / 4, w / 4), y, rnd(-d / 4, d / 4)); }
+function chimney(obj, w, d, y) { lmAdd(obj, new THREE.BoxGeometry(2.2, 5, 2.2), parapetMat, rnd(-w / 4, w / 4), y, rnd(-d / 4, d / 4)).userData.chim = 1; } // chim: из трубы идёт дым (cozy.js)
 function porch(obj, x, z, wide = 5) {
   lmAdd(obj, new THREE.BoxGeometry(wide, .9, 2.4), porchMat, x, .45, z + 1.2);
   lmAdd(obj, new THREE.BoxGeometry(wide + 1, .35, 3.2), whiteTrim, x, 8.4, z + 1.5).rotation.x = .15;
@@ -11610,7 +11976,7 @@ function districtMesh(b, obj, box, w, d) {
     lmAdd(obj, new THREE.BoxGeometry(w - 2, .7, 4), plankMat18, 0, .35, d / 2 + 2);
     lmAdd(obj, new THREE.BoxGeometry(w, .4, 5), tile, 0, b.h - 1.2, d / 2 + 2.3).rotation.x = .22;
     for (let x = -w / 2 + 2; x <= w / 2 - 2; x += (w - 4) / 3) lmAdd(obj, new THREE.BoxGeometry(.5, b.h - 1.5, .5), whiteTrim, x, (b.h - 1.5) / 2, d / 2 + 4);
-    lmAdd(obj, new THREE.BoxGeometry(2.4, rh + 4, 2.4), parapetMat, w / 4, b.h + rh * .4, -d / 6);
+    lmAdd(obj, new THREE.BoxGeometry(2.4, rh + 4, 2.4), parapetMat, w / 4, b.h + rh * .4, -d / 6).userData.chim = 1;
     b.h += rh * .6; return true;
   }
   if (k === "manor") {
@@ -11640,12 +12006,21 @@ function districtMesh(b, obj, box, w, d) {
   }
   if (k === "cafe") {
     // кафе: вывеска, маркиза над витриной, столики с зонтиками на террасе
+    b.seats = []; b.lights = []; // места посетителей и гирлянды — для cozy.js, при пересборке города заново
     landSign(obj, pick(["КАФЕ", "КОФЕЙНЯ", "ПЕКАРНЯ", "ПИЦЦА · КАФЕ"]), pick(["#5a2a1a", "#2e6a3c", "#1d3566"]), "#f4d9a0", Math.min(14, w - 2), b.h - 1.5, d / 2 + .35);
     const aw = lmAdd(obj, new THREE.BoxGeometry(w - 2, .3, 3), pick(AWNING_MATS), 0, b.h - 3.6, d / 2 + 1.4); aw.rotation.x = .35;
     for (const x of [-w / 3, 0, w / 3]) {
       lmAdd(obj, new THREE.CylinderGeometry(1.4, 1.4, .2, 12), whiteMat, x, 2.2, d / 2 + 5); lmAdd(obj, new THREE.CylinderGeometry(.12, .12, 2.2, 6), steelPostMat, x, 1.1, d / 2 + 5);
       lmAdd(obj, new THREE.CylinderGeometry(.08, .08, 6, 6), steelPostMat, x, 3, d / 2 + 5); lmAdd(obj, new THREE.ConeGeometry(2.6, 1.2, 10), pick(AWNING_MATS), x, 6.4, d / 2 + 5);
+      // два стула у столика лицом к нему; места запоминаются — на них садятся посетители (cozy.js)
+      for (const s of [-1, 1]) {
+        lmAdd(obj, new THREE.BoxGeometry(1.4, .25, 1.4), woodBenchMat, x + s * 2.5, 1.48, d / 2 + 5); lmAdd(obj, new THREE.BoxGeometry(.25, 1.4, .25), steelPostMat, x + s * 2.5, .7, d / 2 + 5);
+        lmAdd(obj, new THREE.BoxGeometry(.2, 1.8, 1.4), woodBenchMat, x + s * 3.15, 2.4, d / 2 + 5);
+        b.seats.push([x + s * 2.5, d / 2 + 5, -s, 0]);
+      }
+      b.lights.push([x, b.h - 1.4, d / 2 + .5, x, 6.9, d / 2 + 5, .5]); // гирлянда от фасада к зонтику
     }
+    b.lights.push([-w / 2 + .6, b.h - .9, d / 2 + .5, w / 2 - .6, b.h - .9, d / 2 + .5, 1.2]); // и вдоль фасада над маркизой
     lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
     return true;
   }
@@ -11712,6 +12087,160 @@ Object.assign(PROP_PARTS, {
   // пляжный зонтик с полотенцем
   umbrella: v => [{ geo: new THREE.CylinderGeometry(.1, .1, 5.2, 6), mat: steelPostMat, x: 0, y: 2.6, z: 0 }, { geo: new THREE.ConeGeometry(2.8, 1.1, 10), mat: seatMats[v % 3], x: 0, y: 5.4, z: 0 }, P_BOX(3, .1, 1.6, 1.4, .06, 1.2, seatMats[(v + 1) % 3])],
 });
+
+/* ---------- разрушения мелочей на картинке: огонь на мелочах и деревьях, фонтан из сломанного гидранта, поваленные светофоры,
+   разорванные и обгоревшие заборы, сломанные взрывом деревья. Состояние — в sim3.js (stepWreck, wreckBlast) ---------- */
+let wreckRT = 0;
+const _wm = new THREE.Matrix4(), _wm2 = new THREE.Matrix4(), _wq = new THREE.Quaternion(), _wv = new THREE.Vector3(), _wa = new THREE.Vector3(), _wc = new THREE.Color();
+const WATER_C = [.72, .84, .95];
+function updateWreck(dt) {
+  wreckRT -= dt;
+  if (wreckDirty && wreckRT <= 0) { wreckDirty = false; wreckRT = .4; buildProps(); refreshFences(); refreshHydrants(); refreshSignals(); }
+  if (!dt) return;
+  // огонь и дым над тем, что горит, — только рядом с камерой
+  const cx = camC.tx + W / 2, cy = camC.tz + H / 2, R = 500 + camC.dist * .5, nearC = (x, y) => Math.abs(x - cx) < R && Math.abs(y - cy) < R;
+  for (const p of props) if (p.burnT > 0) {
+    const x = p.x + (p.dx || 0), y = p.y + (p.dy || 0); if (!nearC(x, y)) continue; const gy = gY(x, y);
+    if (Math.random() < dt * 16) fireParticle(X(x) + rnd(-2, 2), gy + rnd(1, 4), Z(y) + rnd(-2, 2), .55);
+    if (Math.random() < dt * 2.5) smokeParticle(X(x), gy + 5, Z(y), .6);
+  }
+  for (const t of trees) if (t.burnT > 0 && nearC(t.x, t.y)) {
+    const gy = gY(t.x, t.y), h = t.h * 1.2;
+    if (Math.random() < dt * 22) fireParticle(X(t.x) + rnd(-1, 1) * t.r, gy + h * rnd(.4, .9), Z(t.y) + rnd(-1, 1) * t.r, .8);
+    if (Math.random() < dt * 3) smokeParticle(X(t.x), gy + h, Z(t.y), .9);
+  }
+  for (const f of fences) if (f.burnT > 0) { const x = (f[0] + f[2]) / 2, y = (f[1] + f[3]) / 2; if (nearC(x, y) && Math.random() < dt * 10) fireParticle(X(x + rnd(-.5, .5) * (f[2] - f[0])), gY(x, y) + 1, Z(y + rnd(-.5, .5) * (f[3] - f[1])), .4); }
+  // сломанный гидрант: столб воды вверх, брызги падают обратно
+  for (const h of hydrants) if (h.spray > 0 && nearC(h.x, h.y)) {
+    const gy = gY(h.x, h.y), k = Math.min(1, h.spray / 30);
+    for (let i = 0; i < dt * 50 * k; i++) emit(PS_SMOKE, { x: X(h.x) + rnd(-.4, .4), y: gy + 1.5, z: Z(h.y) + rnd(-.4, .4), vx: rnd(-3, 3), vy: rnd(28, 40) * (.6 + .4 * k), vz: rnd(-3, 3), l: rnd(1.6, 2.2), s0: 1, s1: 3.5, c: WATER_C, a: .55, g: 39 });
+  }
+}
+// заборы: разорванные звенья пропадают, обгоревшие чернеют
+function refreshFences() {
+  if (!fenceInst) return;
+  fences.forEach((f, i) => {
+    if (f.gone) { if (!f.shownGone) { f.shownGone = true; fenceInst.setMatrixAt(i, _wm.makeScale(0, 0, 0)); } return; }
+    fenceInst.setColorAt(i, _wc.setRGB(1, 1, 1).lerp(_wc2.setHex(0x1b1714), (f.char || 0) * .9));
+  });
+  fenceInst.instanceMatrix.needsUpdate = true; if (fenceInst.instanceColor) fenceInst.instanceColor.needsUpdate = true;
+}
+const _wc2 = new THREE.Color();
+// гидрант: корпус обломан у земли, колпак отлетел и лежит рядом
+function refreshHydrants() {
+  if (!hydrantMesh) return;
+  hydrants.forEach((h, i) => {
+    if (!h.broken || h.shownBroken) return; h.shownBroken = true;
+    const y = gY(h.x, h.y), a = h.tipA || 0;
+    hydrantMesh.setMatrixAt(i, _wm.makeScale(1, .35, 1).setPosition(X(h.x), y, Z(h.y)));
+    _wq.setFromAxisAngle(_wa.set(Math.sin(a), 0, -Math.cos(a)), 1.5);
+    hydrantCap.setMatrixAt(i, _wm.compose(_wv.set(X(h.x + Math.cos(a) * 4), y + .4, Z(h.y + Math.sin(a) * 4)), _wq, _wa.set(1, 1, 1)));
+  });
+  hydrantMesh.instanceMatrix.needsUpdate = true; hydrantCap.instanceMatrix.needsUpdate = true;
+}
+// светофор после взрыва: столб лежит вдоль земли от взрыва, лампы погасли
+function refreshSignals() {
+  if (!tlPoles || !tlList.length) return;
+  let any = false;
+  tlList.forEach((t, j) => {
+    if (!t.n.sigBroken || t.down) return; t.down = true; any = true;
+    tlPoles.getMatrixAt(j, _wm); const px = _wm.elements[12], py = _wm.elements[13], pz = _wm.elements[14], a = (t.n.sigA || 0) + rnd(-.4, .4);
+    // поворот вокруг основания столба
+    _wq.setFromAxisAngle(_wa.set(Math.sin(a), 0, -Math.cos(a)), rnd(1.35, 1.55));
+    const tilt = _wm2.makeTranslation(px, py, pz).multiply(new THREE.Matrix4().makeRotationFromQuaternion(_wq)).multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
+    for (const [mesh, k] of [[tlPoles, j], [tlHeads, j], [tlLamps, j * 2], [tlLamps, j * 2 + 1]]) { mesh.getMatrixAt(k, _wm); mesh.setMatrixAt(k, _wm.premultiply(tilt)); }
+  });
+  if (any) for (const m of [tlPoles, tlHeads, tlLamps]) m.instanceMatrix.needsUpdate = true;
+}
+// дерево у центра взрыва сломано: кроны нет, от ствола остался пень
+function snapTree(T, t, i) {
+  t.shownSnap = true; if (i * 3 >= T.cityN) return;
+  for (let k = 0; k < 3; k++) { const j = i * 3 + k; T.M.fill(0, j * 16, j * 16 + 16); const tl = T.tiles[T.tileOf[j]]; tl.instanceMatrix.array.fill(0, T.slotOf[j] * 16, T.slotOf[j] * 16 + 16); tl.instanceMatrix.needsUpdate = true; }
+  const tr = T.trunk, m = tr.meshes[tr.tileOf[i]]; if (!m) return;
+  const e = T.trunkM[i].elements; m.setMatrixAt(tr.slotOf[i], _wm.makeScale(1.4, e[5] * .3, 1.4).setPosition(e[12], e[13], e[14])); m.instanceMatrix.needsUpdate = true;
+}
+
+/* ---------- снег на дорогах на картинке: сплошной покров сугробов, трос лебёдки, поза регулировщика.
+   Состояние — sim18.js (snowD, snowCells, snowDirty, snowBox) ---------- */
+// снег — сплошной покров, натянутый по рельефу участками 128 × 128 с шагом 4: высота — сглаженная глубина из клеток,
+// край рваный (шум в шейдере), где снег тонкий — серая каша; так сугроб читается валом и наносом, а не клетками
+const SNOW_TILE = 128, SNOW_RES = 4, snowTiles = new Map();
+const snowMat = new THREE.MeshStandardMaterial({ color: 0xe4e9f0, roughness: .78, envMapIntensity: .6 });
+snowMat.onBeforeCompile = sh => {
+  sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute float depth; varying float vDepth; varying vec2 vSW; varying float vUp;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvDepth = depth; vSW = position.xz; vUp = normal.y;");
+  sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
+varying float vDepth; varying vec2 vSW; varying float vUp;
+float snH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float snN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(snH(i), snH(i + vec2(1., 0.)), f.x), mix(snH(i + vec2(0., 1.)), snH(i + 1.), f.x), f.y); }`)
+    .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n  float snE = snN(vSW * .3) * .6 + snN(vSW * 1.1) * .4; if (vDepth + (snE - .5) * .3 < .07) discard;")
+    .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  totalEmissiveRadiance += vec3(.9, .95, 1.) * step(.992, snH(floor(vSW * 5.))) * smoothstep(.3, 1., vDepth) * smoothstep(.85, 1., vUp) * .5;") // редкие искры на солнце
+    .replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= .92 + .08 * snN(vSW * 2.3); diffuseColor.rgb = mix(diffuseColor.rgb * vec3(.62, .58, .53), diffuseColor.rgb, smoothstep(.07, .5, vDepth)); diffuseColor.rgb *= mix(vec3(.68, .74, .86), vec3(1.), smoothstep(.55, .97, vUp));"); // склоны и ямки — в голубой тени
+};
+// глубина в точке: билинейно по центрам клеток и усреднение по кругу — без ступенек на границах клеток
+function snowRaw(x, y) {
+  const fx = x / CS - .5, fy = y / CS - .5, gx = Math.floor(fx), gy = Math.floor(fy), tx = fx - gx, ty = fy - gy;
+  const at = (a, b) => (a < 0 || b < 0 || a >= GW || b >= GH) ? 0 : snowD[b * GW + a];
+  return (at(gx, gy) * (1 - tx) + at(gx + 1, gy) * tx) * (1 - ty) + (at(gx, gy + 1) * (1 - tx) + at(gx + 1, gy + 1) * tx) * ty;
+}
+function snowSmooth(x, y) { return snowRaw(x, y) * .4 + (snowRaw(x + 5, y) + snowRaw(x - 5, y) + snowRaw(x, y + 5) + snowRaw(x, y - 5)) * .15; }
+// бугры и заструги: без них свежий снег под солнцем — плоское белое пятно без теней
+function snowLump(x, y) { return (Math.sin(x * .21 + y * .13) * Math.cos(y * .17 - x * .07) + Math.sin(x * .47 - y * .39) * .45 + Math.sin(x * .9 + y * .7) * .15) * .45; }
+function buildSnowTile(tx, ty) {
+  const n = SNOW_TILE / SNOW_RES + 1, pos = new Float32Array(n * n * 3), dep = new Float32Array(n * n), idx = [];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = tx * SNOW_TILE + i * SNOW_RES, y = ty * SNOW_TILE + j * SNOW_RES, d = snowSmooth(x, y), k = j * n + i;
+    // у самого края покров уходит под землю, чтобы не было ступеньки
+    pos[k * 3] = X(x); pos[k * 3 + 1] = gY(Math.min(W - .01, Math.max(0, x)), Math.min(H - .01, Math.max(0, y))) + (d > .04 ? (d < 3 ? d * 2 : 6 + (d - 3) * 1.3) + .12 + snowLump(x, y) * Math.min(1, d) : -.6); // большая куча выше, но круче не становится pos[k * 3 + 2] = Z(y); dep[k] = d;
+  }
+  for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) { const a = j * n + i, b = a + 1, c = a + n, d = c + 1; if (dep[a] + dep[b] + dep[c] + dep[d] < .02) continue; idx.push(a, c, b, b, c, d); }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("depth", new THREE.BufferAttribute(dep, 1)); g.setIndex(idx); g.computeVertexNormals(); g.computeBoundingSphere();
+  return g;
+}
+const winchGeo = new THREE.BufferGeometry(), winchPos = new Float32Array(8 * 6); winchGeo.setAttribute("position", new THREE.BufferAttribute(winchPos, 3).setUsage(THREE.DynamicDrawUsage));
+const winchLines = new THREE.LineSegments(winchGeo, new THREE.LineBasicMaterial({ color: 0x1a1a1a })); winchLines.frustumCulled = false; scene.add(winchLines);
+let snowRT = 0;
+const _snv = new THREE.Vector3();
+function updateSnowRoads(dt) {
+  snowRT -= dt;
+  if (snowDirty && snowRT <= 0) {
+    snowDirty = false; snowRT = .5;
+    // какие участки со снегом; перестраиваются задетые (snowBox) и опустевшие
+    const want = new Set();
+    if (snowD) for (const i of snowCells) { const x = (i % GW) * CS, y = ((i / GW) | 0) * CS; for (const [ox, oy] of [[-6, -6], [6 + CS, -6], [-6, 6 + CS], [6 + CS, 6 + CS]]) want.add(Math.floor((x + ox) / SNOW_TILE) + ":" + Math.floor((y + oy) / SNOW_TILE)); }
+    const box = snowBox || [0, 0, W, H]; snowBox = null;
+    for (const [k, m] of snowTiles) if (!want.has(k)) { cityGroup.remove(m); scene.remove(m); m.geometry.dispose(); snowTiles.delete(k); }
+    for (const k of want) {
+      const [tx, ty] = k.split(":").map(Number), x0 = tx * SNOW_TILE, y0 = ty * SNOW_TILE;
+      if (snowTiles.has(k) && (x0 > box[2] + 8 || x0 + SNOW_TILE < box[0] - 8 || y0 > box[3] + 8 || y0 + SNOW_TILE < box[1] - 8)) continue;
+      const old = snowTiles.get(k); if (old) { old.geometry.dispose(); old.geometry = buildSnowTile(tx, ty); continue; }
+      const m = new THREE.Mesh(buildSnowTile(tx, ty), snowMat); m.castShadow = m.receiveShadow = true; scene.add(m); snowTiles.set(k, m);
+    }
+  }
+  // трос лебёдки: от эвакуатора к застрявшей машине
+  let nl = 0;
+  for (const c of cars) {
+    if (c.service !== "tow" || c.gone || !c.job || !c.job.winch) continue; const w = c.job.tow; if (!w || w.winchBy !== c || nl >= 8) continue;
+    const ax = X(c.x) - Math.cos(c.ang) * 9, az = Z(c.y) - Math.sin(c.ang) * 9, bx = X(w.x), bz = Z(w.y);
+    winchPos.set([ax, gY(c.x, c.y) + 3, az, bx, gY(w.x, w.y) + 1.8, bz], nl * 6); nl++;
+  }
+  // трос буксира: от сцепки к передку большой машины, которую эвакуатор тянет за собой
+  for (const c of cars) {
+    if (!c.towedBy || c.onDeck || !c.hitch || c.gone || nl >= 8) continue;
+    const fx = c.x + Math.cos(c.ang) * 9 * (c.len || 1), fy = c.y + Math.sin(c.ang) * 9 * (c.len || 1);
+    winchPos.set([X(c.hitch[0]), gY(c.hitch[0], c.hitch[1]) + 2.4, Z(c.hitch[1]), X(fx), gY(fx, fy) + 2, Z(fy)], nl * 6); nl++;
+  }
+  winchGeo.setDrawRange(0, nl * 2); winchGeo.attributes.position.needsUpdate = true; winchLines.visible = nl > 0;
+}
+// регулировщик: лицом к подъезжающим, левая рука вперёд («стоп»), правая машет в сторону объезда
+function regulPose(s, a) {
+  s.root.updateMatrixWorld(true);
+  const f = a.regulDir || 0, fx = Math.cos(f), fz = Math.sin(f), wave = Math.sin(simT * 3 + a.id) * .5;
+  aimBone(s.bones.LeftArm, s.bones.LeftForeArm, _snv.set(fx, .35, fz).normalize());
+  aimBone(s.bones.RightArm, s.bones.RightForeArm, _snv.set(-fz * Math.cos(wave) + fx * Math.sin(wave) * .4, .15, fx * Math.cos(wave) + fz * Math.sin(wave) * .4).normalize());
+  s.root.updateMatrixWorld(true);
+  aimBone(s.bones.LeftForeArm, s.bones.LeftHand, _snv.set(fx, .6, fz).normalize());
+  aimBone(s.bones.RightForeArm, s.bones.RightHand, _snv.set(-fz, .2, fx).normalize());
+}
 
 /* ---------- обработка картинки: свечение, затенение, цветокоррекция ---------- */
 // финальный проход: тональная кривая ACES, насыщенность, контраст, тёплый оттенок, виньетка, плёночное зерно, перевод в sRGB
@@ -12257,7 +12786,7 @@ function makeSlot() {
   hat.add(capM, visM, domeM); hat.userData = { capM, visM, domeM, hatMat };
   // исходная поза костей, которые подправляются поверх анимации: у части из них в анимации нет ключей,
   // и без сброса правка копилась бы кадр за кадром
-  const rest = ["Body", "Hips", "Abdomen", "Torso", "Head", "UpperLegL", "UpperLegR", "UpperArmL", "UpperArmR", "LowerArmL", "LowerArmR", "FistL", "FistR"]
+  const rest = ["Body", "Hips", "Abdomen", "Torso", "Head", "UpperLegL", "UpperLegR", "LowerLegL", "LowerLegR", "FootL", "FootR", "UpperArmL", "UpperArmR", "LowerArmL", "LowerArmR", "FistL", "FistR"]
     .filter(n => bones[n]).map(n => [bones[n], bones[n].position.clone(), bones[n].quaternion.clone(), bones[n].scale.clone()]);
   return { holder, root, mesh, mixer, actions, cur: null, agent: null, bones, gun, hat, mats: {}, char: null, palKey: "", rest };
 }
@@ -12272,12 +12801,13 @@ function paintPalette(s, a) {
   const z = a.role === "zombie", burnt = a.burnt, dead = a.state === "dead", n = s.char, C = REAL.chars[n];
   const zskin = a.ztype === "spitter" ? "#9ab83a" : a.ztype === "titan" ? "#5a2620" : ["#7d8c69", "#9a9a8c", "#7f8a94", "#8a7a6a"][a.id % 4];
   const skin = burnt ? "#1b1512" : z ? mixHex(a.skin, zskin, .8) : a.burn > .3 ? mixHex(a.skin, "#7a2a18", a.burn * .8) : dead ? mixHex(a.skin, "#bdb7ad", .4) : a.skin;
-  const key = n + skin + a.cloth + a.pants + a.hair + (z ? "z" : "") + (dead ? "d" : "") + (burnt ? "b" : "");
+  const cold = a.frozen ? 1 : a.cold > .05 && (a.buried || a.frost) ? a.cold : 0; // замерзающий синеет (sim18.js)
+  const key = n + skin + a.cloth + a.pants + a.hair + (z ? "z" : "") + (dead ? "d" : "") + (burnt ? "b" : "") + Math.round(cold * 10);
   if (key === s.palKey) return; s.palKey = key;
   const own = UNIFORM.test(n) || /^Zombie/.test(n), dirt = (c, k) => z ? mixHex(c, "#3a2418", k) : c;
   for (const [m, base] of C.mats) {
     let col = base;
-    if (m === "Skin") col = skin;
+    if (m === "Skin") col = cold ? mixHex(skin, "#8fa8c8", cold * .75) : skin;
     else if (m === "Hair") col = z ? mixHex(a.hair, "#4a4a44", .3) : a.hair;
     else if (!own && /Shirt|Clothes|Top|Jacket|Coat/i.test(m) && !/Dark/i.test(m)) col = dirt(a.cloth, .45);
     else if (!own && /Pants|Trousers|Skirt/i.test(m)) col = dirt(a.pants, .35);
@@ -12333,6 +12863,8 @@ function updateRealPeople(dt) {
       const d = Math.hypot(X(a.x) - cp.x, Z(a.y) - cp.z, (a.onRoof ? a.roofZ : 0) - cp.y * .3);
       if (d < maxD) cand.push([d, a]);
     }
+    // горожане на скамейках и за столиками кафе (cozy.js): не агенты симуляции, только картинка вблизи камеры
+    if (prefs.realPeople !== false && (fps.on || camC.dist < 520)) for (const a of cozy.sitters) { const d = Math.hypot(X(a.x) - cp.x, Z(a.y) - cp.z, -cp.y * .3); if (d < maxD) cand.push([d + 12, a]); }
     cand.sort((p, q) => p[0] - q[0]);
     const want = new Set(cand.slice(0, REAL.N).map(p => p[1]));
     for (const s of REAL.slots) if (s.agent && !want.has(s.agent)) { s.agent.lod = false; s.agent = null; s.holder.visible = false; }
@@ -12344,7 +12876,7 @@ function updateRealPeople(dt) {
   }
   for (const s of REAL.slots) {
     const a = s.agent; if (!a) continue;
-    if (a.state === "saved" || (a.hidden && !a.onRoof)) { a.lod = false; s.agent = null; s.holder.visible = false; continue; }
+    if (a.state === "saved" || (a.hidden && !a.onRoof) || a.gone) { a.lod = false; s.agent = null; s.holder.visible = false; continue; }
     setChar(s, charOf(a)); paintPalette(s, a);
     const z = a.role === "zombie", dead = a.state === "dead", sp = a.speed || 0;
     const sc = a.size * (a.ztype === "brute" ? 1.2 : a.ztype === "titan" ? 1.65 : 1), bld = a.build || 1;
@@ -12371,6 +12903,7 @@ function updateRealPeople(dt) {
     for (const [b, p, q, sc] of s.rest) { b.position.copy(p); b.quaternion.copy(q); b.scale.copy(sc); }
     s.mixer.update(dt);
     applyProps(s.bones);
+    if (a.sit) sitPose(s, a);
     // осанка: зомби сутулятся и клонят голову набок, каждый по-своему; старики чуть горбятся; часть зомби хромает
     const upright = !dead && !(a.riseT > 0) && a.ztype !== "crawler";
     if (upright && (z || a.age === "old")) {
@@ -12391,6 +12924,8 @@ function updateRealPeople(dt) {
       if (arms !== 2) aimBone(s.bones.LeftForeArm, s.bones.LeftHand, _fw);
       aimBone(s.bones.RightForeArm, s.bones.RightHand, _fw);
     }
+    // регулировщик у перекрытой улицы (sim18.js): стоит лицом к подъезжающим и показывает объезд
+    if (a.regul && !dead && sp < 1 && a.order && Math.hypot(a.order.x - a.x, a.order.y - a.y) < 6) { s.holder.rotation.y = Math.PI / 2 - (a.regulDir || 0); regulPose(s, a); }
     // головной убор сидит на кости головы
     s.hat.visible = !!a.hat && !OWN_HAT.has(s.char) && s.bones.Head !== undefined;
     if (s.hat.visible) {
@@ -13141,6 +13676,484 @@ function spawnAt(g) { const mode = fps.pick; cancelPick(); if (blocked(g[0], g[1
 $("fpsAsHuman").addEventListener("click", () => pickSpawn("human"));
 $("fpsAsZombie").addEventListener("click", () => pickSpawn("zombie"));
 
+/* ---------- уют: времена года, снег и листопад, дым из труб, гирлянды, светлячки и пар, живые окна, золотой час,
+   горожане на скамейках и в кафе, собаки на поводке, кошки у домов, звуки кафе, воды и канатки ----------
+   Время года — world.season: summer, autumn, winter. Снег на крышах, земле и кронах и осенние кроны — вставка в шейдеры
+   материалов (cozyMat), по общим униформам COZY. Всё здесь — только картинка и звук: симуляцию не трогает. */
+const COZY = { snow: { value: 0 }, aut: { value: 0 }, winOn: { value: .5 }, winT: { value: 0 } };
+const cozy = { cover: 0, fall: 0, aut: 0, chims: [], seats: [], sitters: [], seatMap: new Map(), seatT: 0, treeB: new Map(), vents: [], cafes: [], catSpots: [],
+  dogs: [], dogT: 0, cats: [], catT: 0, smokeT: 0, garland: null, bulbs: null, creakT: 3, barkT: 8 };
+const _czv = new THREE.Vector3(), _czv2 = new THREE.Vector3(), _czc = new THREE.Color(), _czm = new THREE.Matrix4(), _czq = new THREE.Quaternion(), _cze = new THREE.Euler(), _czs = new THREE.Vector3();
+const czHash = n => ((Math.imul(n | 0, 2654435761) >>> 0) % 10007) / 10007;
+
+/* ---------- шейдеры: снег по нормали, осенние кроны ---------- */
+const COZY_GLSL = `varying vec3 vCzW;
+uniform float czSnow, czAut, czKind;
+float czH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float czN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(czH(i), czH(i + vec2(1., 0.)), f.x), mix(czH(i + vec2(0., 1.)), czH(i + 1.), f.x), f.y); }`;
+// kind: 0 — всё подряд, 1 — земля (дороги и тротуары чистят, снега на них меньше), 2 — листва и трава (осенью желтеет)
+function cozyMat(m, kind = 0) {
+  if (!m || !m.isMeshStandardMaterial || m.userData.cozy || m.userData.noSnow) return; m.userData.cozy = true;
+  const prev = m.onBeforeCompile, key = m.customProgramCacheKey() + "|cozy"; // ключ считаем до подмены: по умолчанию он — текст onBeforeCompile
+  m.onBeforeCompile = (sh, r) => {
+    prev.call(m, sh, r);
+    sh.uniforms.czSnow = COZY.snow; sh.uniforms.czAut = COZY.aut; sh.uniforms.czKind = { value: kind };
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vCzW;").replace("#include <project_vertex>", `#include <project_vertex>
+      #ifdef USE_INSTANCING
+        vCzW = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
+      #else
+        vCzW = (modelMatrix * vec4(transformed, 1.)).xyz;
+      #endif`);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\n" + COZY_GLSL).replace("#include <color_fragment>", `#include <color_fragment>
+      if (czKind > 1.5) {
+        float czL = dot(diffuseColor.rgb, vec3(.3, .59, .11));
+        if (czAut > .001) {
+          // осень: у каждой кроны свой цвет — от золота до багрянца, часть остаётся зелёной
+          #if defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )
+            float czh = fract(sin(dot(vColor.rgb, vec3(91.7, 47.3, 13.1))) * 4375.85);
+          #else
+            float czh = czN(vCzW.xz * .05);
+          #endif
+          vec3 czA = czh < .3 ? vec3(.62, .36, .03) : czh < .55 ? vec3(.6, .2, .02) : czh < .72 ? vec3(.42, .07, .02) : czh < .86 ? vec3(.38, .3, .05) : diffuseColor.rgb / max(czL, .001);
+          diffuseColor.rgb = mix(diffuseColor.rgb, czA * clamp(czL * 4.5, .18, .9), czAut * (czh < .86 ? 1. : 0.));
+        }
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(czL) * vec3(.85, .9, .95), czSnow * .45); // зимой зелень тускнеет
+      }`).replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+      if (czSnow > .001) {
+        // снег лежит на том, что смотрит вверх; край сугроба неровный, на крутых скатах снега нет
+        vec3 czUp = inverseTransformDirection(normal, viewMatrix);
+        float czn = czN(vCzW.xz * .07) * .6 + czN(vCzW.xz * .45) * .4;
+        float czS = czSnow * smoothstep(.4, .85, czUp.y) * smoothstep(.2, .5, czn + czSnow * .6 - .3);
+        if (czKind > .5 && czKind < 1.5) { vec3 dc = diffuseColor.rgb; float sat = max(max(dc.r, dc.g), dc.b) - min(min(dc.r, dc.g), dc.b); czS *= mix(.35, 1., smoothstep(.01, .035, sat)); }
+        if (czKind > 1.5) czS *= .8;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.84, .88, .93), czS);
+        roughnessFactor = mix(roughnessFactor, .72, czS); metalnessFactor *= 1. - czS;
+      }`);
+  };
+  m.customProgramCacheKey = () => key; m.needsUpdate = true;
+}
+
+/* ---------- живые окна: каждое окно горит по-своему, доля горящих зависит от часа ---------- */
+facadeMats.forEach((m, i) => {
+  const prev = m.onBeforeCompile, key = m.customProgramCacheKey() + "|win", cols = STYLES[i] && STYLES[i].curtain ? TBX * 2 : TBX;
+  m.onBeforeCompile = (sh, r) => {
+    prev.call(m, sh, r);
+    sh.uniforms.winOn = COZY.winOn; sh.uniforms.winT = COZY.winT; sh.uniforms.winCols = { value: cols };
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nuniform float winOn, winT, winCols;").replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+      {
+        // окно — клетка текстуры фасада; по его номеру решается, светится ли оно в этот час и чем: тёплой лампой или экраном телевизора
+        vec2 wc = floor(vec2(vUv.x * winCols, vUv.y * ${TFL}.));
+        float h = fract(sin(dot(wc, vec2(12.9898, 78.233))) * 43758.5453), h2 = fract(h * 91.37);
+        vec3 tint = h2 < .08 ? vec3(.5, .65, 1.) * (.75 + .25 * sin(winT * 9. + h * 60.) * sin(winT * 2.3 + h * 17.)) : mix(vec3(1.1, .86, .6), vec3(1.), h2);
+        totalEmissiveRadiance *= step(h, winOn) * tint;
+      }`);
+  };
+  m.customProgramCacheKey = () => key; m.needsUpdate = true;
+});
+// доля горящих окон по часу: вечером почти все, к ночи гаснут, утром зажигаются снова
+const WIN_ON = [[0, .32], [2, .16], [5, .1], [6.5, .42], [8.5, .25], [16, .4], [18.5, .72], [21.5, .8], [23, .55], [24, .32]];
+function windowsOn(h) { for (let i = 1; i < WIN_ON.length; i++) if (h <= WIN_ON[i][0]) { const [h0, v0] = WIN_ON[i - 1], [h1, v1] = WIN_ON[i]; return v0 + (v1 - v0) * (h - h0) / (h1 - h0); } return .32; }
+
+/* ---------- свет: золотой час, снежная дымка, окна ---------- */
+const _czLighting = updateLighting;
+updateLighting = function (dt, simDt) {
+  _czLighting(dt, simDt);
+  const el = Math.sin((world.hour - 6) / 12 * Math.PI), gloom = Math.max(world.rain * .55, world.fogK * .4, cozy.fall * .5);
+  // солнце у горизонта: свет тёплый и густой, тени длинные, небо у земли персиковое
+  const gold = clamp(1 - Math.abs(el - .1) * 5) * clamp(el * 12 + .6) * (1 - gloom);
+  if (gold > .01) {
+    sun.color.lerp(_czc.setHex(0xffad5a), gold * .45); hemi.color.lerp(_czc.setHex(0xffd6b0), gold * .3);
+    scene.fog.color.lerp(_czc.setHex(0xf0b080), gold * .25); skyU.bot.value.lerp(_czc.setHex(0xffb070), gold * .3);
+  }
+  // снегопад: небо и даль белёсые, солнце за пеленой; лежащий снег подсвечивает тени
+  if (cozy.fall > .01) {
+    const k = Math.min(1, cozy.fall), g = _czc.setHex(0x9aa2aa).multiplyScalar(.3 + (1 - nightK) * .7);
+    skyU.top.value.lerp(g, k * .6); skyU.bot.value.lerp(g, k * .6); scene.fog.color.lerp(g, k * .5); sun.intensity *= 1 - k * .4;
+  }
+  hemi.intensity *= 1 + cozy.cover * .2;
+  COZY.winOn.value = windowsOn(world.hour); COZY.winT.value = performance.now() / 1000;
+};
+
+/* ---------- после постройки города: материалы под снег, трубы, гирлянды, места для сидящих, кошки, клапаны пара ---------- */
+const _czBuildCity = buildCity;
+buildCity = function () { _czBuildCity(); try { cozyBuild(); } catch (e) { console.warn("уют не собрался", e); } };
+function cozyBuild() {
+  // снег и осень — во все материалы сцены, кроме людей (у них своя раскраска) и полупрозрачного
+  if (trees3d) { trees3d.detail.material.userData.czKind = 2; for (const t of trees3d.tiles) t.material.userData.czKind = 2; }
+  if (treeLeaf) treeLeaf.material.userData.czKind = 2;
+  if (typeof grass !== "undefined") grass.material.userData.czKind = 2;
+  ground.material.userData.czKind = 1;
+  scene.traverse(o => {
+    if (!o.isMesh || o.isSkinnedMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m && !(m.transparent && m.opacity < 1)) cozyMat(m, m.userData.czKind || 0);
+  });
+  // трубы: верх трубы в координатах сцены
+  cozy.chims = [];
+  for (const b of buildings) if (b.obj) {
+    b.obj.updateMatrixWorld(true);
+    b.obj.traverse(o => { if (!o.userData.chim) return; const h = (o.geometry.parameters && o.geometry.parameters.height) || 5, p = o.localToWorld(new THREE.Vector3(0, h / 2, 0)); cozy.chims.push({ x: p.x, y: p.y, z: p.z, b, big: o.userData.chim === 2, h: czHash(cozy.chims.length + 17) }); });
+  }
+  // деревья по клеткам 80 × 80 — светлячки и листопад берутся у ближайших
+  cozy.treeB = new Map();
+  for (const t of trees) { const k = Math.floor(t.x / 80) + ":" + Math.floor(t.y / 80); let B = cozy.treeB.get(k); if (!B) cozy.treeB.set(k, B = []); B.push(t); }
+  // места: по два на скамейке, стулья у кафе
+  cozy.seats = []; cozy.seatMap = new Map(); for (const s of cozy.sitters) s.gone = true; cozy.sitters = [];
+  for (const p of props) if (p.k === "bench") for (const s of [-1, 1]) { const ax = Math.sin(p.a), ay = -Math.cos(p.a); cozy.seats.push({ x: p.x + ax * s * 1.25 - Math.cos(p.a) * .45, y: p.y + ay * s * 1.25 - Math.sin(p.a) * .45, dir: p.a, cafe: false }); }
+  cozy.cafes = [];
+  for (const b of buildings) if (b.kind === "cafe" && b.obj && b.seats) {
+    cozy.cafes.push([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]);
+    for (const [lx, lz, fx, fz] of b.seats) { const p = b.obj.localToWorld(_czv.set(lx, 0, lz)), v = _czv2.set(fx, 0, fz).applyQuaternion(b.obj.quaternion); const dir = Math.atan2(v.z, v.x); cozy.seats.push({ x: p.x + W / 2 - Math.cos(dir) * .35, y: p.z + H / 2 - Math.sin(dir) * .35, dir, cafe: true }); }
+  }
+  // кошки сидят перед частными домами
+  cozy.catSpots = [];
+  for (const b of buildings) {
+    if (!b.obj || !b.mesh || !/^(house|oldhouse|cottage|dacha|farmhouse)$/.test(b.kind) || czHash(b.id * 7 + 3) > .22) continue;
+    const pr = b.mesh.geometry.parameters || {}, d = pr.depth || 10, w = pr.width || 10, p = b.obj.localToWorld(_czv.set((czHash(b.id) - .5) * w * .6, 0, d / 2 + 4.6)); // перед крыльцом, не под навесом
+    const v = _czv2.set(0, 0, 1).applyQuaternion(b.obj.quaternion);
+    cozy.catSpots.push({ x: p.x + W / 2, y: p.z + H / 2, dir: Math.atan2(v.z, v.x), id: b.id });
+  }
+  // откуда зимой идёт пар: люки на проезжей части
+  cozy.vents = [];
+  for (let k = 0; k < 6000 && cozy.vents.length < 500; k++) { const i = Math.floor(Math.random() * GW * GH); if (roadMask[i] === 1 && !crossMask[i] && grid[i] === 0) cozy.vents.push([(i % GW) * CS + CS / 2, Math.floor(i / GW) * CS + CS / 2, Math.random() * 10]); }
+  buildGarlands();
+}
+
+/* ---------- гирлянды: над улицами центра и старого города, на террасах кафе ---------- */
+const GARLAND_CH = new Set(["center", "old", "plaza", "mid"]);
+const BULB_COLS = [0xffd9a0, 0xffd9a0, 0xffe4b8, 0xffcf8a, 0xff6a50, 0x7ae08a, 0x7aa8ff, 0xffc24a];
+function buildGarlands() {
+  const pts = [], wire = [];
+  const hang = (ax, ay, az, bx, by, bz, sag) => {
+    const L = Math.hypot(bx - ax, by - ay, bz - az), n = Math.max(2, Math.round(L / 2.3));
+    let px = ax, py = ay, pz = az;
+    for (let k = 1; k <= n; k++) {
+      const t = k / n, x = ax + (bx - ax) * t, y = ay + (by - ay) * t - sag * 4 * t * (1 - t), z = az + (bz - az) * t;
+      wire.push(px, py, pz, x, y, z); px = x; py = y; pz = z;
+      if (k < n) pts.push(x, y - .35, z);
+    }
+  };
+  // через улицу: фонарь и фонарь напротив, в центре, старом городе, на площадях и в кварталах вокруг центра
+  const LB = new Map(), lk = (x, y) => Math.floor(x / 64) + ":" + Math.floor(y / 64);
+  lamps.forEach((l, i) => { const k = lk(l.x, l.y); let B = LB.get(k); if (!B) LB.set(k, B = []); B.push(i); });
+  const used = new Set(); let n = 0;
+  lamps.forEach((l, i) => {
+    if (used.has(i) || l.down || n > 260) return;
+    const ca = Math.cos(l.a), sa = Math.sin(l.a), bk = blockAt(l.x - ca * 14, l.y - sa * 14);
+    if (!bk || !GARLAND_CH.has(bk.ch)) return;
+    let best = -1, bd = 1e9;
+    for (let gx = -1; gx <= 1; gx++) for (let gy = -1; gy <= 1; gy++) for (const j of LB.get((Math.floor(l.x / 64) + gx) + ":" + (Math.floor(l.y / 64) + gy)) || []) {
+      const m = lamps[j]; if (j === i || used.has(j) || m.down) continue;
+      const dx = m.x - l.x, dy = m.y - l.y, d = Math.hypot(dx, dy);
+      if (d < 18 || d > 90 || (dx * ca + dy * sa) / d < .65 || Math.cos(m.a - l.a) > -.7) continue;
+      if (d < bd) { bd = d; best = j; }
+    }
+    if (best < 0) return;
+    used.add(i); used.add(best); n++;
+    const m = lamps[best];
+    hang(X(l.x), gY(l.x, l.y) + 15, Z(l.y), X(m.x), gY(m.x, m.y) + 15, Z(m.y), 2.2 + bd * .04);
+  });
+  for (const b of buildings) if (b.kind === "cafe" && b.obj && b.lights) for (const [ax, ay, az, bx, by, bz, sag] of b.lights) {
+    const A = b.obj.localToWorld(_czv.set(ax, ay, az)).clone(), B = b.obj.localToWorld(_czv2.set(bx, by, bz));
+    hang(A.x, A.y, A.z, B.x, B.y, B.z, sag);
+  }
+  const nb = pts.length / 3;
+  const bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(.32, 6, 4), new THREE.MeshBasicMaterial({ toneMapped: false }), Math.max(1, nb));
+  bulbs.material.userData.noSnow = true;
+  for (let i = 0; i < nb; i++) { _czm.makeTranslation(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]); bulbs.setMatrixAt(i, _czm); bulbs.setColorAt(i, _czc.setHex(BULB_COLS[(i * 7 + (i >> 3)) % BULB_COLS.length])); }
+  bulbs.count = nb; bulbs.frustumCulled = false;
+  const wg = new THREE.BufferGeometry(); wg.setAttribute("position", new THREE.Float32BufferAttribute(wire, 3));
+  const wires = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: 0x1e1c1a }));
+  cityGroup.add(bulbs, wires); cozy.bulbs = bulbs; cozy.garland = wires;
+}
+
+/* ---------- снегопад: хлопья вокруг камеры ---------- */
+const SNOW_N = 7000, snowPos = new Float32Array(SNOW_N * 3), snowGeo = new THREE.BufferGeometry();
+snowGeo.setAttribute("position", new THREE.BufferAttribute(snowPos, 3).setUsage(THREE.DynamicDrawUsage));
+const snowPts = new THREE.Points(snowGeo, new THREE.PointsMaterial({ map: radialTex([[0, "rgba(255,255,255,1)"], [.45, "rgba(255,255,255,.85)"], [1, "rgba(255,255,255,0)"]]), size: 1.5, transparent: true, depthWrite: false, opacity: .9 }));
+snowPts.frustumCulled = false; snowPts.visible = false; scene.add(snowPts);
+const flakes = Array.from({ length: SNOW_N }, () => [rnd(-1, 1), rnd(0, 1), rnd(-1, 1), rnd(0, TAU), rnd(.7, 1.3)]);
+function stepSnow(dt) {
+  snowPts.visible = cozy.fall > .02; if (!snowPts.visible) return;
+  // объём хлопьев между камерой и точкой, куда она смотрит: и вблизи, и с высоты снег виден
+  const cp = camera.position, k = fps.on ? 0 : clamp(camC.dist / 900), cx = cp.x + (camC.tx - cp.x) * (.35 + k * .3), cz = cp.z + (camC.tz - cp.z) * (.35 + k * .3);
+  const R = 180 + camC.dist * .35, y0 = fps.on ? cp.y - 40 : Math.max(0, cp.y * .25 - 60), top = fps.on ? 120 : Math.max(220, cp.y * .9), t = performance.now() / 1000;
+  const wind = world.weather === "storm" ? 26 : 4, fallV = (world.weather === "storm" ? 14 : 7) / top;
+  for (let i = 0; i < SNOW_N; i++) {
+    const f = flakes[i]; f[1] -= dt * fallV * f[4]; f[0] += dt * wind / R; if (f[1] < 0 || f[0] > 1) { f[1] += 1; if (f[0] > 1) f[0] -= 2; f[2] = rnd(-1, 1); }
+    snowPos[i * 3] = cx + f[0] * R + Math.sin(t * .9 * f[4] + f[3]) * 1.6; snowPos[i * 3 + 1] = y0 + f[1] * top; snowPos[i * 3 + 2] = cz + f[2] * R + Math.cos(t * .7 + f[3]) * 1.6;
+  }
+  snowGeo.setDrawRange(0, Math.floor(SNOW_N * Math.min(1, cozy.fall))); snowGeo.attributes.position.needsUpdate = true;
+  snowPts.material.size = 1.5 * (1 + camC.dist / 700) * (fps.on ? .8 : 1);
+  snowPts.material.color.setScalar(.55 + (1 - nightK) * .45);
+}
+
+/* ---------- ближайшие деревья: случайное из клеток вокруг точки ---------- */
+function treeNear(x, y, R) {
+  for (let k = 0; k < 10; k++) { const B = cozy.treeB.get(Math.floor((x + rnd(-R, R)) / 80) + ":" + Math.floor((y + rnd(-R, R)) / 80)); if (B && B.length) { const t = B[Math.floor(Math.random() * B.length)]; if (!t.burnt) return t; } }
+  return null;
+}
+
+/* ---------- листопад ---------- */
+const LEAF_N = 500;
+const leaves3d = new THREE.InstancedMesh(new THREE.PlaneGeometry(1.1, .7), new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: .9 }), LEAF_N);
+leaves3d.count = 0; leaves3d.frustumCulled = false; leaves3d.castShadow = false; leaves3d.setColorAt(0, _czc.setHex(0xffffff)); scene.add(leaves3d);
+leaves3d.material.userData.noSnow = true;
+const leafList = [];
+function stepLeaves(dt) {
+  const on = cozy.aut > .3 && (fps.on || camC.dist < 700) && cozy.fall < .1;
+  const cx = camC.tx + W / 2, cy = camC.tz + H / 2, t = performance.now() / 1000, wind = world.weather === "storm" ? 9 : world.rain > .2 ? 4 : 1.6;
+  if (on && dt > 0) for (let n = Math.random() < dt * 30 ? 1 : 0; n > 0 && leafList.length < LEAF_N; n--) {
+    const tr = treeNear(cx, cy, 160); if (!tr) break;
+    const gy = gY(tr.x, tr.y), hh = tr.h * 1.45;
+    leafList.push({ x: X(tr.x) + rnd(-1, 1) * tr.r, y: gy + hh * rnd(.55, .85), z: Z(tr.y) + rnd(-1, 1) * tr.r, gy, ph: rnd(0, TAU), rs: rnd(1, 3), c: new THREE.Color().setHSL(rnd(.02, .13), rnd(.6, .85), rnd(.32, .5)), rest: 0 });
+  }
+  let n = 0;
+  for (let i = leafList.length - 1; i >= 0; i--) {
+    const L = leafList[i];
+    if (L.rest > 0) { L.rest -= dt; if (L.rest <= 0 || !on) { leafList[i] = leafList[leafList.length - 1]; leafList.pop(); continue; } }
+    else { L.y -= dt * (2.2 + Math.sin(t * 3 + L.ph) * .8); L.x += dt * (wind + Math.sin(t * 1.7 + L.ph) * 2.2); L.z += dt * (wind * .4 + Math.cos(t * 1.3 + L.ph) * 2.2); if (L.y <= L.gy + .08) { L.y = L.gy + .08; L.rest = rnd(6, 12); } }
+    const fall = L.rest > 0 ? 0 : 1;
+    _cze.set(fall ? t * L.rs + L.ph : -Math.PI / 2, L.ph, fall ? Math.sin(t * 2 + L.ph) : 0); _czq.setFromEuler(_cze);
+    _czm.compose(_czv.set(L.x, L.y, L.z), _czq, _czs.setScalar(L.rest > 0 ? Math.min(1, L.rest) : 1)); leaves3d.setMatrixAt(n, _czm); leaves3d.setColorAt(n, L.c); n++;
+  }
+  leaves3d.count = n; leaves3d.instanceMatrix.needsUpdate = true; if (leaves3d.instanceColor) leaves3d.instanceColor.needsUpdate = true;
+}
+
+/* ---------- светлячки летними ночами у деревьев ---------- */
+const FF_N = 240, ffPos = new Float32Array(FF_N * 3), ffCol = new Float32Array(FF_N * 3), ffGeo = new THREE.BufferGeometry();
+ffGeo.setAttribute("position", new THREE.BufferAttribute(ffPos, 3).setUsage(THREE.DynamicDrawUsage)); ffGeo.setAttribute("color", new THREE.BufferAttribute(ffCol, 3).setUsage(THREE.DynamicDrawUsage));
+const fireflies = new THREE.Points(ffGeo, new THREE.PointsMaterial({ map: glowTex, size: 2.4, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+fireflies.frustumCulled = false; fireflies.visible = false; scene.add(fireflies);
+const ffList = Array.from({ length: FF_N }, () => ({ x: 0, y: -1e4, z: 0, ph: rnd(0, TAU), sp: rnd(.6, 1.4), life: 0 }));
+function stepFireflies(dt) {
+  const k = world.season === "summer" ? clamp((nightK - .35) * 3) * (1 - world.rain) * (1 - world.fogK * .6) : 0;
+  fireflies.visible = k > .02 && (fps.on || camC.dist < 700); if (!fireflies.visible) return;
+  const cx = camC.tx + W / 2, cy = camC.tz + H / 2, t = performance.now() / 1000;
+  for (let i = 0; i < FF_N; i++) {
+    const f = ffList[i]; f.life -= dt;
+    if (f.life <= 0) { const tr = treeNear(cx, cy, 220); f.life = rnd(8, 20); if (tr) { f.x = X(tr.x) + rnd(-10, 10); f.z = Z(tr.y) + rnd(-10, 10); f.y = gY(tr.x, tr.y) + rnd(1.2, 6); } else f.y = -1e4; }
+    ffPos[i * 3] = f.x + Math.sin(t * .5 * f.sp + f.ph) * 3; ffPos[i * 3 + 1] = f.y + Math.sin(t * 1.1 * f.sp + f.ph * 2) * .8; ffPos[i * 3 + 2] = f.z + Math.cos(t * .4 * f.sp + f.ph * 1.3) * 3;
+    const b = Math.pow(Math.max(0, Math.sin(t * 1.6 * f.sp + f.ph * 3)), 5) * k * 1.8;
+    ffCol[i * 3] = b; ffCol[i * 3 + 1] = b * .95; ffCol[i * 3 + 2] = b * .35;
+  }
+  ffGeo.attributes.position.needsUpdate = true; ffGeo.attributes.color.needsUpdate = true;
+}
+
+/* ---------- дым из труб и пар от асфальта ---------- */
+const CHIM_C = [.36, .34, .33], CHIM_C1 = [.62, .62, .64], STEAM_C = [.86, .87, .9];
+function stepSmoke(dt) {
+  if (!dt) return;
+  const winter = world.season === "winter", autumn = world.season === "autumn";
+  // какая доля печей топится: зимой почти все, осенью половина, летом изредка; вечером и ночью чаще
+  const share = (winter ? .9 : autumn ? .5 : .12) * (1 + nightK * .3), wind = world.weather === "storm" ? 10 : 2.6;
+  const cx = camC.tx, cz = camC.tz, R = 380 + camC.dist * .6;
+  cozy.smokeT = Math.min(cozy.smokeT + dt * 260, 40); // не больше 260 клубов в секунду на все трубы: частиц дыма общий запас с пожарами
+  for (const c of cozy.chims) {
+    if (cozy.smokeT < 1) break;
+    if (Math.abs(c.x - cx) > R || Math.abs(c.z - cz) > R || (!c.big && c.h > share)) continue;
+    const b = c.b; if (b.state !== "ok" || b.gutted || b.fire > 0 || b.hid) continue;
+    if (Math.random() > dt * (c.big ? 7 : 1.8)) continue;
+    cozy.smokeT--;
+    if (c.big) emit(PS_SMOKE, { x: c.x + rnd(-1, 1), y: c.y + 1, z: c.z + rnd(-1, 1), vx: wind * 2 + rnd(-1, 1), vy: rnd(7, 10), vz: wind * .8 + rnd(-1, 1), l: rnd(10, 14), s0: 8, s1: rnd(50, 70), c: STEAM_C, a: .35, fadeIn: true, dr: .06 });
+    else emit(PS_SMOKE, { x: c.x + rnd(-.3, .3), y: c.y + .4, z: c.z + rnd(-.3, .3), vx: wind + rnd(-.6, .6), vy: rnd(2.5, 4), vz: wind * .4 + rnd(-.6, .6), l: rnd(6, 9), s0: 2, s1: rnd(14, 22), c: CHIM_C, c1: CHIM_C1, a: .42, fadeIn: true, dr: .08 });
+  }
+  // пар: зимой из люков, после дождя — от тёплого асфальта на солнце
+  const after = !winter && world.wet > .3 && world.rain < .15 && nightK < .6;
+  if (winter && (fps.on || camC.dist < 900)) for (const v of cozy.vents) {
+    const x = X(v[0]), z = Z(v[1]); if (Math.abs(x - cx) > 260 || Math.abs(z - cz) > 260 || Math.random() > dt * 2) continue;
+    emit(PS_SMOKE, { x: x + rnd(-1, 1), y: gY(v[0], v[1]) + .3, z: z + rnd(-1, 1), vx: rnd(-.5, .5) + 1, vy: rnd(2, 3.5), vz: rnd(-.5, .5), l: rnd(3, 5), s0: 2, s1: rnd(9, 14), c: STEAM_C, a: .22, fadeIn: true, dr: .1 });
+  }
+  if (after && (fps.on || camC.dist < 700)) for (let n = 0; n < 3; n++) {
+    if (Math.random() > dt * 8 * clamp((world.wet - .3) * 3)) continue;
+    const x = camC.tx + W / 2 + rnd(-200, 200), y = camC.tz + H / 2 + rnd(-200, 200), i = clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+    if (roadMask[i] !== 1) continue;
+    emit(PS_SMOKE, { x: X(x), y: gY(x, y) + .3, z: Z(y), vx: rnd(-.6, .6) + .8, vy: rnd(.8, 1.6), vz: rnd(-.6, .6), l: rnd(3, 5), s0: 4, s1: rnd(14, 20), c: STEAM_C, a: .1, fadeIn: true, dr: .1 });
+  }
+}
+
+/* ---------- горожане на скамейках и за столиками ---------- */
+// таз стоящего на высоте ~3,25 × рост; у сидящего — чуть выше сиденья (1,65)
+const SIT_HIP = 1.95, HIP_STAND = 3.25;
+// сидячая поза поверх стоячей анимации: бёдра вперёд и чуть вниз, голени отвесно
+function sitPose(s, a) {
+  const fx = Math.cos(a.dir), fz = Math.sin(a.dir); _czv.set(-fz, 0, fx);
+  s.root.updateMatrixWorld(true);
+  bendBone(s.bones.UpperLegL, _czv.clone(), 1.2); bendBone(s.bones.UpperLegR, _czv.clone(), 1.2);
+  s.root.updateMatrixWorld(true);
+  bendBone(s.bones.LowerLegL, _czv.clone(), -.85); bendBone(s.bones.LowerLegR, _czv.clone(), -.85);
+  // стопы в этом скелете — отдельные кости от корня, не дети голени: переносим их к концу голени
+  s.root.updateMatrixWorld(true);
+  for (const k of ["L", "R"]) { const f = s.bones["Foot" + k], e = s.bones["LowerLeg" + k + "_end"]; if (!f || !e) continue; f.position.copy(f.parent.worldToLocal(e.getWorldPosition(_czv2))); }
+}
+function seatShare(cafe) {
+  const h = world.hour;
+  let k = h < 7.5 ? 0 : h < 11 ? .25 : h < 19 ? .45 : h < 22 ? (cafe ? .6 : .25) : h < 23.5 && cafe ? .3 : 0;
+  if (world.rain > .2 || cozy.fall > .2) k = cafe ? k * .15 : 0;
+  if (world.season === "winter") k *= cafe ? .35 : .12; else if (world.season === "autumn") k *= .7;
+  return k;
+}
+function stepSitters(dt) {
+  cozy.seatT -= dt; if (cozy.seatT > 0) return; cozy.seatT = 1;
+  const show = prefs.realPeople !== false && (fps.on || camC.dist < 520), cp = camera.position, want = new Set();
+  if (show && agents.length) {
+    const kB = seatShare(false), kC = seatShare(true), slot = Math.floor(world.hour * 2);
+    cozy.seats.forEach((s, i) => {
+      if (Math.abs(X(s.x) - cp.x) > 230 || Math.abs(Z(s.y) - cp.z) > 230) return;
+      if (czHash(i * 31 + slot * 977) > (s.cafe ? kC : kB)) return;
+      let zn = 0; nearZ(s.x, s.y, 80, () => zn++); if (zn) return; // рядом зомби — встали и ушли
+      want.add(i);
+    });
+  }
+  for (const [i, a] of cozy.seatMap) if (!want.has(i)) { a.gone = true; cozy.seatMap.delete(i); }
+  for (const i of want) if (!cozy.seatMap.has(i)) {
+    const s = cozy.seats[i]; let src = null;
+    for (let k = 0; k < 60 && !src; k++) { const a = agents[(i * 7919 + k * 131) % agents.length]; if (a.role === "civ" && a.state === "alive" && a.age !== "kid") src = a; }
+    if (!src) continue;
+    cozy.seatMap.set(i, { id: 2e6 + i, fake: true, sit: true, x: s.x, y: s.y, z: SIT_HIP - HIP_STAND * src.size, dir: s.dir, state: "alive", role: "civ", speed: 0, sex: src.sex, age: src.age, skin: src.skin, cloth: src.cloth, pants: src.pants, hair: src.hair, hat: src.hat, size: src.size, build: src.build, panic: 0 });
+  }
+  cozy.sitters = [...cozy.seatMap.values()];
+}
+
+/* ---------- собаки на поводке ---------- */
+const DOG_COLS = [0x6a4428, 0x2a2420, 0xc89a5a, 0xe8e2d6, 0x8a6a4a, 0x4a3a30];
+const dogMats = DOG_COLS.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: .9 })), dogDark = new THREE.MeshStandardMaterial({ color: 0x1a1614, roughness: .7 });
+const leashGeo = new THREE.BufferGeometry(), leashPos = new Float32Array(24 * 12); leashGeo.setAttribute("position", new THREE.BufferAttribute(leashPos, 3).setUsage(THREE.DynamicDrawUsage));
+const leashes = new THREE.LineSegments(leashGeo, new THREE.LineBasicMaterial({ color: 0x3a2418 })); leashes.frustumCulled = false; scene.add(leashes);
+function makeDog(i) {
+  const g = new THREE.Group(), mat = dogMats[i % dogMats.length], box = (sx, sy, sz, x, y, z, m = mat, parent = g) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  box(2.6, 1.05, 1, 0, 1.75, 0); box(1, .9, .85, 1.55, 2.35, 0); box(.6, .45, .5, 2.25, 2.15, 0); box(.18, .18, .2, 2.58, 2.25, 0, dogDark);
+  for (const s of [-1, 1]) box(.22, .5, .22, 1.35, 2.9, s * .3, dogDark);
+  const legs = [];
+  for (const [x, z] of [[.95, .32], [.95, -.32], [-.95, .32], [-.95, -.32]]) { const p = new THREE.Group(); p.position.set(x, 1.45, z); g.add(p); box(.28, 1.4, .28, 0, -.7, 0, mat, p); legs.push(p); }
+  const tail = new THREE.Group(); tail.position.set(-1.3, 2.05, 0); g.add(tail); box(1.1, .2, .2, -.5, 0, 0, mat, tail); tail.rotation.z = -.6;
+  g.visible = false; scene.add(g);
+  return { g, legs, tail, owner: null, x: 0, y: 0, dir: 0, ph: rnd(0, TAU) };
+}
+function stepDogs(dt) {
+  const show = fps.on || camC.dist < 520, cp = camera.position;
+  cozy.dogT -= dt;
+  if (cozy.dogT <= 0) {
+    cozy.dogT = .5;
+    const want = [];
+    if (show && world.rain < .3 && cozy.fall < .3) for (const a of agents) {
+      if (a.role !== "civ" || a.state !== "alive" || a.hidden || a.age === "kid" || a.id % 9 || (a.panic || 0) > .3 || a.onBus) continue;
+      const d = Math.hypot(X(a.x) - cp.x, Z(a.y) - cp.z); if (d < 200) want.push([d, a]);
+    }
+    want.sort((p, q) => p[0] - q[0]); const W2 = new Set(want.slice(0, 16).map(p => p[1]));
+    for (const d of cozy.dogs) if (d.owner && !W2.has(d.owner)) { d.owner = null; d.g.visible = false; }
+    for (const a of W2) {
+      if (cozy.dogs.some(d => d.owner === a)) continue;
+      let d = cozy.dogs.find(d => !d.owner); if (!d) { if (cozy.dogs.length >= 16) break; d = makeDog(cozy.dogs.length); cozy.dogs.push(d); }
+      d.owner = a; d.x = a.x - Math.cos(a.dir) * 3; d.y = a.y - Math.sin(a.dir) * 3; d.dir = a.dir; d.g.visible = true;
+    }
+  }
+  let nl = 0;
+  for (const d of cozy.dogs) {
+    const a = d.owner; if (!a) continue;
+    if (a.state !== "alive" || a.role !== "civ" || (a.panic || 0) > .3) { d.owner = null; d.g.visible = false; continue; }
+    // бежит чуть позади и сбоку от хозяина, на поводке длиной 5
+    const fx = Math.cos(a.dir), fy = Math.sin(a.dir), side = a.id % 2 ? 1 : -1, tx = a.x - fx * 2.6 - fy * side * 1.8, ty = a.y - fy * 2.6 + fx * side * 1.8;
+    const dx = tx - d.x, dy = ty - d.y, dist = Math.hypot(dx, dy), v = Math.min(dist * 3, 28);
+    if (dist > .05) { d.x += dx / dist * v * dt; d.y += dy / dist * v * dt; }
+    if (Math.hypot(d.x - a.x, d.y - a.y) > 6) { d.x = a.x - fx * 3; d.y = a.y - fy * 3; }
+    if (v > .6) { let da = Math.atan2(dy, dx) - d.dir; da = Math.atan2(Math.sin(da), Math.cos(da)); d.dir += da * Math.min(1, dt * 6); }
+    d.ph += dt * v * .9;
+    const gy = gY(d.x, d.y);
+    d.g.position.set(X(d.x), gy, Z(d.y)); d.g.rotation.y = -d.dir;
+    const sw = Math.min(1, v / 8) * .6;
+    d.legs.forEach((l, k) => l.rotation.z = Math.sin(d.ph + (k === 0 || k === 3 ? 0 : Math.PI)) * sw);
+    d.tail.rotation.y = Math.sin(performance.now() / 90 + d.ph) * .5;
+    // поводок от руки хозяина к ошейнику, с провисом
+    const hx = X(a.x) + fx * .6 - fy * side * 1.1, hy = gY(a.x, a.y) + 3.7, hz = Z(a.y) + fy * .6 + fx * side * 1.1;
+    const nx = X(d.x) + Math.cos(d.dir) * 1.2, ny = gy + 2.3, nz = Z(d.y) + Math.sin(d.dir) * 1.2, mx = (hx + nx) / 2, my = (hy + ny) / 2 - .9, mz = (hz + nz) / 2;
+    if (nl < 24) { leashPos.set([hx, hy, hz, mx, my, mz, mx, my, mz, nx, ny, nz], nl * 12); nl++; }
+  }
+  leashGeo.setDrawRange(0, nl * 4); leashGeo.attributes.position.needsUpdate = true; leashes.visible = nl > 0;
+  cozy.barkT -= dt;
+  if (cozy.barkT <= 0) { cozy.barkT = rnd(9, 25); const d = cozy.dogs.find(d => d.owner && Math.hypot(X(d.x) - cp.x, Z(d.y) - cp.z) < 120); if (d) sfx.bark(d.x, d.y); }
+}
+
+/* ---------- кошки у домов ---------- */
+const CAT_COLS = [0xd88a3a, 0x9a9690, 0xf0ece4, 0xc87a3a, 0x2a2420, 0xb0a898];
+const catMats = CAT_COLS.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: .85 }));
+function makeCat(i) {
+  const g = new THREE.Group(), mat = catMats[i % catMats.length], add = (geo, x, y, z, parent = g) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  add(new THREE.SphereGeometry(.5, 10, 8).scale(1.1, 1.3, .9), 0, .62, 0);
+  const head = new THREE.Group(); head.position.set(.3, 1.35, 0); g.add(head); add(new THREE.SphereGeometry(.34, 10, 8), 0, 0, 0, head);
+  for (const s of [-1, 1]) add(new THREE.ConeGeometry(.12, .28, 4), .02, .34, s * .17, head);
+  const tail = new THREE.Group(); tail.position.set(-.5, .25, 0); g.add(tail); add(new THREE.CylinderGeometry(.07, .09, 1.1, 5).rotateZ(1.2), -.45, .2, 0, tail);
+  g.visible = false; scene.add(g);
+  return { g, head, tail, spot: null };
+}
+function stepCats(dt) {
+  const cp = camera.position, show = (fps.on || camC.dist < 380) && world.hour > 7 && world.hour < 21.5 && world.rain < .2 && cozy.fall < .2;
+  cozy.catT -= dt;
+  if (cozy.catT <= 0) {
+    cozy.catT = 1;
+    const want = show ? cozy.catSpots.map(s => [Math.hypot(X(s.x) - cp.x, Z(s.y) - cp.z), s]).filter(p => p[0] < 220).sort((p, q) => p[0] - q[0]).slice(0, 12).map(p => p[1]).filter(s => { let zn = 0; nearZ(s.x, s.y, 60, () => zn++); return !zn; }) : [];
+    const W2 = new Set(want);
+    for (const c of cozy.cats) if (c.spot && !W2.has(c.spot)) { c.spot = null; c.g.visible = false; }
+    for (const s of want) {
+      if (cozy.cats.some(c => c.spot === s)) continue;
+      let c = cozy.cats.find(c => !c.spot); if (!c) { if (cozy.cats.length >= 12) break; c = makeCat(cozy.cats.length); cozy.cats.push(c); }
+      c.spot = s; c.g.visible = true; c.g.position.set(X(s.x), gY(s.x, s.y), Z(s.y)); c.g.rotation.y = -s.dir + (czHash(s.id) - .5) * 1.5;
+    }
+  }
+  const t = performance.now() / 1000;
+  for (const c of cozy.cats) if (c.spot) { c.tail.rotation.y = Math.sin(t * 1.3 + c.spot.id) * .7; c.head.rotation.y = Math.sin(t * .35 + c.spot.id * 2) * .6; }
+}
+
+/* ---------- кадр: время года, частицы, гирлянды, жизнь на улицах ---------- */
+function updateCozy(fxDt, dt) {
+  const winter = world.season === "winter", autumn = world.season === "autumn";
+  const snowing = world.weather === "snow" || (winter && (world.weather === "rain" || world.weather === "storm"));
+  cozy.cover += ((winter ? 1 : world.weather === "snow" ? .75 : 0) - cozy.cover) * Math.min(1, dt * .35);
+  cozy.fall += ((snowing ? (world.weather === "storm" ? 1.4 : 1) : 0) - cozy.fall) * Math.min(1, dt * .5);
+  cozy.aut += ((autumn ? 1 : 0) - cozy.aut) * Math.min(1, dt * .35);
+  COZY.snow.value = cozy.cover; COZY.aut.value = cozy.aut;
+  if (typeof grass !== "undefined" && cozy.cover > .55) grass.visible = false; // траву замело
+  // гирлянды: днём лампочки чуть видны, в сумерках разгораются; без света гаснут
+  if (cozy.bulbs) { const k = settings.dark ? 0 : .35 + clamp(nightK * 1.4) * 2.2, tw = 1 + Math.sin(performance.now() / 700) * .04; cozy.bulbs.material.color.setScalar(k * tw); }
+  stepSnow(dt); stepLeaves(fxDt); stepFireflies(dt); stepSmoke(fxDt); stepSitters(dt); stepDogs(fxDt); stepCats(dt);
+}
+
+/* ---------- звуки: кафе, вода у берега, скрип канатки ---------- */
+Object.assign(RECIPES, {
+  creak: [1.1, (c, out) => { const o = osc(c, "sawtooth", 140), bp = filt(c, "bandpass", 900, 6), g = c.createGain(); o.frequency.setValueAtTime(140, 0); o.frequency.linearRampToValueAtTime(190, .5); o.frequency.linearRampToValueAtTime(120, 1); const am = osc(c, "square", 38), ag = c.createGain(); ag.gain.value = .5; am.connect(ag).connect(g.gain); env(c, g, [[0, 0], [.15, .5], [.8, .4], [1.08, .001, 1]]); o.connect(bp).connect(g).connect(out); o.start(); am.start(); }],
+});
+Object.assign(LOOPS, {
+  // кафе: негромкий разговор и звон чашек
+  cafe: [7, (c, out) => {
+    const n = noiseSrc(c, 7, "pink"), bp = filt(c, "bandpass", 600, .8), g = c.createGain(); g.gain.value = .12; const l = osc(c, "sine", .31), lg = c.createGain(); lg.gain.value = .05; l.connect(lg).connect(g.gain); n.connect(bp).connect(g).connect(out); n.start(); l.start();
+    for (let i = 0; i < 26; i++) { const t = Math.random() * 6.8, f = rnd(2400, 5200), o = osc(c, "sine", f), o2 = osc(c, "sine", f * 2.76), cg = c.createGain(); env(c, cg, [[0, 0], [t, 0], [t + .003, rnd(.05, .14)], [t + rnd(.15, .35), .001, 1]]); o.connect(cg); o2.connect(cg); cg.connect(out); o.start(); o2.start(); }
+  }],
+  // вода у берега: мягкие накаты волн
+  lap: [6, (c, out) => {
+    for (let t = 0; t < 6; t += rnd(1.1, 1.8)) { const n = noiseSrc(c, 2, "brown"), lp = filt(c, "lowpass", rnd(500, 900)), g = c.createGain(); env(c, g, [[0, 0], [t, 0], [t + .35, rnd(.6, 1)], [Math.min(5.99, t + 1.4), .001, 1]]); n.connect(lp).connect(g).connect(out); n.start(); }
+    const hs = noiseSrc(c, 6, "pink"), hp = filt(c, "highpass", 2500), hg = c.createGain(); hg.gain.value = .04; hs.connect(hp).connect(hg).connect(out); hs.start();
+  }],
+});
+const _czAudio = updateAudio;
+updateAudio = function (dt) {
+  _czAudio(dt);
+  if (!AC || !audioReady || muted) return;
+  const tx = camC.tx + W / 2, ty = camC.tz + H / 2, zoomK = clamp(1.25 - camC.dist / 2400, .25, 1), winter = world.season === "winter";
+  // зимой сверчков нет, осенью их мало; в метель ветер сильнее
+  setLoop("crickets", nightK * (1 - world.rain) * .35 * zoomK * (winter ? 0 : world.season === "autumn" ? .4 : 1));
+  if (cozy.fall > .05) setLoop("wind", .12 + cozy.fall * .3 + (world.weather === "storm" ? .3 : 0));
+  // кафе рядом с камерой: днём и вечером, если тихо
+  let best = null, bd = 1e9; for (const p of cozy.cafes) { const d = Math.hypot(p[0] - tx, p[1] - ty); if (d < bd) { bd = d; best = p; } }
+  if (best && bd < 220) { let zn = 0; nearZ(best[0], best[1], 100, () => zn++); const s = spatial(best[0], best[1], 3), open = world.hour > 8 && world.hour < 23.5 ? 1 : 0; setLoop("cafe", s.g * 2.6 * open * (zn ? 0 : 1) * (1 - world.rain * .7) * (1 - Math.min(1, cozy.fall) * .6), s.pan, s.lp); } else setLoop("cafe", 0);
+  const wd = waterD(tx, ty); setLoop("lap", clamp(1 - wd / 150) * .35 * zoomK * (winter ? .2 : 1));
+  // канатка поскрипывает: в кабинке и рядом с ней
+  cozy.creakT -= dt;
+  if (cozy.creakT <= 0 && funicular && funicular.cabins.length) {
+    cozy.creakT = rnd(3, 6);
+    if (fps.on && fps.mode === "cable") play("creak", undefined, undefined, .3, { rate: rnd(.85, 1.15) });
+    else if (camC.dist < 600) { let cb = null, cd = 1e9; for (const c of funicular.cabins) { const p = cabinPos(funicular, c), d = Math.hypot(p[0] - tx, p[1] - ty); if (d < cd) { cd = d; cb = p; } } if (cb && cd < 200) play("creak", cb[0], cb[1], .9, { h: cb[2], rate: rnd(.85, 1.15) }); }
+  }
+};
+
 /* ---------- за рулём: игрок ведёт машину ----------
    Третий вариант режима от первого лица (fps.mode === "drive"). Машина с c.player снимается с полосы (c.lane = null) и едет
    свободно: газ W, тормоз и задний ход S, руль A/D (на скорости поворачивает слабее), ручник Пробел, сигнал H. Стены, заборы,
@@ -13518,7 +14531,7 @@ function serializeGame() {
   return {
     v: 3, date: Date.now(), layoutKey, mapSize, relief, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
     wallJobs: wallJobs.map(j => ({ ...j, cp: cps.indexOf(j.cp) })), zones: b64(zoneOf.subarray(0, GW * GH)), zoneSeq,
-    grid: b64(grid.subarray(0, GW * GH)), bhp16: b64(Uint16Array.from(bhp.subarray(0, GW * GH), v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask.subarray(0, GW * GH)),
+    grid: b64(grid.subarray(0, GW * GH)), snow: snowD && snowCells.size ? [...snowCells].map(i => [i, +snowD[i].toFixed(2), snowUnder[i]]) : null, bhp16: b64(Uint16Array.from(bhp.subarray(0, GW * GH), v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask.subarray(0, GW * GH)),
     buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
     roads: { nodes: RN.map(n => [n.x, n.y, n.off || 0, n.cul ? 1 : 0]), edges: RE.map(e => [e.a.id, e.b.id, e.pts, e.hw, e.kind, e.oneway ? 1 : 0, e.rural ? 1 : 0, e.boulevard ? 1 : 0, e.trees ? 1 : 0, e.sw]), rounds },
     roadMask: b64(roadMask.subarray(0, GW * GH)), regionOf: b64(Int16Array.from(regionOf.subarray(0, GW * GH), v => v)), patchOf: b64(patchOf.subarray(0, GW * GH)), patches,
@@ -13527,7 +14540,7 @@ function serializeGame() {
     special: Object.fromEntries(Object.entries(special).map(([k, v]) => [k, { x: v.x, y: v.y, b: bi.get(v.b) }])),
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
-    world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather }, settings: { ...settings }, editRoads,
+    world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather, season: world.season }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     camp, // кампания: день, итоги по дням, бюджет (campaign.js)
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
@@ -13539,7 +14552,7 @@ function loadGame(S) {
   layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
   relief = S.relief || "plain"; mapSize = S.mapSize || "normal"; setMapSize(mapSize);
   grid.fill(2); bhp.fill(0); wallMask.fill(0); roadMask.fill(0); regionOf.fill(-1); patchOf.fill(-1);
-  grid.set(unb64(S.grid, Uint8Array)); bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
+  grid.set(unb64(S.grid, Uint8Array)); snowD = null; if (S.snow) { snowInit(); for (const [i, d, u] of S.snow) { snowD[i] = d; snowUnder[i] = u; snowCells.add(i); } snowDirty = true; snowBox = [0, 0, W, H]; snowCity = "load"; } bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
   // сеть дорог: узлы, рёбра, полосы заново из сохранённой геометрии
   RN = []; RE = []; rounds = S.roads.rounds || [];
   for (const [x, y, off, cul] of S.roads.nodes) { const n = rnNew(x, y); n.off = off; n.cul = !!cul; }
@@ -13558,7 +14571,7 @@ function loadGame(S) {
   tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
   fires = S.fires; tents = S.tents; research = S.research; scientists = S.scientists; vaccineReady = S.vaccineReady; armyWaves = S.armyWaves; gangsSpawned = S.gangsSpawned;
   simT = S.simT; bites = S.bites; deaths = S.deaths; zkills = S.zkills; saved = S.saved; cured = S.cured; nextId = S.nextId;
-  Object.assign(settings, S.settings); Object.assign(world, S.world); if ($("threats")) $("threats").checked = settings.threats !== false; syncDayButton(); $("weather").value = world.weather;
+  Object.assign(settings, S.settings); Object.assign(world, S.world); if ($("threats")) $("threats").checked = settings.threats !== false; syncDayButton(); $("weather").value = world.weather; $("season").value = world.season || "summer";
   editRoads = S.editRoads || [];
   buildCrossings(); evac = null; strikes = []; noises = []; machines = []; nuke = null; radZones = []; timers = []; reports = []; wallJobs = []; interests = []; stats = []; events = []; firsts = { zombie: true, ...(S.firstsX || {}) };
   resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;
@@ -13887,7 +14900,7 @@ const LAYOUT_INFO = {
   park: "огромный парк с озером в середине", mega: "плотная сетка, бродвей и центральный парк", suburb: "петли улиц, тупики-разъезды, частные дома",
   industry: "склады и стоянки на полгорода", river: "река и мосты", port: "море вдоль края", mountain: "горы", valley: "долина",
 };
-const wiz = { step: 0, scen: "sandbox", layout: "random", map: "normal", relief: "mountains", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true, threats: true };
+const wiz = { step: 0, scen: "sandbox", layout: "random", map: "normal", relief: "mountains", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", season: "summer", services: true, threats: true };
 function cardHTML(name, value, title, sub, checked) {
   return `<label class="card"><input type="radio" name="${name}" value="${value}"${checked ? " checked" : ""}><b>${title}</b><small>${sub}</small></label>`;
 }
@@ -13914,6 +14927,7 @@ $("wizard").addEventListener("change", e => {
   if (t.id === "wArm") { wiz.armed = +t.value; $("wArmO").textContent = t.value + "%"; }
   if (t.name === "wTime") wiz.time = +t.value;
   if (t.id === "wWeather") wiz.weather = t.value;
+  if (t.id === "wSeason") wiz.season = t.value;
   if (t.id === "wSvc") wiz.services = t.checked;
   if (t.id === "wThr") wiz.threats = t.checked;
 });
@@ -13929,7 +14943,7 @@ function startGame() {
   $("pop").value = wiz.pop; $("popO").textContent = wiz.pop;
   $("layout").value = SCENARIOS[wiz.scen].layout || wiz.layout;
   mapSize = wiz.map; relief = wiz.relief;
-  world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
+  world.weather = wiz.weather; $("weather").value = wiz.weather; world.season = wiz.season; $("season").value = wiz.season; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);
   if (wiz.scen === "campaign") campaignStarted();
@@ -14371,6 +15385,7 @@ const TOOLS = [
   { k: "army", n: "Военные", c: "#9aa36a", tip: "<b>Военные:</b> отряд из 6 солдат с автоматами. Идут на зомби, стреляют очередями, перезаряжаются. Выстрелы привлекают зомби." },
   { k: "medic", n: "Медики", c: "#f0f0f0", tip: "<b>Медики:</b> находят укушенных и лечат, если инфекция не зашла далеко." },
   { k: "firefighters", n: "Пожарные", c: "#d23a2a", tip: "<b>Пожарные:</b> клик — машина выезжает из пожарной части к ближайшему пожару, тушит дома, машины и горящих людей. Топорами отбиваются от зомби." },
+  { k: "plow", n: "Снегоуборщик", c: "#e8781c", tip: "<b>Снегоуборщик:</b> клик по улице — грузовик с отвалом едет туда и проходит её туда и обратно, сгребая снег с проезжей части; снега нет — проедет и уедет. Глубокую кучу чистит за несколько проходов." },
   { k: "repair", n: "Ремонтники", c: "#f08a1c", tip: "<b>Ремонтники:</b> клик — бригада разбирает завалы, убирает разбитые машины и ставит упавшие фонари. При зомби бросают работу и уходят." },
   { k: "quarantine", n: "Карантин", c: "#9d998f", tip: "<b>Карантин:</b> протяни прямоугольник по карте. Военные оцепят зону постами, приедут строители и секция за секцией поставят сетчатый забор с колючкой. Пока забор не замкнут, зона открыта." },
   { k: "lab", n: "Учёные", c: "#7fd0e0", tip: "<b>Учёные:</b> клик — ещё трое учёных в лаборатории больницы, вакцина появится быстрее. Прогресс — в сводке." },
@@ -14382,6 +15397,7 @@ const TOOLS = [
   { k: "strike", n: "Авиаудар", c: "#e0603a", tip: "<b>Авиаудар:</b> штурмовик сбрасывает бомбу через 3 с. Сжигает всех в радиусе 17 м, поджигает дома и машины." },
   { k: "boom", n: "Взрыв", c: "#ff8a3a", tip: "<b>Взрыв:</b> клик — взрыв в этой точке. Машины взлетают, люди разлетаются, дома получают повреждения." },
   { k: "meteor", n: "Метеорит", c: "#c0502a", tip: "<b>Метеорит:</b> через пару секунд с неба падает камень. Огромный взрыв, кратер, рушатся дома в радиусе 40 м." },
+  { k: "snow", n: "Снег", c: "#dfe8f0", tip: "<b>Снег:</b> клик или веди по земле — насыпается сугроб; кликай в одно место — куча растёт, расползается и чистится дольше. Машины в нём застревают, подъехавшие разворачиваются, улица закрывается, у въезда встаёт регулировщик. Снег тает: летом медленно, у огня быстро, зимой никак; если ждать долго, приедет снегоуборщик, застрявших вытянет эвакуатор." },
   { k: "fire", n: "Пожар", c: "#ff5a2a", tip: "<b>Пожар:</b> клик — очаг огня. Загораются дома и машины рядом, огонь перекидывается дальше." },
   { k: "horde", n: "Орда", c: "#4fa52a", tip: "<b>Орда:</b> клик ставит сразу 25 зомби." },
   { k: "squad", n: "Отряд", c: "#4fe0ff", tip: "<b>Отряд:</b> протяни рамку по солдатам и полицейским, затем кликни по земле — они займут позицию и будут держать её. Esc — отпустить." },
@@ -14406,7 +15422,7 @@ function renderTools() {
     $("tools").innerHTML = ED_TOOLS.map(t => `<button data-k="${t.k}" aria-pressed="${t.k === tool}"><i style="background:${t.c}"></i>${t.n}</button>`).join("") + `<span class="edfl">Этажей: <button data-fl="-1" aria-label="Меньше этажей">−</button><b>${edFloors}</b><button data-fl="1" aria-label="Больше этажей">+</button></span>`;
     const t = ED_TOOLS.find(t => t.k === tool) || ED_TOOLS[0]; $("tip").innerHTML = t.tip + " Симуляция на паузе, пока открыт редактор."; return;
   }
-  const GROUPS = [["Наблюдение", ["watch", "squad"]], ["Заражение", ["infect", "zombie", "horde"]], ["Оборона", ["barricade", "wall", "erase", "quarantine", "police", "army", "tank", "depot"]], ["Стройка", ["tower", "flood", "camp", "supply"]], ["Ловушки", ["mine", "wire", "barrels", "gen", "efence"]], ["Штаб", ["cp", "gather", "danger", "home"]], ["Службы", ["medic", "firefighters", "repair", "lab", "vaccinate", "evac"]], ["Удары", ["strike", "nuke"]], ["Стихии", ["boom", "meteor", "fire"]]];
+  const GROUPS = [["Наблюдение", ["watch", "squad"]], ["Заражение", ["infect", "zombie", "horde"]], ["Оборона", ["barricade", "wall", "erase", "quarantine", "police", "army", "tank", "depot"]], ["Стройка", ["tower", "flood", "camp", "supply"]], ["Ловушки", ["mine", "wire", "barrels", "gen", "efence"]], ["Штаб", ["cp", "gather", "danger", "home"]], ["Службы", ["medic", "firefighters", "repair", "plow", "lab", "vaccinate", "evac"]], ["Удары", ["strike", "nuke"]], ["Стихии", ["boom", "meteor", "fire", "snow"]]];
   const btn = (t, i) => { const left = typeof limitLeft === "function" ? limitLeft(t.k) : Infinity; return `<button data-k="${t.k}" aria-pressed="${t.k === tool}" title="${t.n}"${left <= 0 ? " disabled" : ""}><i style="background:${t.c}"></i><kbd>${i === 10 ? "-" : i < 10 ? (i + 1) % 10 : ""}</kbd>${t.n}${left < Infinity ? ` <em>×${Math.max(0, left)}</em>` : ""}</button>`; };
   GROUPS.forEach(([name, keys], gi) => { if (keys.includes(tool)) openGroups.add(gi); });
   $("tools").innerHTML = GROUPS.map(([name, keys], gi) => `<div class="tgroup${openGroups.has(gi) ? " open" : ""}"><button class="gh" data-g="${gi}">${name}<em>${keys.length}</em></button><div class="gb">${keys.map(k => { const i = TOOLS.findIndex(t => t.k === k); return i >= 0 ? btn(TOOLS[i], i) : ""; }).join("")}</div></div>`).join("");
@@ -14458,6 +15474,7 @@ function useTool(e, x, y) {
   }
   if (tool === "nuke") { if (!launchNuke(x, y)) { warn("<b>Удар уже в пути.</b>"); uses.nuke = Math.max(0, (uses.nuke || 1) - 1); } return; }
   if (tool === "strike") { strikes.push({ x, y, t: 3 }); logE("Штурмовик заходит на цель", "bad"); }
+  if (tool === "plow") { const g = gEdgeNear(x, y, 40, e => e.rural); if (!g) { warn("<b>Снегоуборщик</b> ездит по городским улицам: кликни по дороге."); return; } callPlow(g.e, g.x, g.y); logE("Вызван снегоуборщик", "good"); return; }
   if (tool === "firefighters" || tool === "repair") {
     const type = tool === "repair" ? "repair" : "fire", t = serviceTarget(type);
     const c = spawnService(type, t ? t.x : x, t ? t.y : y, type === "fire" ? special.fire : null); c.job = t ? t.job : null;
@@ -14471,6 +15488,7 @@ function useTool(e, x, y) {
   if (tool === "boom") { boom(x, y, 48, false); logT("boom", "Взрыв", "bad", 5); }
   if (tool === "meteor") callMeteor(x, y);
   if (tool === "fire") startFire(x, y);
+  if (tool === "snow") pourSnow(x, y);
   if (tool === "horde") spawnHorde(x, y);
   if (tool === "tower") { if (!addTower(x, y)) warn("<b>Здесь не поставить:</b> нужна свободная площадка 4 × 4 м."); }
   if (tool === "flood") addFlood(x, y);
@@ -14533,6 +15551,7 @@ cv.addEventListener("pointermove", e => {
   if (tool === "squad" && selStart) { const g = groundAt(e); if (g) selEnd = g; return; }
   if (tool === "wire" && wireStart) { const g = groundAt(e); if (g) selEnd = g; return; }
   if (editMode && (tool === "ed_road" || tool === "ed_tree")) { const g = groundAt(e); if (!g || !lastG) return; const n = Math.ceil(Math.hypot(g[0] - lastG[0], g[1] - lastG[1]) / 4); for (let i = 1; i <= n; i++) edPoint(tool, [lastG[0] + (g[0] - lastG[0]) * i / n, lastG[1] + (g[1] - lastG[1]) * i / n]); lastG = g; return; }
+  if (tool === "snow") { const g = groundAt(e); if (g && lastG && Math.hypot(g[0] - lastG[0], g[1] - lastG[1]) > 9) { pourSnow(g[0], g[1], 1.6); lastG = g; } return; } // ведёшь — сыплется полосой
   if (tool === "barricade" || tool === "erase" || tool === "wall" || tool === "efence") {
     const g = groundAt(e); if (!g || !lastG) return;
     const n = Math.ceil(Math.hypot(g[0] - lastG[0], g[1] - lastG[1]) / 3);
@@ -14643,7 +15662,7 @@ function updateUI() {
   for (const [id, v] of [["nH", c.H], ["nI", c.I], ["nZ", c.Z], ["nD", c.D], ["nS", c.S], ["nF", c.F]]) $(id).textContent = v;
   $("vacBar").style.width = Math.floor(research * 100) + "%"; $("vacO").textContent = vaccineReady ? "готова" : Math.floor(research * 100) + "%";
   const hungry = hungryCount();
-  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
+  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: world.season === "winter" ? "метель" : "гроза", snow: "снегопад" }[world.weather] : ""}${world.season !== "summer" ? " · " + { autumn: "осень", winter: "зима" }[world.season] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
   renderHeroes(); squadHud(); renderFactions(); updateCampaignUI();
   if (logDirty) { logDirty = false; $("log").innerHTML = events.slice(0, 40).map(e => `<li class="${e.cls || ""}"><time>${mmss(e.t)}</time>${e.text}</li>`).join(""); updateNews(); }
   drawChart();
@@ -14680,6 +15699,7 @@ $("dayNight").addEventListener("click", toggleNight);
 $("hour").addEventListener("input", e => { world.target = +e.target.value; world.cycle = false; $("cycle").checked = false; syncDayButton(); });
 $("cycle").addEventListener("change", e => { world.cycle = e.target.checked; });
 $("weather").addEventListener("change", e => { world.weather = e.target.value; });
+$("season").addEventListener("change", e => { world.season = e.target.value; });
 $("services").addEventListener("change", e => { settings.services = e.target.checked; });
 $("threats").addEventListener("change", e => { settings.threats = e.target.checked; });
 $("marks").addEventListener("change", e => { showMarks = e.target.checked; });
@@ -14722,7 +15742,7 @@ function frameBody(now) {
   updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateFunicular(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
-  updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();
+  updateEnv(dt); updatePuddles(); updateGrass(); updateCozy(fxDt, dt); updateWreck(fxDt); updateSnowRoads(dt); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);
   uiT -= dt; if (uiT <= 0) { uiT = .25; updateUI(); }

@@ -406,9 +406,10 @@ function planCableCar() {
   const loop = F.len * 2, nc = Math.max(4, Math.round(loop / 300)); F.cabins = []; for (let k = 0; k < nc; k++) F.cabins.push({ s: loop * k / nc, riders: [] });
 }
 // положение кабинки: s по кругу [0, 2·len): до len — вверх, дальше — вниз; поперёк троса нитки разнесены на ±2.6
-function cabinPos(F, c) { const up = c.s < F.len, d = up ? c.s : 2 * F.len - c.s, p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, o = up ? 2.6 : -2.6; return [p[0] + nx * o, p[1] + ny * o, cableH(F, d), d, up]; }
+function cabinPos(F, c) { if (c.fallZ !== undefined) return [c.fx, c.fy, c.fallZ, 0, true]; const up = c.s < F.len, d = up ? c.s : 2 * F.len - c.s, p = cablePoint(F, d), nx = -(F.U[1] - F.L[1]) / F.len, ny = (F.U[0] - F.L[0]) / F.len, o = up ? 2.6 : -2.6; return [p[0] + nx * o, p[1] + ny * o, cableH(F, d), d, up]; }
 function stepFunicular(dt) {
   const F = funicular; if (!F || !F.cabins.length) return;
+  if (F.broken) { stepCableFall(F, dt); return; } // трос оборван взрывом (sim3.js): канатка стоит
   const loop = F.len * 2;
   for (const c of F.cabins) {
     const [, , , d, up] = cabinPos(F, c), nearSt = Math.min(d, F.len - d) < 30, v = CABLE.speed * (nearSt ? .3 : 1);
@@ -426,11 +427,13 @@ function stepFunicular(dt) {
 
 // ---------- канатная дорога от первого лица: игрок садится у станции (E), едет в кабинке, выходит на другой станции ----------
 function cabinAtStation(F, lower) { // кабинка, стоящая у станции и идущая от неё: внизу — вверх, наверху — вниз
+  if (F.broken) return null;
   for (const c of F.cabins) { const [, , , d, up] = cabinPos(F, c); if (lower ? (up && d < 24) : (!up && d > F.len - 24)) return c; } return null;
 }
 function boardCable(a) {
   const F = funicular; if (!F) return "";
   const dl = Math.hypot(a.x - F.L[0], a.y - F.L[1]), du = Math.hypot(a.x - F.U[0], a.y - F.U[1]); if (Math.min(dl, du) > 34) return "";
+  if (F.broken) return "Канатка разрушена: трос оборван";
   const c = cabinAtStation(F, dl < du); if (!c) return "Кабинка ещё не подошла — подожди у станции";
   if (c.riders.length >= CABLE.cap) return "Кабинка полна, подожди следующую";
   a.hidden = true; a.onBus = F; a.vx = a.vy = 0; a.dest = null; c.riders.push(a); fps.mode = "cable"; fps.cabin = c;

@@ -29,7 +29,7 @@ function updateMachines() {
   for (const [m, o] of machineObjs) if (!machines.includes(m)) { scene.remove(o); machineObjs.delete(m); }
   // кузов самосвала, барабан бетономешалки, стрела эвакуатора
   for (const c of cars) {
-    if (!c.service || !(c.service === "dump" || c.service === "mixer" || c.service === "tow" || c.service === "fire")) continue;
+    if (!c.service || !(c.service === "dump" || c.service === "mixer" || c.service === "tow" || c.service === "fire" || c.service === "plow")) continue;
     let o = carExtras.get(c);
     if (!o) {
       o = new THREE.Group();
@@ -43,6 +43,7 @@ function updateMachines() {
         o.userData.bed = bed; o.userData.heap = heap;
       }
       if (c.service === "mixer") { const drum = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 4.2, 12, 14).rotateZ(Math.PI / 2 - .25), new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: .5, metalness: .3 })); drum.position.set(-4, 9, 0); drum.castShadow = true; o.add(drum); const stripe = new THREE.Mesh(new THREE.TorusGeometry(3.9, .4, 6, 18).rotateY(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd2552a })); stripe.position.set(-4, 9, 0); o.add(stripe); o.userData.drum = drum; o.userData.stripe = stripe; }
+      if (c.service === "plow") { const blade = new THREE.MeshStandardMaterial({ color: 0xe8781c, roughness: .5, metalness: .4 }); const b = addBox(o, blade, 1.2, 3.6, 13, 12.5, 1.9, 0); b.rotation.y = .3; addBox(o, steelMat, 3, .8, 1, 10.5, 2.4, 2.5); addBox(o, steelMat, 3, .8, 1, 10.5, 2.4, -2.5); addBox(o, blade, 1.4, .8, 1.4, -2, 9.2, 0); } // отвал спереди и маячок
       if (c.service === "tow" && c.model !== "tow") { const boom = addBox(o, steelMat, 12, 1, 1, -9, 8, 0); boom.rotation.z = -.35; addBox(o, steelMat, 2, 6, 6, -6, 6, 0); }
       if (c.service === "fire" && c.model === "ladder") { const base = new THREE.Group(); base.position.set(-6, 7.2, 0); o.add(base); addBox(base, steelMat, 3, 1.4, 3, 0, 0, 0); const lad = new THREE.Group(); base.add(lad); const rail = new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: .6, roughness: .4 }); for (const s of [-1, 1]) addBox(lad, rail, 22, .35, .35, 11, .6, s * 1.1); for (let x = 1; x < 22; x += 2.2) addBox(lad, rail, .3, .3, 2.2, x, .6, 0); const ext = new THREE.Group(); ext.position.set(10, .9, 0); lad.add(ext); for (const s of [-1, 1]) addBox(ext, rail, 20, .3, .3, 10, 0, s * .8); ext.scale.x = .3; o.userData.ladder = lad; o.userData.ext = ext; }
       const FM = CAR_MODELS[c.model]; if (FM && FM.fit) o.scale.set(1, FM.fit[0], FM.fit[1]);

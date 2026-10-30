@@ -493,19 +493,22 @@ function step(dt) {
         }
       }
       a.bash = Math.max(0, (a.bash || 0) - dt);
+      if (a.buried) m = [0, 0, 0]; // засыпанный снегом зомби не выберется
     } else {
       if (a.player) {
         if (a.reload > 0) { a.reload -= dt; if (a.reload <= 0) { const n = Math.min(a.magMax - a.mag, a.ammo); a.mag += n; a.ammo -= n; } }
         if (a.grabT > 0) { a.grabT -= dt; m = [0, 0, 0]; } else m = playerMove(a, dt);
       } else { m = thinkHuman(a, dt); if (a.role === "civ" && a.panic < .3 && !a.unit && m[2] > 0) m = zebraWait(a, m); }
       if (a.post) { m = [0, 0, 0]; a.x = a.post.x; a.y = a.post.y; }
+      if (a.job && a.job.dig) m = digStep(a, dt); // спасатель откапывает засыпанного (sim18.js)
+      if (a.buried) m = [0, 0, 0]; // засыпан снегом — не выбраться
       if (a.state !== "alive") continue;
       if (a.bitten) {
         a.incT -= dt;
         if (a.incT <= 0) { a.state = "dead"; a.deadT = 0; a.reanimate = true; a.wakeAt = 3; deaths++; a.diedT = simT; a.deathBy = "conv"; a.deathWhere = placeName(a.x, a.y); logT("conv", "Укушенный упал в судорогах", "bad", 20); continue; }
       }
       if (a.bleed > 0) { a.bleed -= dt; if (Math.random() < dt * 2) addDecal(a.x + rnd(-1, 1), a.y + rnd(-1, 1), rnd(.3, .7), 0); }
-      if (a.hp < 100 && !(a.burn > .2)) a.hp = Math.min(100, a.hp + dt * .4);
+      if (a.hp < 100 && !(a.burn > .2) && !a.frost) a.hp = Math.min(100, a.hp + dt * .4); // обмороженный сам не поправится — ждёт скорую
     }
     // огонь: кто в очаге — загорается, ожоги копятся
     for (const f of fires) if (Math.hypot(a.x - f.x, a.y - f.y) < f.r) { ignite(a); a.hp -= dt * 18; a.burn = Math.min(1, (a.burn || 0) + dt * .1); }

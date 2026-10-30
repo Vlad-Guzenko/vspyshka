@@ -6,7 +6,7 @@ const LAYOUT_INFO = {
   park: "огромный парк с озером в середине", mega: "плотная сетка, бродвей и центральный парк", suburb: "петли улиц, тупики-разъезды, частные дома",
   industry: "склады и стоянки на полгорода", river: "река и мосты", port: "море вдоль края", mountain: "горы", valley: "долина",
 };
-const wiz = { step: 0, scen: "sandbox", layout: "random", map: "normal", relief: "mountains", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", services: true, threats: true };
+const wiz = { step: 0, scen: "sandbox", layout: "random", map: "normal", relief: "mountains", pop: 900, fast: false, inc: 20, armed: 5, time: 13, weather: "clear", season: "summer", services: true, threats: true };
 function cardHTML(name, value, title, sub, checked) {
   return `<label class="card"><input type="radio" name="${name}" value="${value}"${checked ? " checked" : ""}><b>${title}</b><small>${sub}</small></label>`;
 }
@@ -33,6 +33,7 @@ $("wizard").addEventListener("change", e => {
   if (t.id === "wArm") { wiz.armed = +t.value; $("wArmO").textContent = t.value + "%"; }
   if (t.name === "wTime") wiz.time = +t.value;
   if (t.id === "wWeather") wiz.weather = t.value;
+  if (t.id === "wSeason") wiz.season = t.value;
   if (t.id === "wSvc") wiz.services = t.checked;
   if (t.id === "wThr") wiz.threats = t.checked;
 });
@@ -48,7 +49,7 @@ function startGame() {
   $("pop").value = wiz.pop; $("popO").textContent = wiz.pop;
   $("layout").value = SCENARIOS[wiz.scen].layout || wiz.layout;
   mapSize = wiz.map; relief = wiz.relief;
-  world.weather = wiz.weather; $("weather").value = wiz.weather; world.cycle = false; world.rate = 0; $("cycle").checked = false;
+  world.weather = wiz.weather; $("weather").value = wiz.weather; world.season = wiz.season; $("season").value = wiz.season; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);
   if (wiz.scen === "campaign") campaignStarted();

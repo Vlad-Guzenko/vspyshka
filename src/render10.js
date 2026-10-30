@@ -25,7 +25,7 @@ function updateWorld2(dt) {
 }
 // инфраструктура: трубы электростанции, баки водонасосной, мачта радиовышки
 function decorateInfra(b, obj, w, d) {
-  if (b.kind === "power") { for (const s of [-1, 1]) { const ch = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3, 42, 12), parapetMat); ch.position.set(s * w * .25, b.h + 21, -d * .2); ch.castShadow = true; obj.add(ch); } b.chimneys = true; }
+  if (b.kind === "power") { for (const s of [-1, 1]) { const ch = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3, 42, 12), parapetMat); ch.position.set(s * w * .25, b.h + 21, -d * .2); ch.castShadow = true; ch.userData.chim = 2; obj.add(ch); } b.chimneys = true; }
   if (b.kind === "water") { for (const [x, z] of [[-w * .28, d * .25], [w * .28, d * .25]]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 16, 16), new THREE.MeshStandardMaterial({ color: 0x7fa7c7, metalness: .4, roughness: .4 })); t.position.set(x, b.h + 8, z); t.castShadow = true; obj.add(t); } }
   if (b.kind === "radio") { const mast = new THREE.Mesh(new THREE.CylinderGeometry(.4, 1.6, 110, 6), new THREE.MeshStandardMaterial({ color: 0xc8c8c0, metalness: .6, roughness: .4 })); mast.position.set(0, b.h + 55, 0); mast.castShadow = true; obj.add(mast); for (let i = 1; i <= 4; i++) { const ring = new THREE.Mesh(new THREE.TorusGeometry(2 + i * .6, .12, 6, 16).rotateX(Math.PI / 2), parapetMat); ring.position.set(0, b.h + 10 + i * 22, 0); obj.add(ring); } const top = new THREE.Mesh(new THREE.SphereGeometry(.8, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3030 })); top.position.set(0, b.h + 110, 0); obj.add(top); b.beacon = top; }
 }

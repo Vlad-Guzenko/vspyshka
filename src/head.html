@@ -276,7 +276,9 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         <label class="chk"><input type="radio" name="wTime" value="23"> Ночь</label>
       </fieldset>
       <div class="row"><label for="wWeather">Погода</label></div>
-      <select id="wWeather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option></select>
+      <select id="wWeather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option><option value="snow">Снегопад</option></select>
+      <div class="row"><label for="wSeason">Время года</label></div>
+      <select id="wSeason" class="sel"><option value="summer">Лето</option><option value="autumn">Осень: листопад</option><option value="winter">Зима: снег на крышах</option></select>
       <label class="chk" for="wSvc"><input type="checkbox" id="wSvc" checked> Город реагирует сам: полиция, пожарные, скорая, ремонтники, а штаб ЧС по уровню угрозы вводит армию, оцепление, лагеря, эвакуацию, танки и авиацию</label>
       <label class="chk" for="wThr"><input type="checkbox" id="wThr" checked> Внешние угрозы: орды с полей на шум города, беженцы на въездах, ультиматум федерального центра</label>
     </section>
@@ -474,7 +476,9 @@ body.fps .tools,body.fps .panel,body.fps .tip,body.fps .edge{display:none}
         <input type="range" id="hour" min="0" max="23.9" step=".1" value="13">
         <label class="chk" for="cycle"><input type="checkbox" id="cycle"> Смена дня и ночи (сутки за 12 минут)</label>
         <div class="row"><label for="weather">Погода</label></div>
-        <select id="weather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option></select>
+        <select id="weather" class="sel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="fog">Туман</option><option value="storm">Гроза</option><option value="snow">Снегопад</option></select>
+        <div class="row"><label for="season">Время года</label></div>
+        <select id="season" class="sel"><option value="summer">Лето</option><option value="autumn">Осень</option><option value="winter">Зима</option></select>
         <label class="chk" for="marks"><input type="checkbox" id="marks" checked> Подсвечивать укушенных</label>
         <label class="chk" for="shadows"><input type="checkbox" id="shadows" checked> Тени (выключи, если тормозит)</label>
       </div>

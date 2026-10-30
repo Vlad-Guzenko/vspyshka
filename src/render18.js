@@ -15,7 +15,7 @@ function gableRoof(obj, w, d, h, rh, along, mat, over = 1.2, cx = 0, cz = 0) {
   const roof = new THREE.Mesh(rg, mat); roof.position.set(cx, h, cz); roof.castShadow = roof.receiveShadow = true; obj.add(roof); return roof;
 }
 function facadeBox(b, w, h, d, x, y, z, fm, top) { const geo = new THREE.BoxGeometry(w, h, d); boxUV(geo, w, d, b.floors * 1.6, Math.floor(rnd(0, 8)) / TBX); const m = new THREE.Mesh(geo, [fm, fm, top || roofMat, top || roofMat, fm, fm]); m.position.set(x, y, z); return m; }
-function chimney(obj, w, d, y) { lmAdd(obj, new THREE.BoxGeometry(2.2, 5, 2.2), parapetMat, rnd(-w / 4, w / 4), y, rnd(-d / 4, d / 4)); }
+function chimney(obj, w, d, y) { lmAdd(obj, new THREE.BoxGeometry(2.2, 5, 2.2), parapetMat, rnd(-w / 4, w / 4), y, rnd(-d / 4, d / 4)).userData.chim = 1; } // chim: из трубы идёт дым (cozy.js)
 function porch(obj, x, z, wide = 5) {
   lmAdd(obj, new THREE.BoxGeometry(wide, .9, 2.4), porchMat, x, .45, z + 1.2);
   lmAdd(obj, new THREE.BoxGeometry(wide + 1, .35, 3.2), whiteTrim, x, 8.4, z + 1.5).rotation.x = .15;
@@ -71,7 +71,7 @@ function districtMesh(b, obj, box, w, d) {
     lmAdd(obj, new THREE.BoxGeometry(w - 2, .7, 4), plankMat18, 0, .35, d / 2 + 2);
     lmAdd(obj, new THREE.BoxGeometry(w, .4, 5), tile, 0, b.h - 1.2, d / 2 + 2.3).rotation.x = .22;
     for (let x = -w / 2 + 2; x <= w / 2 - 2; x += (w - 4) / 3) lmAdd(obj, new THREE.BoxGeometry(.5, b.h - 1.5, .5), whiteTrim, x, (b.h - 1.5) / 2, d / 2 + 4);
-    lmAdd(obj, new THREE.BoxGeometry(2.4, rh + 4, 2.4), parapetMat, w / 4, b.h + rh * .4, -d / 6);
+    lmAdd(obj, new THREE.BoxGeometry(2.4, rh + 4, 2.4), parapetMat, w / 4, b.h + rh * .4, -d / 6).userData.chim = 1;
     b.h += rh * .6; return true;
   }
   if (k === "manor") {
@@ -101,12 +101,21 @@ function districtMesh(b, obj, box, w, d) {
   }
   if (k === "cafe") {
     // кафе: вывеска, маркиза над витриной, столики с зонтиками на террасе
+    b.seats = []; b.lights = []; // места посетителей и гирлянды — для cozy.js, при пересборке города заново
     landSign(obj, pick(["КАФЕ", "КОФЕЙНЯ", "ПЕКАРНЯ", "ПИЦЦА · КАФЕ"]), pick(["#5a2a1a", "#2e6a3c", "#1d3566"]), "#f4d9a0", Math.min(14, w - 2), b.h - 1.5, d / 2 + .35);
     const aw = lmAdd(obj, new THREE.BoxGeometry(w - 2, .3, 3), pick(AWNING_MATS), 0, b.h - 3.6, d / 2 + 1.4); aw.rotation.x = .35;
     for (const x of [-w / 3, 0, w / 3]) {
       lmAdd(obj, new THREE.CylinderGeometry(1.4, 1.4, .2, 12), whiteMat, x, 2.2, d / 2 + 5); lmAdd(obj, new THREE.CylinderGeometry(.12, .12, 2.2, 6), steelPostMat, x, 1.1, d / 2 + 5);
       lmAdd(obj, new THREE.CylinderGeometry(.08, .08, 6, 6), steelPostMat, x, 3, d / 2 + 5); lmAdd(obj, new THREE.ConeGeometry(2.6, 1.2, 10), pick(AWNING_MATS), x, 6.4, d / 2 + 5);
+      // два стула у столика лицом к нему; места запоминаются — на них садятся посетители (cozy.js)
+      for (const s of [-1, 1]) {
+        lmAdd(obj, new THREE.BoxGeometry(1.4, .25, 1.4), woodBenchMat, x + s * 2.5, 1.48, d / 2 + 5); lmAdd(obj, new THREE.BoxGeometry(.25, 1.4, .25), steelPostMat, x + s * 2.5, .7, d / 2 + 5);
+        lmAdd(obj, new THREE.BoxGeometry(.2, 1.8, 1.4), woodBenchMat, x + s * 3.15, 2.4, d / 2 + 5);
+        b.seats.push([x + s * 2.5, d / 2 + 5, -s, 0]);
+      }
+      b.lights.push([x, b.h - 1.4, d / 2 + .5, x, 6.9, d / 2 + 5, .5]); // гирлянда от фасада к зонтику
     }
+    b.lights.push([-w / 2 + .6, b.h - .9, d / 2 + .5, w / 2 - .6, b.h - .9, d / 2 + .5, 1.2]); // и вдоль фасада над маркизой
     lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
     return true;
   }

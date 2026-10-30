@@ -7,6 +7,7 @@ const SERVICE = {
   repair: { col: "#e0a020", len: 1.25, crew: "worker", n: 3, siren: "amber", name: "Ремонтники" },
   army: { col: "#4d5634", len: 1.6, crew: "army", n: 8, siren: null, name: "Армия" },
   tow: { col: "#f0c020", len: 1.3, crew: null, n: 0, siren: "amber", name: "Эвакуатор" },
+  plow: { col: "#e8781c", len: 1.4, crew: null, n: 0, siren: "amber", name: "Снегоуборщик" },
   dump: { col: "#c9701c", len: 1.6, crew: null, n: 0, siren: null, name: "Самосвал" },
   mixer: { col: "#f2efe6", len: 1.4, crew: null, n: 0, siren: null, name: "Бетономешалка" },
   sanit: { col: "#e4ece6", len: 1.3, crew: "sanitar", n: 3, siren: null, name: "Санитары" },
@@ -59,7 +60,7 @@ function dressCrew(a, c, i) {
   if ((a.role === "worker" || a.role === "builder") && v === 1) { a.cloth = "#2c4a7a"; a.pants = "#24395e"; }
 }
 // кузов служебной машины
-const SERVICE_MODEL = { lowboy: "lowboy", police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
+const SERVICE_MODEL = { lowboy: "lowboy", police: "police", fire: "fire", ambulance: "ambulance", repair: "boxtruck", army: "army", tow: "truck", plow: "truck", dump: "truck", mixer: "truck", sanit: "boxtruck", builder: "bus", bus: "bus", garbage: "garbage", sweeper: "tanker", delivery: "boxtruck", supply: "army" };
 function clearCarCells(c) {
   if (c.cells) { for (let k = 0; k < c.cells.length; k += 2) if (grid[c.cells[k]] === 5) grid[c.cells[k]] = c.cells[k + 1]; c.cells = null; fieldT = 0; return; }
   for (let y = c.y - 10; y <= c.y + 10; y += CS) for (let x = c.x - 10; x <= c.x + 10; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && grid[gy * GW + gx] === 5) grid[gy * GW + gx] = 0; } fieldT = 0;
@@ -93,7 +94,8 @@ function pullOver(c) {
   const q = lanePos(l, c.s); c.x = q.x + q.ty * c.latOff + (c.offx || 0); c.y = q.y - q.tx * c.latOff + (c.offy || 0);
 }
 function deployCrew(c) {
-  if (c.deployed) return; c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
+  if (c.deployed || c.service === "plow") return; // снегоуборщик не встаёт у цели, а проходит улицу (sim18.js)
+  c.deployed = true; c.moving = false; c.v = 0; c.stopped = true; c.deployT = simT; c.tripT = 0;
   pullOver(c);
   const S = SERVICE[c.service], sid = S.crew === "army" && !c.posts ? ++squadSeq : 0;
   for (let i = 0; i < (c.crewN || S.n); i++) {
@@ -105,7 +107,7 @@ function deployCrew(c) {
   }
   if (sid) squads.set(sid, { id: sid, members: c.crew.map(m => m.id), leader: c.crew[0].id, state: "advance", holdAt: null, holdT: 0, regroupT: 0, slots: [] });
   // посты: высаженные занимают заданные точки; машина, которая только привезла, уезжает
-  if (c.posts && c.posts.length) c.crew.forEach((a, i) => { const p = c.posts[i % c.posts.length]; a.order = { x: p[0], y: p[1] }; if (c.fed) a.fed = true; if (c.guardJob) a.guardJob = c.guardJob; if (c.cp) a.cp = c.cp; if (c.guardB) a.guardB = c.guardB; });
+  if (c.posts && c.posts.length) c.crew.forEach((a, i) => { const p = c.posts[i % c.posts.length]; a.order = { x: p[0], y: p[1] }; if (c.fed) a.fed = true; if (c.guardJob) a.guardJob = c.guardJob; if (c.cp) a.cp = c.cp; if (c.guardB) a.guardB = c.guardB; if (c.regul) a.regul = c.regul; });
   if (c.dropOnly) { for (const a of c.crew) { a.unit = null; a.job = null; } c.crew = []; releaseUnit(c); }
   logT("svc" + c.service, `${S.name} на месте`, "good", 10);
 }
@@ -124,6 +126,7 @@ function releaseJob(j) {
   if (j.car && j.car.burnT > 0) j.car.fireAssigned = false;
   if (j.f) j.f.assigned = false;
   if (j.tow && !j.tow.towedBy) j.tow.towAssigned = false;
+  if (j.dig) j.dig.rescueBy = null;
   if (j.lamp && j.lamp.down) j.lamp.fixAssigned = false;
   if (j.body && j.body.state === "dead") { j.body.sanitAssigned = 0; j.body.carried = null; }
 }
@@ -140,8 +143,9 @@ function stepServiceCar(c, dt) {
   // экипаж погиб: машина брошена, новых людей из неё не появляется
   if (c.abandonedSvc) return;
   if (c.leaving && !c.moving) c.moving = true;
+  if (c.service === "plow" && !c.leaving) { stepPlow(c, dt); return; } // снегоуборщик не встаёт у цели, а проходит улицу насквозь (sim18.js)
   if (c.deployed && !SERVICE[c.service].crew) {
-    if (c.service === "tow") { const w = c.job && c.job.tow; if (w && !w.gone && !w.towedBy && !w.player) { w.towedBy = c; w.stopped = false; w.moving = false; clearCarCells(w); logT("tow", w.wreck ? "Эвакуатор забрал разбитую машину" : "Эвакуатор увёз брошенную машину", "good", 20); } releaseUnit(c); }
+    if (c.service === "tow") { const w = c.job && c.job.tow; if (w && c.job.winch && !w.gone) { if (Math.hypot(w.x - c.x, w.y - c.y) > 80) { w.towAssigned = false; c.job = null; releaseUnit(c); return; } if (!winchStep(c, w, dt)) return; } if (w && !w.gone && !w.towedBy && !w.player) { w.towedBy = c; w.stopped = false; w.moving = false; clearCarCells(w); logT("tow", w.wreck ? "Эвакуатор забрал разбитую машину" : "Эвакуатор увёз брошенную машину", "good", 20); } releaseUnit(c); }
     else if (c.service === "dump") { const r = c.job && c.job.dump; if (!machines.some(m => !m.gone && m.job && (m.job.ruin === r || m.job.demo === r))) releaseUnit(c); }
     else if (c.service === "mixer") { const b = c.job && c.job.build; if (!b || b.state !== "construct") releaseUnit(c); }
     else if (c.service === "bus") stepBusStop(c, dt);
@@ -167,6 +171,7 @@ function stepServiceCar(c, dt) {
   // на месте: у цели; в пробке — только если цель уже близко, иначе ищем другой путь
   if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.service === "dump" ? c.wait > 8 && d < 60 : c.wait > 25 && d < 260)) deployCrew(c); else if (c.wait > 40 && c.lane && c.service !== "dump") { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }
 }
+const czRand = c => ((Math.imul(c.id | 0, 2654435761) >>> 0) % 1000) / 1000; // постоянный жребий машины
 function serviceTarget(type) {
   if (type === "fire") {
     // горящий дом: важнее тот, где люди и соседи вплотную; машина встаёт у ближайшего гидранта, если он не дальше 70
@@ -178,7 +183,9 @@ function serviceTarget(type) {
   }
   if (type === "tow") {
     const quiet = (x, y) => { let z = 0; nearZ(x, y, 120, () => z++); return z === 0; };
-    for (const c of cars) if ((c.wreck || c.stopped) && !c.moving && !c.service && !c.tank && !c.gone && !c.towAssigned && !c.towedBy && !(c.burnT > 0) && simT - (c.stopT || 0) > 60 && quiet(c.x, c.y)) { c.towAssigned = true; return { x: c.x, y: c.y, job: { tow: c } }; }
+    // застрявшую в снегу с водителем — иногда вытягивает лебёдкой (sim18.js); остальные застрявшие ждут снегоуборщика или оттепели
+    for (const c of cars) if (c.snowStuck && c.snowWas && !c.towAssigned && !c.towedBy && !c.gone && !c.service && simT - (c.stopT || 0) > 20 && czRand(c) < .5) { c.towAssigned = true; return { x: c.x, y: c.y, job: { tow: c, winch: true } }; }
+    for (const c of cars) if ((c.wreck || c.stopped) && !c.moving && !c.snowStuck && !c.service && !c.tank && !c.gone && !c.towAssigned && !c.towedBy && !(c.burnT > 0) && simT - (c.stopT || 0) > 60 && quiet(c.x, c.y)) { c.towAssigned = true; return { x: c.x, y: c.y, job: { tow: c } }; }
   }
   if (type === "repair") {
     // завалы, упавшие фонари, разбитые машины подальше от зомби
@@ -246,7 +253,7 @@ function stepServices(dt) {
     reports = reports.filter(q => Math.hypot(q.x - r.x, q.y - r.y) > 120);
   }
   if (activeUnits("fire") < Math.min(10, 3 + Math.ceil(buildings.filter(b => b.fire > 0 && b.state === "ok").length / 3))) { const t = serviceTarget("fire"); if (t) { const c = spawnService("fire", t.x, t.y, special.fire); c.job = t.job; logT("disp_fire", "Пожарные выехали на вызов", "good", 15); } }
-  const wounded = agents.find(a => a.state === "alive" && a.role === "civ" && (a.hp < 45 || (a.burn > .25)) && !a.ambAssigned);
+  const wounded = agents.find(a => a.state === "alive" && a.role === "civ" && (a.hp < 45 || (a.burn > .25) || a.frost) && !a.buried && !a.ambAssigned);
   if (wounded && activeUnits("ambulance") < 3) { wounded.ambAssigned = true; spawnService("ambulance", wounded.x, wounded.y, special.hospital); logT("disp_amb", "Скорая выехала к пострадавшему", "good", 20); }
   if (activeUnits("tow") < 4) { const t = serviceTarget("tow"); if (t) { const c = spawnService("tow", t.x, t.y, null); c.job = t.job; } }
   if (activeUnits("repair") < Math.min(14, 3 + Math.ceil(buildings.filter(b => b.state === "ruin" || b.state === "construct").length / 2))) {

@@ -361,15 +361,15 @@ function updateCars() {
   for (const k in cm.byModel) cm.byModel[k].n = 0;
   let wi = 0, li = 0, bi = 0, bar = 0;
   for (const c of list) {
-    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.vlen || c.len || 1) * 18 / M.L, dead = c.wreck && c.boomT <= 0;
+    const M = carModelOf(c), B = cm.byModel[c.model], i = B.n++, sx = (c.vlen || c.len || 1) * 18 / M.L, dead = (c.char || 0) > .5 || c.exploded, glassOut = dead || c.glass || c.wreck;
     carTilt(c, Math.max(12, M.L * sx), Math.max(3, M.track)); _ce.set((c.roll || 0) + c.tR, -c.ang, c.tP, "YXZ"); _cq.setFromEuler(_ce);
-    _cs.set(sx, c.crushed ? .35 : 1, 1);
+    _cs.set(sx, c.crushed ? .35 : 1 - (c.dent || 0) * .22, 1);
     if (c.rx === undefined || Math.hypot(c.rx - c.x, c.ry - c.y) > 40) { c.rx = c.x; c.ry = c.y; } const rk = c.turnT > 0 ? .12 : .25; c.rx += (c.x - c.rx) * rk; c.ry += (c.y - c.ry) * rk;
-    _cm.compose(_cv.set(X(c.rx), (c.z || 0) + (c.roll ? Math.abs(Math.sin(c.roll)) * 3.6 : 0) + gY(c.rx, c.ry), Z(c.ry)), _cq, _cs);
+    _cm.compose(_cv.set(X(c.rx), (c.z || 0) + (c.towedBy && c.onDeck ? 3.6 : 0) + (c.roll ? Math.abs(Math.sin(c.roll)) * 3.6 : 0) + gY(c.rx, c.ry), Z(c.ry)), _cq, _cs); // на платформе эвакуатора — выше
     if (c.police || c.service === "police") c.police = true;
     for (const part of B.list) {
       part.mesh.setMatrixAt(i, _cm);
-      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (dead ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : part.p === "base" ? (dead ? "#2a2724" : "#ffffff") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
+      const col = part.p === "paint" ? (dead ? "#1d1a18" : c.col || (c.police ? "#e9e9ee" : "#888")) : part.p === "glass" ? (glassOut ? "#0c0b0a" : "#2e3a46") : part.p === "trim" ? (dead ? "#0c0b0a" : c.cab || SERVICE_CAB[c.service] || "#26282a") : part.p === "base" ? (dead ? "#2a2724" : "#ffffff") : (dead ? "#141210" : c.liv || M.lightCol || "#d8d8d2");
       part.mesh.setColorAt(i, _cc.set(col));
     }
     // колёса: у модели свои оси и радиус; растяжку кузова по длине на колёса не переносим

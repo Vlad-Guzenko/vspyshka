@@ -182,6 +182,7 @@ function gutBuilding(b) {
   logT("gutted", b.kind === "tower" ? "Небоскрёб выгорел дотла: остался остов" : "Дом выгорел дотла", "bad", 20);
 }
 function stepBuildings(dt) {
+  stepWreck(dt);
   for (const b of buildings) {
     if (b.topple && !b.impacted && b.state === "collapsing" && b.cT > b.fallT) toppleImpact(b);
     // заправка: загорелась или её задело взрывом — через несколько секунд рвутся колонки и подземные ёмкости
@@ -222,9 +223,10 @@ function blastWorld(x, y, R, big) {
     const d = Math.hypot(c.x - x, c.y - y);
     if (d < R * 1.2) {
       const k = 1 - d / (R * 1.2), ang = Math.atan2(c.y - y, c.x - x);
-      // соседние машины загораются, а взрывается из них лишь каждая пятая (бензовоз — всегда); придавленные завалом не взрываются
-      if (!c.wreck && !c.crushed) { c.burnT = Math.max(c.burnT || 0, 40); if (c.tanker || (d < R * .8 && Math.random() < (big ? .4 : .2))) c.boomT = rnd(.6, 3); }
-      c.wreck = true;
+      // у центра машины загораются, а взрывается из них лишь каждая пятая (бензовоз — всегда); придавленные завалом не взрываются.
+      // Дальше волна только мнёт кузов, выбивает стёкла и отбрасывает
+      if (!c.wreck && !c.crushed && d < R * .75) { c.burnT = Math.max(c.burnT || 0, 40); if (c.tanker || (d < R * .6 && Math.random() < (big ? .4 : .2))) c.boomT = rnd(.6, 3); }
+      c.wreck = true; c.dent = Math.max(c.dent || 0, k); c.glass = true;
       if (c.moving) { c.moving = false; c.stopped = true; c.stopT = simT; }
       clearCarCells(c);
       c.vx = Math.cos(ang) * 50 * k; c.vy = Math.sin(ang) * 50 * k; c.vz = 20 + 50 * k * (big ? 1 : .6); c.z = .1;
@@ -233,6 +235,7 @@ function blastWorld(x, y, R, big) {
   }
   for (const l of lamps) if (!l.down && Math.hypot(l.x - x, l.y - y) < R * .9) l.down = rnd(1.2, 1.55) * (Math.random() < .5 ? 1 : -1);
   for (const t of trees) if (Math.hypot(t.x - x, t.y - y) < R * .9) t.burnt = true;
+  wreckBlast(x, y, R, big);
   gridDirty = true;
 }
 
@@ -303,3 +306,97 @@ function fireShell(t, target) {
 let timers = [];
 function setTimeout0(t, fn) { timers.push({ t, fn }); }
 function stepTimers(dt) { if (!timers.length) return; const due = []; timers = timers.filter(x => (x.t -= dt) > 0 || (due.push(x), false)); for (const x of due) x.fn(); }
+
+/* ---------- огонь и взрыв для всего остального: машины, мелочи на улицах, гидранты, светофоры, заборы, деревья, канатка ----------
+   Огонь медленный: горит то, что может гореть (дерево, пластик, сено, бензин), обугливается до остова и перекидывается на соседей;
+   металл — фонари, гидранты, светофоры, опоры — огню не поддаётся. Взрыв мгновенный: ударная волна опрокидывает и отбрасывает,
+   выбивает стёкла, мнёт кузова, ломает гидранты (бьёт фонтан), валит светофоры, ломает деревья, рвёт заборы и трос канатки;
+   загорается только то, что у самого центра. Картинка — render19.js (wreckDirty — пора перерисовать мелочи) */
+const WRECK = {
+  burn: { bench: 1, play: 1, kiosk: 1.2, stop: .5, board: .8, umbrella: 1.5, pier: .7, hay: 3, trough: .4, tractor: .6, cow: .8, dps: .4 }, // скорость горения; кого нет — не горит
+  heavy: new Set(["silo", "helipad", "pier", "dps", "mine", "wire"]), // ударная волна их не опрокидывает
+  small: new Set(["bench", "umbrella", "trough", "barrel", "cow"]), // у центра взрыва разлетаются
+};
+let wreckT = 0, wreckDirty = false, treeHashOf = null, treeHash = null;
+function treesNear(x, y, r, fn) {
+  if (treeHashOf !== trees || treeHash.n !== trees.length) { treeHashOf = trees; treeHash = new Map(); treeHash.n = trees.length; for (const t of trees) { const k = Math.floor(t.y / 40) * 4096 + Math.floor(t.x / 40); let B = treeHash.get(k); if (!B) treeHash.set(k, B = []); B.push(t); } }
+  for (let gy = Math.floor((y - r) / 40); gy <= Math.floor((y + r) / 40); gy++) for (let gx = Math.floor((x - r) / 40); gx <= Math.floor((x + r) / 40); gx++) { const B = treeHash.get(gy * 4096 + gx); if (B) for (const t of B) if (Math.hypot(t.x - x, t.y - y) < r) fn(t); }
+}
+function igniteProp(p, t = rnd(18, 35)) { const k = WRECK.burn[p.k]; if (!k || p.burnT > 0 || (p.char || 0) >= 1 || p.gone) return; p.burnT = t / Math.sqrt(k); wreckDirty = true; }
+function igniteTree(t) { if (t.burnt || t.burnT > 0 || t.snap) return; t.burnT = rnd(14, 28); }
+function igniteCar(c) { if (c.gone || c.burnT > 0 || (c.char || 0) >= 1 || c.z > 0) return; c.burnT = rnd(25, 45); c.burnAge = 0; }
+function stepWreck(dt) {
+  // горящие машины обугливаются; долго горящая может рвануть баком (бензовоз рвётся и так)
+  for (const c of cars) if (c.burnT > 0) {
+    c.char = Math.min(1, (c.char || 0) + dt / 22); c.burnAge = (c.burnAge || 0) + dt;
+    if (!c.exploded && !(c.boomT > 0) && !c.tanker && !c.boomTried && c.burnAge > 10) { c.boomTried = true; if (Math.random() < .25) c.boomT = rnd(.5, 3); }
+  }
+  wreckT -= dt; if (wreckT > 0) return; const T = .5; wreckT += T;
+  const wet = (world.rain || 0) > .5 ? .25 : 1, src = [];
+  // что горит и докуда достаёт огонь
+  for (const f of fires) src.push([f.x, f.y, f.r + 3]);
+  for (const b of buildings) if (b.fire > 0 && b.state === "ok") src.push([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + 6]);
+  for (const c of cars) if (c.burnT > 0 && !c.gone) src.push([c.x, c.y, 8]);
+  for (const p of props) if (p.burnT > 0) { src.push([p.x + (p.dx || 0), p.y + (p.dy || 0), 6]); p.burnT -= T; p.char = Math.min(1, (p.char || 0) + T / 16 * Math.sqrt(WRECK.burn[p.k] || 1)); if (p.burnT <= 0) p.char = Math.max(p.char, .85); wreckDirty = true; }
+  for (const t of trees) if (t.burnT > 0) { src.push([t.x, t.y, 10]); t.burnT -= T; if (t.burnT <= 0) { t.burnt = true; t.burnT = 0; gridDirty = true; } }
+  for (const f of fences) if (f.burnT > 0) { src.push([(f[0] + f[2]) / 2, (f[1] + f[3]) / 2, 5]); f.burnT -= T; f.char = Math.min(1, (f.char || 0) + T / 10); wreckDirty = true; }
+  // сломанный гидрант бьёт фонтаном: рядом гаснет
+  for (const h of hydrants) if (h.spray > 0) {
+    h.spray -= T;
+    for (const f of fires) if (Math.hypot(f.x - h.x, f.y - h.y) < f.r + 14) f.l -= T * 2;
+    for (const c of cars) if (c.burnT > 0 && Math.hypot(c.x - h.x, c.y - h.y) < 16) c.burnT -= T * 3;
+    for (const p of props) if (p.burnT > 0 && Math.hypot(p.x - h.x, p.y - h.y) < 16) p.burnT -= T * 3;
+  }
+  if (!src.length) return;
+  for (const [x, y, r] of src) {
+    for (const p of props) if (!(p.burnT > 0) && Math.abs(p.x - x) < r + 4 && Math.abs(p.y - y) < r + 4 && Math.random() < T * .25 * wet) igniteProp(p);
+    for (const c of cars) if (!(c.burnT > 0) && Math.abs(c.x - x) < r + 2 && Math.abs(c.y - y) < r + 2 && Math.random() < T * .1 * wet) igniteCar(c);
+    treesNear(x, y, r + 5, t => { if (Math.random() < T * .18 * wet) igniteTree(t); });
+    for (const f of fences) if (!(f.burnT > 0) && !f.gone && (f.char || 0) < 1 && Math.abs((f[0] + f[2]) / 2 - x) < r + 3 && Math.abs((f[1] + f[3]) / 2 - y) < r + 3 && Math.random() < T * .2 * wet) f.burnT = rnd(8, 16);
+    // от горящих машин, мелочей и деревьев занимаются стоящие вплотную дома
+    if (r <= 10) for (const b of buildings) if (b.state === "ok" && !(b.fire > 0) && x > b.x0 - 5 && x < b.x1 + 5 && y > b.y0 - 5 && y < b.y1 + 5 && Math.random() < T * (b.kind === "house" || b.kind === "dacha" || b.kind === "barn" ? .05 : .015) * wet) { b.fire = rnd(30, 60); first("bfire", "Горит здание", "bad"); }
+  }
+}
+// ударная волна: зовётся из blastWorld
+function wreckBlast(x, y, R, big) {
+  for (const p of props) {
+    if (p.gone) continue;
+    const d = Math.hypot(p.x - x, p.y - y); if (d > R) continue;
+    const k = 1 - d / R, ang = Math.atan2(p.y - y, p.x - x);
+    p.glass = true; wreckDirty = true;
+    if (WRECK.small.has(p.k) && k > .45) { p.gone = true; fxDebris(p.x, p.y); continue; }
+    if (!WRECK.heavy.has(p.k) && k > .2) { p.tip = Math.min(1.55, Math.max(p.tip || 0, k * 2.4)); p.tipA = ang; const push = R * .22 * k; p.dx = (p.dx || 0) + Math.cos(ang) * push; p.dy = (p.dy || 0) + Math.sin(ang) * push; }
+    if (k > .55) igniteProp(p, rnd(12, 25));
+  }
+  for (const h of hydrants) if (!h.broken && Math.hypot(h.x - x, h.y - y) < R * .8) { h.broken = true; h.spray = rnd(90, 150); h.tipA = Math.atan2(h.y - y, h.x - x); wreckDirty = true; }
+  for (const n of RN) if (n.sig && !n.sigBroken && Math.hypot(n.x - x, n.y - y) < R * .9 + 20) { n.sigBroken = true; n.sig = false; n.sigA = Math.atan2(n.y - y, n.x - x); wreckDirty = true; } // светофоры повалены: перекрёсток по старшинству
+  for (const f of fences) {
+    if (f.gone) continue;
+    const d = Math.hypot((f[0] + f[2]) / 2 - x, (f[1] + f[3]) / 2 - y);
+    if (d < R * .7) { f.gone = true; wreckDirty = true; } else if (d < R) { f.char = Math.max(f.char || 0, (1 - d / R) * .8); wreckDirty = true; }
+  }
+  treesNear(x, y, R * .45, t => { if (!t.snap) { t.snap = true; t.burnt = true; t.burnT = 0; } });
+  const F = funicular;
+  if (F && F.supports && !F.broken && R >= 28) {
+    for (const s of F.supports) { const p = cablePoint(F, s.d); if (Math.hypot(p[0] - x, p[1] - y) < R * .5) { breakCable(F, s, Math.atan2(p[1] - y, p[0] - x)); break; } }
+    if (!F.broken) for (const c of F.cabins) { if (c.fallZ !== undefined) continue; const p = cabinPos(F, c); if (Math.hypot(p[0] - x, p[1] - y, (p[2] - 6 - gY(x, y)) * .7) < R * .6) dropCabin(F, c, p); }
+  }
+}
+// трос порван: все кабинки падают, опора у места взрыва валится
+function breakCable(F, s, ang) {
+  F.broken = true; s.down = ang; logE("Взрыв повалил опору канатки: трос оборван, кабинки упали", "bad");
+  for (const c of F.cabins) if (c.fallZ === undefined) dropCabin(F, c, cabinPos(F, c));
+}
+function dropCabin(F, c, p) { c.fx = p[0]; c.fy = p[1]; c.fallZ = p[2]; c.fallV = 0; c.fallen = false; wreckDirty = true; }
+function stepCableFall(F, dt) {
+  for (const c of F.cabins) {
+    if (c.fallZ === undefined || c.fallen) continue;
+    const g = gY(c.fx, c.fy) + 7.6; c.fallV += 40 * dt; c.fallZ -= c.fallV * dt;
+    for (const a of c.riders) { a.x = c.fx; a.y = c.fy; }
+    if (c.fallZ <= g) {
+      c.fallZ = g; c.fallen = true; fxDebris(c.fx, c.fy); sfx.crash({ x: c.fx, y: c.fy });
+      for (const a of c.riders) { a.hidden = false; a.onBus = null; const [x, y] = freeNear(c.fx, c.fy, 8); a.x = x; a.y = y; kill(a, false, "fall"); }
+      c.riders = [];
+    }
+  }
+}

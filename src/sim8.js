@@ -221,6 +221,16 @@ function stepMachines(dt) {
     if (scoop(t)) m.carry = 1;
   }
   machines = machines.filter(m => !m.gone);
-  // эвакуатор тащит машину за собой
-  for (const c of cars) if (c.towedBy) { const t = c.towedBy; if (t.gone) { c.gone = true; continue; } c.x = t.x - Math.cos(t.ang) * 20; c.y = t.y - Math.sin(t.ang) * 20; c.ang = t.ang; c.z = 0; c.roll = 0; }
+  // эвакуатор увозит машину: легковую — погрузив на платформу, большую (автобус, грузовик, фургон) — на тросе: она передом к сцепке
+  // и тянется по следу, заворачивая за эвакуатором, как прицеп
+  for (const c of cars) if (c.towedBy) {
+    const t = c.towedBy; if (t.gone) { c.gone = true; continue; }
+    const ca = Math.cos(t.ang), sa = Math.sin(t.ang);
+    c.onDeck = (c.len || 1) <= 1.15 && !c.bus && !c.tanker; c.z = 0; c.roll = 0;
+    if (c.onDeck) { c.x = t.x - ca * 3; c.y = t.y - sa * 3; c.ang = t.ang; continue; }
+    const hx = t.x - ca * (9 * (t.len || 1) + 1), hy = t.y - sa * (9 * (t.len || 1) + 1), L = 5 + 9 * (c.len || 1);
+    let dx = c.x - hx, dy = c.y - hy, d = Math.hypot(dx, dy);
+    if (d < 1 || d > L * 3) { dx = -ca; dy = -sa; d = 1; } // только прицепили или далеко отстала: ставим ровно за эвакуатором
+    c.x = hx + dx / d * L; c.y = hy + dy / d * L; c.ang = Math.atan2(-dy, -dx); c.hitch = [hx, hy];
+  }
 }

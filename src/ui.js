@@ -94,6 +94,7 @@ const TOOLS = [
   { k: "army", n: "Военные", c: "#9aa36a", tip: "<b>Военные:</b> отряд из 6 солдат с автоматами. Идут на зомби, стреляют очередями, перезаряжаются. Выстрелы привлекают зомби." },
   { k: "medic", n: "Медики", c: "#f0f0f0", tip: "<b>Медики:</b> находят укушенных и лечат, если инфекция не зашла далеко." },
   { k: "firefighters", n: "Пожарные", c: "#d23a2a", tip: "<b>Пожарные:</b> клик — машина выезжает из пожарной части к ближайшему пожару, тушит дома, машины и горящих людей. Топорами отбиваются от зомби." },
+  { k: "plow", n: "Снегоуборщик", c: "#e8781c", tip: "<b>Снегоуборщик:</b> клик по улице — грузовик с отвалом едет туда и проходит её туда и обратно, сгребая снег с проезжей части; снега нет — проедет и уедет. Глубокую кучу чистит за несколько проходов." },
   { k: "repair", n: "Ремонтники", c: "#f08a1c", tip: "<b>Ремонтники:</b> клик — бригада разбирает завалы, убирает разбитые машины и ставит упавшие фонари. При зомби бросают работу и уходят." },
   { k: "quarantine", n: "Карантин", c: "#9d998f", tip: "<b>Карантин:</b> протяни прямоугольник по карте. Военные оцепят зону постами, приедут строители и секция за секцией поставят сетчатый забор с колючкой. Пока забор не замкнут, зона открыта." },
   { k: "lab", n: "Учёные", c: "#7fd0e0", tip: "<b>Учёные:</b> клик — ещё трое учёных в лаборатории больницы, вакцина появится быстрее. Прогресс — в сводке." },
@@ -105,6 +106,7 @@ const TOOLS = [
   { k: "strike", n: "Авиаудар", c: "#e0603a", tip: "<b>Авиаудар:</b> штурмовик сбрасывает бомбу через 3 с. Сжигает всех в радиусе 17 м, поджигает дома и машины." },
   { k: "boom", n: "Взрыв", c: "#ff8a3a", tip: "<b>Взрыв:</b> клик — взрыв в этой точке. Машины взлетают, люди разлетаются, дома получают повреждения." },
   { k: "meteor", n: "Метеорит", c: "#c0502a", tip: "<b>Метеорит:</b> через пару секунд с неба падает камень. Огромный взрыв, кратер, рушатся дома в радиусе 40 м." },
+  { k: "snow", n: "Снег", c: "#dfe8f0", tip: "<b>Снег:</b> клик или веди по земле — насыпается сугроб; кликай в одно место — куча растёт, расползается и чистится дольше. Машины в нём застревают, подъехавшие разворачиваются, улица закрывается, у въезда встаёт регулировщик. Снег тает: летом медленно, у огня быстро, зимой никак; если ждать долго, приедет снегоуборщик, застрявших вытянет эвакуатор." },
   { k: "fire", n: "Пожар", c: "#ff5a2a", tip: "<b>Пожар:</b> клик — очаг огня. Загораются дома и машины рядом, огонь перекидывается дальше." },
   { k: "horde", n: "Орда", c: "#4fa52a", tip: "<b>Орда:</b> клик ставит сразу 25 зомби." },
   { k: "squad", n: "Отряд", c: "#4fe0ff", tip: "<b>Отряд:</b> протяни рамку по солдатам и полицейским, затем кликни по земле — они займут позицию и будут держать её. Esc — отпустить." },
@@ -129,7 +131,7 @@ function renderTools() {
     $("tools").innerHTML = ED_TOOLS.map(t => `<button data-k="${t.k}" aria-pressed="${t.k === tool}"><i style="background:${t.c}"></i>${t.n}</button>`).join("") + `<span class="edfl">Этажей: <button data-fl="-1" aria-label="Меньше этажей">−</button><b>${edFloors}</b><button data-fl="1" aria-label="Больше этажей">+</button></span>`;
     const t = ED_TOOLS.find(t => t.k === tool) || ED_TOOLS[0]; $("tip").innerHTML = t.tip + " Симуляция на паузе, пока открыт редактор."; return;
   }
-  const GROUPS = [["Наблюдение", ["watch", "squad"]], ["Заражение", ["infect", "zombie", "horde"]], ["Оборона", ["barricade", "wall", "erase", "quarantine", "police", "army", "tank", "depot"]], ["Стройка", ["tower", "flood", "camp", "supply"]], ["Ловушки", ["mine", "wire", "barrels", "gen", "efence"]], ["Штаб", ["cp", "gather", "danger", "home"]], ["Службы", ["medic", "firefighters", "repair", "lab", "vaccinate", "evac"]], ["Удары", ["strike", "nuke"]], ["Стихии", ["boom", "meteor", "fire"]]];
+  const GROUPS = [["Наблюдение", ["watch", "squad"]], ["Заражение", ["infect", "zombie", "horde"]], ["Оборона", ["barricade", "wall", "erase", "quarantine", "police", "army", "tank", "depot"]], ["Стройка", ["tower", "flood", "camp", "supply"]], ["Ловушки", ["mine", "wire", "barrels", "gen", "efence"]], ["Штаб", ["cp", "gather", "danger", "home"]], ["Службы", ["medic", "firefighters", "repair", "plow", "lab", "vaccinate", "evac"]], ["Удары", ["strike", "nuke"]], ["Стихии", ["boom", "meteor", "fire", "snow"]]];
   const btn = (t, i) => { const left = typeof limitLeft === "function" ? limitLeft(t.k) : Infinity; return `<button data-k="${t.k}" aria-pressed="${t.k === tool}" title="${t.n}"${left <= 0 ? " disabled" : ""}><i style="background:${t.c}"></i><kbd>${i === 10 ? "-" : i < 10 ? (i + 1) % 10 : ""}</kbd>${t.n}${left < Infinity ? ` <em>×${Math.max(0, left)}</em>` : ""}</button>`; };
   GROUPS.forEach(([name, keys], gi) => { if (keys.includes(tool)) openGroups.add(gi); });
   $("tools").innerHTML = GROUPS.map(([name, keys], gi) => `<div class="tgroup${openGroups.has(gi) ? " open" : ""}"><button class="gh" data-g="${gi}">${name}<em>${keys.length}</em></button><div class="gb">${keys.map(k => { const i = TOOLS.findIndex(t => t.k === k); return i >= 0 ? btn(TOOLS[i], i) : ""; }).join("")}</div></div>`).join("");
@@ -181,6 +183,7 @@ function useTool(e, x, y) {
   }
   if (tool === "nuke") { if (!launchNuke(x, y)) { warn("<b>Удар уже в пути.</b>"); uses.nuke = Math.max(0, (uses.nuke || 1) - 1); } return; }
   if (tool === "strike") { strikes.push({ x, y, t: 3 }); logE("Штурмовик заходит на цель", "bad"); }
+  if (tool === "plow") { const g = gEdgeNear(x, y, 40, e => e.rural); if (!g) { warn("<b>Снегоуборщик</b> ездит по городским улицам: кликни по дороге."); return; } callPlow(g.e, g.x, g.y); logE("Вызван снегоуборщик", "good"); return; }
   if (tool === "firefighters" || tool === "repair") {
     const type = tool === "repair" ? "repair" : "fire", t = serviceTarget(type);
     const c = spawnService(type, t ? t.x : x, t ? t.y : y, type === "fire" ? special.fire : null); c.job = t ? t.job : null;
@@ -194,6 +197,7 @@ function useTool(e, x, y) {
   if (tool === "boom") { boom(x, y, 48, false); logT("boom", "Взрыв", "bad", 5); }
   if (tool === "meteor") callMeteor(x, y);
   if (tool === "fire") startFire(x, y);
+  if (tool === "snow") pourSnow(x, y);
   if (tool === "horde") spawnHorde(x, y);
   if (tool === "tower") { if (!addTower(x, y)) warn("<b>Здесь не поставить:</b> нужна свободная площадка 4 × 4 м."); }
   if (tool === "flood") addFlood(x, y);
@@ -256,6 +260,7 @@ cv.addEventListener("pointermove", e => {
   if (tool === "squad" && selStart) { const g = groundAt(e); if (g) selEnd = g; return; }
   if (tool === "wire" && wireStart) { const g = groundAt(e); if (g) selEnd = g; return; }
   if (editMode && (tool === "ed_road" || tool === "ed_tree")) { const g = groundAt(e); if (!g || !lastG) return; const n = Math.ceil(Math.hypot(g[0] - lastG[0], g[1] - lastG[1]) / 4); for (let i = 1; i <= n; i++) edPoint(tool, [lastG[0] + (g[0] - lastG[0]) * i / n, lastG[1] + (g[1] - lastG[1]) * i / n]); lastG = g; return; }
+  if (tool === "snow") { const g = groundAt(e); if (g && lastG && Math.hypot(g[0] - lastG[0], g[1] - lastG[1]) > 9) { pourSnow(g[0], g[1], 1.6); lastG = g; } return; } // ведёшь — сыплется полосой
   if (tool === "barricade" || tool === "erase" || tool === "wall" || tool === "efence") {
     const g = groundAt(e); if (!g || !lastG) return;
     const n = Math.ceil(Math.hypot(g[0] - lastG[0], g[1] - lastG[1]) / 3);
@@ -366,7 +371,7 @@ function updateUI() {
   for (const [id, v] of [["nH", c.H], ["nI", c.I], ["nZ", c.Z], ["nD", c.D], ["nS", c.S], ["nF", c.F]]) $(id).textContent = v;
   $("vacBar").style.width = Math.floor(research * 100) + "%"; $("vacO").textContent = vaccineReady ? "готова" : Math.floor(research * 100) + "%";
   const hungry = hungryCount();
-  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: "гроза" }[world.weather] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
+  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: world.season === "winter" ? "метель" : "гроза", snow: "снегопад" }[world.weather] : ""}${world.season !== "summer" ? " · " + { autumn: "осень", winter: "зима" }[world.season] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
   renderHeroes(); squadHud(); renderFactions(); updateCampaignUI();
   if (logDirty) { logDirty = false; $("log").innerHTML = events.slice(0, 40).map(e => `<li class="${e.cls || ""}"><time>${mmss(e.t)}</time>${e.text}</li>`).join(""); updateNews(); }
   drawChart();
@@ -403,6 +408,7 @@ $("dayNight").addEventListener("click", toggleNight);
 $("hour").addEventListener("input", e => { world.target = +e.target.value; world.cycle = false; $("cycle").checked = false; syncDayButton(); });
 $("cycle").addEventListener("change", e => { world.cycle = e.target.checked; });
 $("weather").addEventListener("change", e => { world.weather = e.target.value; });
+$("season").addEventListener("change", e => { world.season = e.target.value; });
 $("services").addEventListener("change", e => { settings.services = e.target.checked; });
 $("threats").addEventListener("change", e => { settings.threats = e.target.checked; });
 $("marks").addEventListener("change", e => { showMarks = e.target.checked; });
@@ -445,7 +451,7 @@ function frameBody(now) {
   updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateFunicular(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
   stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
-  updateEnv(dt); updatePuddles(); updateGrass(); autoQuality(dt); updateRoadSigns();
+  updateEnv(dt); updatePuddles(); updateGrass(); updateCozy(fxDt, dt); updateWreck(fxDt); updateSnowRoads(dt); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();
   perfStats.sim += t1 - t0; perfStats.scene += t2 - t1; perfStats.draw += t3 - t2; perfStats.n++; perfTick(dt);
   uiT -= dt; if (uiT <= 0) { uiT = .25; updateUI(); }
