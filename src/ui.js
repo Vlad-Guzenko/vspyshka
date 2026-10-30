@@ -161,17 +161,20 @@ function paintBarricade(x, y, erase, wall) {
 }
 const BARR_KIND = { barricade: 0, wall: 1, efence: 2 };
 function useTool(e, x, y) {
-  if (["army", "tank", "strike", "evac", "nuke", "police", "supply"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } if (tool === "evac" && blocked(x, y)) { warn("<b>Здесь вертолёту не сесть.</b>"); return; } spendLimit(tool); setTimeout(renderTools, 0); }
+  if (["army", "tank", "strike", "evac", "nuke", "police", "supply"].includes(tool)) { if (limitLeft(tool) <= 0) { warn("<b>Лимит исчерпан</b> в этом сценарии."); return; } if (tool === "evac" && blocked(x, y)) { warn("<b>Здесь вертолёту не сесть.</b>"); return; } if (tool !== "police" && tool !== "army") { spendLimit(tool); setTimeout(renderTools, 0); } }
+  // службы: клик — заявка диспетчеру (sim4.js, callService), а не новая машина. Повторный клик рядом с открытой заявкой лишних машин
+  // не высылает, а поднимает её в очереди; лимит сценария тратит только новая заявка
+  const spent = r => { if (r && r.q && !r.q.w) { spendLimit(tool); setTimeout(renderTools, 0); } };
   if (tool === "watch") { const a = agentAt(e); if (a) { followA = a; camS.dist = Math.min(camS.dist, 160); camS.pitch = Math.min(camS.pitch, .55); } return; }
   if (tool === "infect") { const a = agentAt(e, a => a.state === "alive" && a.role !== "zombie" && !a.bitten); if (a) { a.bitten = true; a.incT = settings.inc * rnd(.7, 1.3); bites++; logE("Заражён ещё один человек", "bad"); } return; }
   if (tool === "zombie") { if (!blocked(x, y)) { const a = newAgent("zombie", x, y); turn(a); a.riseT = 0; } return; }
-  if (tool === "police") { spawnService("police", x, y, special.police); logE(baseOk(special.police) ? "Патруль выехал из участка" : "Участка нет: патруль едет из соседнего района", "good"); sfx.siren(); return; }
+  if (tool === "police") { spent(callService("police", x, y)); sfx.siren(); return; }
   if (tool === "army") {
     // ближайший свободный отряд идёт к точке; если такого нет — колонна выезжает из военной части (без неё — с окраины)
     let best = null, bd = 320;
     for (const s of squads.values()) { if (s.state !== "hold") continue; const L = agentById(s.leader); if (!L || L.state !== "alive") continue; const d = Math.hypot(L.x - x, L.y - y); if (d < bd) { bd = d; best = s; } }
-    if (best) { best.holdAt = { x, y }; best.holdT = 150; logE("Ближайший отряд направлен к точке", "good"); }
-    else { spawnService("army", x, y, null); logE(baseOk(special.base) ? "Отряд военных выехал из части" : "Отряд военных выехал с окраины", "good"); }
+    if (best) { best.holdAt = { x, y }; best.holdT = 150; logE("Ближайший отряд направлен к точке", "good"); spendLimit(tool); setTimeout(renderTools, 0); }
+    else spent(callService("army", x, y));
     sfx.radio(); return;
   }
   if (tool === "medic") { for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(x, y, 14); newAgent("medic", ax, ay); } logE("Прибыли медики", "good"); return; }
@@ -183,13 +186,8 @@ function useTool(e, x, y) {
   }
   if (tool === "nuke") { if (!launchNuke(x, y)) { warn("<b>Удар уже в пути.</b>"); uses.nuke = Math.max(0, (uses.nuke || 1) - 1); } return; }
   if (tool === "strike") { strikes.push({ x, y, t: 3 }); logE("Штурмовик заходит на цель", "bad"); }
-  if (tool === "plow") { const g = gEdgeNear(x, y, 40, e => e.rural); if (!g) { warn("<b>Снегоуборщик</b> ездит по городским улицам: кликни по дороге."); return; } callPlow(g.e, g.x, g.y); logE("Вызван снегоуборщик", "good"); return; }
-  if (tool === "firefighters" || tool === "repair") {
-    const type = tool === "repair" ? "repair" : "fire", t = serviceTarget(type);
-    const c = spawnService(type, t ? t.x : x, t ? t.y : y, type === "fire" ? special.fire : null); c.job = t ? t.job : null;
-    if (!t) { c.goal = { x, y }; }
-    logE(type === "fire" ? "Вызваны пожарные" : "Вызваны ремонтники", "good"); return;
-  }
+  if (tool === "plow") { const g = gEdgeNear(x, y, 40, e => e.rural); if (!g) { warn("<b>Снегоуборщик</b> ездит по городским улицам: кликни по дороге."); return; } callService("plow", g.x, g.y, g.e); return; }
+  if (tool === "firefighters" || tool === "repair") { callService(tool === "repair" ? "repair" : "fire", x, y); return; }
   if (tool === "lab") { scientists += 3; logE(`В лабораторию прибыли учёные, всего ${scientists}`, "good"); return; }
   if (tool === "vaccinate") { if (!vaccineReady) { warn(`<b>Вакцина ещё не готова:</b> ${Math.floor(research * 100)}%. Ускорь её учёными.`); return; } addTent(x, y); return; }
   if (tool === "tank") { const [ex, ey] = armyEntry(x, y); const t = addTank(ex, ey); t.goal = { x, y }; logE(baseOk(special.base) ? "Танк выходит из военной части" : "Танк входит в город с окраины", "good"); sfx.radio(); }

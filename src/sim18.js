@@ -8,7 +8,7 @@ Object.assign(SERVICE, {
 });
 let hydrants = [], utilT = 0, patrolT = 0, busT = 0, supplyT = 0, closedT = 0, nestT = 0, patientT = 0;
 const BUS_CAP = 20;
-function resetServices2() { utilT = 20; patrolT = 30; busT = 10; supplyT = 30; closedT = 0; nestT = 0; patientT = 0; }
+function resetServices2() { resetCalls(); utilT = 20; patrolT = 30; busT = 10; supplyT = 30; closedT = 0; nestT = 0; patientT = 0; }
 function stepServices2(dt) {
   // перекрытия считаются и при выключенных службах: завалы и баррикады бывают и без них
   closedT -= dt; if (closedT <= 0) { closedT = 3; updateClosedRoads(); }
@@ -322,23 +322,23 @@ function stepSnowRoads(dt) {
   // снегоуборщики: на улицу, которую снег закрыл надолго (зимой — сразу)
   plowT -= 1; if (plowT > 0 || !settings.services) return; plowT = 4;
   for (const e of RE) {
-    if (e.plowBy && (e.plowBy.gone || e.plowBy.leaving)) e.plowBy = null;
+    if (e.plowBy && (e.plowBy.service ? e.plowBy.gone || e.plowBy.leaving : !callOpen(e.plowBy))) e.plowBy = null;
     if (!(e.closed || e.narrow) || e.plowBy || e.rural) continue;
     let deep = 0, at = null;
     for (const l of e.L) if (l) for (let s = 0; s < e.len; s += 6) { const q = lanePos(l, s), i = snowIdx(q.x, q.y); if (grid[i] === 11 && snowD[i] > deep) { deep = snowD[i]; at = q; } }
     if (!at) continue;
     const m = meltRate(at.x, at.y, heat), wait = m > 0 ? (deep - SNOW_BLOCK * .5) / m : 1e9;
-    if (wait < 60) continue; // скоро растает само
-    if (activeUnits("plow") >= 3) break;
-    callPlow(e, at.x, at.y);
-    logT("plow_go", "Снегоуборщик выехал расчищать занесённую улицу", "good", 30);
+    if (wait < 60 && !(simT - (e.plowPrio ?? -1e9) < 40)) continue; // скоро растает само — если только этой улицы не ждёт ремонт
+    if (callLoad("plow") >= 3) break;
+    const q = callPlow(e, at.x, at.y);
+    if (q.sent) logT("plow_go", "Снегоуборщик выехал расчищать занесённую улицу", "good", 30);
   }
 }
 // засыпанные снегом: человек и зомби мёрзнут — тем быстрее, чем глубже снег, и тем медленнее, чем быстрее он рядом тает (огонь);
 // замёрзли насовсем (cold до 1) — погибли, тела забирают санитары. Снег сошёл раньше: откопали спасатели — цел и невредим,
 // вытаял (огонь, оттепель) — обморожен, его везёт скорая. За засыпанным человеком диспетчер шлёт пожарных-спасателей с лопатами
 function stepBuried(heat) {
-  let digging = cars.filter(c => !c.gone && !c.leaving && c.job && c.job.dig).length;
+  let digging = cars.filter(c => !c.gone && !c.leaving && c.job && c.job.dig).length + calls.filter(q => q.sent < q.need && q.targets[0].job && q.targets[0].job.dig).length;
   for (const a of agents) {
     if (!a.buried) continue;
     if (a.state !== "alive") { a.buried = false; continue; }
@@ -358,10 +358,12 @@ function stepBuried(heat) {
       logT("frozen", a.role === "zombie" ? "Засыпанный снегом зомби замёрз" : "Засыпанный снегом человек замёрз насмерть", a.role === "zombie" ? "" : "bad", 20);
       continue;
     }
-    // спасатели: к человеку под снегом, не больше трёх машин сразу
-    if (a.role !== "zombie" && settings.services && digging < 3 && (!a.rescueBy || a.rescueBy.gone || a.rescueBy.leaving)) {
-      const c = spawnService("fire", a.x, a.y, special.fire); c.job = { dig: a }; a.rescueBy = c; digging++;
-      logT("dig_go", "Пожарные-спасатели выехали откапывать человека из-под снега", "good", 20);
+    // спасатели: к человеку под снегом, не больше трёх машин сразу; заявка на спасение — первая в очереди диспетчера.
+    // a.rescueBy — машина спасателей, пока её нет — заявка
+    const rb = a.rescueBy;
+    if (a.role !== "zombie" && settings.services && digging < 3 && (!rb || (rb.service ? rb.gone || rb.leaving : !callOpen(rb)))) {
+      const q = openCall("fire", a.x, a.y, { cls: CALL_CLS.rescue, targets: [{ x: a.x, y: a.y, job: { dig: a } }] }); a.rescueBy = q; digging++;
+      dispatchCall(q); if (q.sent) logT("dig_go", "Пожарные-спасатели выехали откапывать человека из-под снега", "good", 20);
     }
   }
 }
@@ -384,8 +386,9 @@ function digStep(a, dt) {
   return [0, 0, 0];
 }
 // снегоуборщик на улицу e: сначала к точке (x, y) на ней — иначе маршрут объехал бы закрытую улицу кругом; на ней — дальше по ходу, насквозь.
-// Его же вызывает игрок (инструмент «Снегоуборщик»): снега нет — проедет улицу и уедет
-function callPlow(e, x, y) { const c = spawnService("plow", x, y, null); c.job = { plow: e }; c.plowPass = 0; c.plowIn = false; e.plowBy = c; return c; }
+// Его же вызывает игрок (инструмент «Снегоуборщик», callService): снега нет — проедет улицу и уедет. Это заявка диспетчеру
+// (sim4.js): едет свободный снегоуборщик или новый с базы; пока все заняты, заявка ждёт, а e.plowBy — сама заявка
+function callPlow(e, x, y) { const q = openCall("plow", x, y, { cls: CALL_CLS.clear, targets: [{ x, y, job: { plow: e } }] }); e.plowBy = q; dispatchCall(q); return q; }
 // остался ли на полосах улицы снег, который стоит чистить; смотрим так же часто и так же широко, как laneBlocked (через 4 единицы,
 // по оси полосы и в трёх единицах по бокам), иначе уборщик уезжал, а сугроб сбоку от оси держал улицу перекрытой
 function snowLeft(e) { if (!snowD) return false; for (const l of e.L) if (l) for (let s = 0; s <= e.len; s += 4) { const q = lanePos(l, s); for (const o of [-3, 0, 3]) if (snowD[snowIdx(q.x + q.ty * o, q.y - q.tx * o)] >= .3) return true; } return false; }
