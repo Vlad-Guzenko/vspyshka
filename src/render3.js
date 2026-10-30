@@ -111,10 +111,10 @@ function fxBoom(x, y, R) {
   if (R >= 60) slowMo(1.4);
   flashLight(cx, gy + 20, cz, 6 * k, .9, 0xffa040);
   shake = Math.max(shake, 7 * k * clamp(1.4 - camDist() / 1400, .2, 1));
-  for (let i = 0; i < 70 * k; i++) { const a = rnd(0, TAU), v = rnd(5, 40) * k; emit(PS_ADD, { x: cx, y: rnd(2, 10), z: cz, vx: Math.cos(a) * v, vy: rnd(10, 45) * k, vz: Math.sin(a) * v, l: rnd(.5, 1.3), s0: rnd(14, 26) * k, s1: 4, c: [2, 1.3, .5], c1: [.9, .2, .02], a: .95, dr: 1.6 }); }
-  for (let i = 0; i < 90 * k; i++) { const a = rnd(0, TAU), v = rnd(4, 26) * k; emit(PS_SMOKE, { x: cx + Math.cos(a) * rnd(0, R * .3), y: rnd(3, 20), z: cz + Math.sin(a) * rnd(0, R * .3), vx: Math.cos(a) * v, vy: rnd(6, 26) * k, vz: Math.sin(a) * v, l: rnd(5, 11), s0: 10 * k, s1: rnd(40, 70) * k, c: [.07, .065, .06], c1: [.28, .26, .24], a: .75, fadeIn: true, dr: .7 }); }
-  for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 70) * k; emit(PS_SMOKE, { x: cx, y: 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 60), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(1, 2.5), s1: 1, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
-  for (let i = 0; i < 40 * k; i++) { const a = rnd(0, TAU), v = rnd(30, 90); emit(PS_ADD, { x: cx, y: 4, z: cz, vx: Math.cos(a) * v, vy: rnd(10, 50), vz: Math.sin(a) * v, l: rnd(.6, 1.4), s0: 1.3, s1: .4, c: [2, 1.4, .6], a: 1, g: 50 }); }
+  for (let i = 0; i < 70 * k; i++) { const a = rnd(0, TAU), v = rnd(5, 40) * k; emit(PS_ADD, { x: cx, y: gy + rnd(2, 10), z: cz, vx: Math.cos(a) * v, vy: rnd(10, 45) * k, vz: Math.sin(a) * v, l: rnd(.5, 1.3), s0: rnd(14, 26) * k, s1: 4, c: [2, 1.3, .5], c1: [.9, .2, .02], a: .95, dr: 1.6 }); }
+  for (let i = 0; i < 90 * k; i++) { const a = rnd(0, TAU), v = rnd(4, 26) * k; emit(PS_SMOKE, { x: cx + Math.cos(a) * rnd(0, R * .3), y: gy + rnd(3, 20), z: cz + Math.sin(a) * rnd(0, R * .3), vx: Math.cos(a) * v, vy: rnd(6, 26) * k, vz: Math.sin(a) * v, l: rnd(5, 11), s0: 10 * k, s1: rnd(40, 70) * k, c: [.07, .065, .06], c1: [.28, .26, .24], a: .75, fadeIn: true, dr: .7 }); }
+  for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 70) * k; emit(PS_SMOKE, { x: cx, y: gy + 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 60), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(1, 2.5), s1: 1, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
+  for (let i = 0; i < 40 * k; i++) { const a = rnd(0, TAU), v = rnd(30, 90); emit(PS_ADD, { x: cx, y: gy + 4, z: cz, vx: Math.cos(a) * v, vy: rnd(10, 50), vz: Math.sin(a) * v, l: rnd(.6, 1.4), s0: 1.3, s1: .4, c: [2, 1.4, .6], a: 1, g: 50 }); }
   const ring = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), shockMat.clone());
   ring.position.set(cx, gy + 1.5, cz); scene.add(ring); shocks.push({ m: ring, t: 0, R: R * 2.2 });
 }
@@ -131,8 +131,8 @@ function stepFires(dt) {
   // струи воды из пожарных рукавов
   for (const a of agents) if (a.spray > 0 && a.state === "alive") {
     a.spray -= dt; const t = a.sprayAt; if (!t) continue;
-    const sx = X(a.x) + Math.cos(a.dir) * 2, sz = Z(a.y) + Math.sin(a.dir) * 2, tx = X(t[0]), tz = Z(t[1]), ty = t[2] || 2, d = Math.hypot(tx - sx, tz - sz) || 1, T = clamp(d / 60, .3, 1.2);
-    for (let i = 0; i < dt * 60; i++) emit(PS_SMOKE, { x: sx, y: 5, z: sz, vx: (tx - sx) / T + rnd(-4, 4), vy: (ty - 5) / T + 19.5 * T + rnd(-2, 2), vz: (tz - sz) / T + rnd(-4, 4), l: T, s0: 1.2, s1: 3.5, c: [.75, .85, .95], a: .55, g: 39 });
+    const sx = X(a.x) + Math.cos(a.dir) * 2, sz = Z(a.y) + Math.sin(a.dir) * 2, tx = X(t[0]), tz = Z(t[1]), sy = gY(a.x, a.y) + 5, ty = (t[2] || 2) + gY(t[0], t[1]), d = Math.hypot(tx - sx, tz - sz) || 1, T = clamp(d / 60, .3, 1.2);
+    for (let i = 0; i < dt * 60; i++) emit(PS_SMOKE, { x: sx, y: sy, z: sz, vx: (tx - sx) / T + rnd(-4, 4), vy: (ty - sy) / T + 19.5 * T + rnd(-2, 2), vz: (tz - sz) / T + rnd(-4, 4), l: T, s0: 1.2, s1: 3.5, c: [.75, .85, .95], a: .55, g: 39 });
     if (Math.random() < dt * 6) emit(PS_SMOKE, { x: tx + rnd(-4, 4), y: ty, z: tz + rnd(-4, 4), vx: rnd(-2, 2), vy: rnd(6, 12), vz: rnd(-2, 2), l: rnd(2, 4), s0: 6, s1: 22, c: [.85, .86, .88], a: .35, fadeIn: true }); // пар
   }
   for (const a of agents) if (a.onFire > 0 && a.state !== "saved") { const h = gY(a.x, a.y) + (a.state === "dead" ? 1 : rnd(2, 7)); for (let i = 0; i < dt * 30; i++) fireParticle(X(a.x) + rnd(-1, 1), h, Z(a.y) + rnd(-1, 1), .35); if (Math.random() < dt * 3) smokeParticle(X(a.x), h + 3, Z(a.y), .3); }

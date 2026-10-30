@@ -17,7 +17,7 @@ function stepDebris(dt) {
     const d = debris[i]; if (!d || (d.rest && !debDirty)) continue;
     if (!d.rest) {
       d.vy -= 39 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.rx += d.wr * dt; d.ry += d.wr * .7 * dt;
-      const floor = d.sy / 2;
+      const floor = d.sy / 2 + (hasHills ? gY(d.x + W / 2, d.z + H / 2) : 0); // на склоне обломки ложатся на землю, а не проваливаются сквозь гору
       if (d.y < floor) { d.y = floor; if (Math.abs(d.vy) > 6) { d.vy *= -.3; d.vx *= .6; d.vz *= .6; d.wr *= .5; } else { d.vy = 0; d.vx *= .8; d.vz *= .8; if (Math.hypot(d.vx, d.vz) < 1) d.rest = true; } }
     }
     _de.set(d.rx, d.ry, 0); _dq.setFromEuler(_de);
@@ -88,14 +88,14 @@ function fxCollapse(b) {
     addChunk(cx + px, by + s / 2 + rnd(0, b.ruinH * .3 * (1 - edge)), cz + pz, 0, 0, 0, s, Math.random() < .4 ? wall : pick(["#7d7a73", "#5f5c57", "#8d8a83", "#4b4845"]));
     debris[(debN - 1) % DEB_MAX].rest = true; debDirty = true;
   }
-  flashLight(cx, 20, cz, 1.5, .4, 0xffd0a0);
+  flashLight(cx, by + 20, cz, 1.5, .4, 0xffd0a0);
 }
 function fxCannon(t, hx, hy) {
-  const tx = X(t.x), tz = Z(t.y), ca = Math.cos(t.turret), sa = Math.sin(t.turret), mx = tx + ca * 22, mz = tz + sa * 22;
-  emit(PS_ADD, { x: mx, y: 8.5, z: mz, vx: 0, vy: 0, vz: 0, l: .09, s0: 18, s1: 6, c: [2, 1.6, .8], a: 1 });
-  for (let i = 0; i < 14; i++) emit(PS_SMOKE, { x: mx, y: 8.5, z: mz, vx: ca * rnd(10, 40) + rnd(-6, 6), vy: rnd(1, 6), vz: sa * rnd(10, 40) + rnd(-6, 6), l: rnd(1.5, 3), s0: 4, s1: 18, c: [.5, .48, .45], a: .5, dr: 1.2 });
-  flashLight(mx, 10, mz, 2.5, .12, 0xffd080);
-  trList.push({ a: [mx, 8.5, mz], b: [X(hx), 3, Z(hy)], l: .07 });
+  const tx = X(t.x), tz = Z(t.y), ca = Math.cos(t.turret), sa = Math.sin(t.turret), mx = tx + ca * 22, mz = tz + sa * 22, gt = gY(t.x, t.y); // всё от земли под танком
+  emit(PS_ADD, { x: mx, y: gt + 8.5, z: mz, vx: 0, vy: 0, vz: 0, l: .09, s0: 18, s1: 6, c: [2, 1.6, .8], a: 1 });
+  for (let i = 0; i < 14; i++) emit(PS_SMOKE, { x: mx, y: gt + 8.5, z: mz, vx: ca * rnd(10, 40) + rnd(-6, 6), vy: rnd(1, 6), vz: sa * rnd(10, 40) + rnd(-6, 6), l: rnd(1.5, 3), s0: 4, s1: 18, c: [.5, .48, .45], a: .5, dr: 1.2 });
+  flashLight(mx, gt + 10, mz, 2.5, .12, 0xffd080);
+  trList.push({ a: [mx, gt + 8.5, mz], b: [X(hx), gY(hx, hy) + 3, Z(hy)], l: .07 });
   shake = Math.max(shake, 2 * clamp(1.4 - camDist() / 900, 0, 1));
 }
 
@@ -121,9 +121,9 @@ function updateTanks() {
     o.position.set(X(t.x), hasHills ? gY(t.x, t.y) : 0, Z(t.y)); carTilt(t, 26, 6); o.rotation.set(t.tR, -t.ang, t.tP, "YXZ");
     o.userData.turret.rotation.y = -(t.turret - t.ang);
     o.userData.barrel.position.x = 13 - t.recoil * 2.5;
-    t.muzzle = [X(t.x) + Math.cos(t.turret) * 6, 9.5, Z(t.y) + Math.sin(t.turret) * 6];
+    t.muzzle = [X(t.x) + Math.cos(t.turret) * 6, o.position.y + 9.5, Z(t.y) + Math.sin(t.turret) * 6];
     if (t.hp <= 0 && !o.userData.dead) { o.userData.dead = true; o.traverse(m => { if (m.material) { m.material = m.material.clone(); m.material.color.set("#1d1a17"); } }); }
-    if (t.hp <= 0 && Math.random() < .3) smokeParticle(X(t.x), 8, Z(t.y), 1);
+    if (t.hp <= 0 && Math.random() < .3) smokeParticle(X(t.x), o.position.y + 8, Z(t.y), 1);
   }
   for (const [t, o] of tankObjs) if (!tanks.includes(t)) { scene.remove(o); tankObjs.delete(t); }
 }

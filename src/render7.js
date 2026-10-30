@@ -54,7 +54,7 @@ function animateTopple(b) {
   if (k > .5 && !b.broke) {
     b.broke = true; const e2 = Math.min(w, d), col = facadeColor(b), hh0 = b.h * .55;
     for (let i = 0; i < 18; i++) { const hh = hh0 + Math.random() * (b.h - hh0), ox = rnd(-w / 2, w / 2), oz = rnd(-d / 2, d / 2); const px = X(cx + ca * e) + ca * hh * Math.sin(th) + ox * Math.cos(b.fallAng + Math.PI / 2), pz = Z(cy + sa * e) + sa * hh * Math.sin(th) + oz; addChunk(px, hh * Math.cos(th), pz, ca * rnd(8, 26) + rnd(-6, 6), rnd(-6, 4), sa * rnd(8, 26) + rnd(-6, 6), rnd(5, 9), Math.random() < .7 ? col : "#7d7a73"); }
-    for (let i = 0; i < 90 * fxK; i++) emit(PS_SMOKE, { x: X(cx + ca * e) + ca * hh0 * Math.sin(th) + rnd(-e2, e2), y: hh0 * Math.cos(th) + rnd(-6, 6), z: Z(cy + sa * e) + sa * hh0 * Math.sin(th) + rnd(-e2, e2), vx: rnd(-12, 12), vy: rnd(-4, 8), vz: rnd(-12, 12), l: rnd(4, 9), s0: rnd(8, 14), s1: rnd(30, 60), c: [.45, .42, .38], c1: [.55, .52, .48], a: .55, fadeIn: true, dr: .5 });
+    for (let i = 0; i < 90 * fxK; i++) emit(PS_SMOKE, { x: X(cx + ca * e) + ca * hh0 * Math.sin(th) + rnd(-e2, e2), y: (b.baseY || 0) + hh0 * Math.cos(th) + rnd(-6, 6), z: Z(cy + sa * e) + sa * hh0 * Math.sin(th) + rnd(-e2, e2), vx: rnd(-12, 12), vy: rnd(-4, 8), vz: rnd(-12, 12), l: rnd(4, 9), s0: rnd(8, 14), s1: rnd(30, 60), c: [.45, .42, .38], c1: [.55, .52, .48], a: .55, fadeIn: true, dr: .5 });
     o.scale.y = .6;
   }
   // во время падения сыплется мусор с фасада
@@ -89,10 +89,10 @@ function fxToppleImpact(b) {
   shake = Math.max(shake, 9 * clamp(1.4 - camDist() / 2000, .2, 1));
   for (let i = 0; i < 260 * fxK; i++) {
     const al = rnd(0, z.L), lat = rnd(-z.half, z.half), x = X(z.px + z.ca * al - z.sa * lat), zz = Z(z.py + z.sa * al + z.ca * lat);
-    emit(PS_SMOKE, { x, y: rnd(2, 20), z: zz, vx: rnd(-25, 25), vy: rnd(4, 18), vz: rnd(-25, 25), l: rnd(6, 13), s0: rnd(14, 22), s1: rnd(50, 90), c: [.42, .39, .34], c1: [.5, .48, .44], a: .6, fadeIn: true, dr: .6 });
+    emit(PS_SMOKE, { x, y: gY(x + W / 2, zz + H / 2) + rnd(2, 20), z: zz, vx: rnd(-25, 25), vy: rnd(4, 18), vz: rnd(-25, 25), l: rnd(6, 13), s0: rnd(14, 22), s1: rnd(50, 90), c: [.42, .39, .34], c1: [.5, .48, .44], a: .6, fadeIn: true, dr: .6 });
   }
   for (let i = 0; i < 160; i++) { const al = rnd(0, z.L); addChunk(X(z.px + z.ca * al) + rnd(-z.half, z.half), rnd(2, 14), Z(z.py + z.sa * al) + rnd(-z.half, z.half), rnd(-22, 22) + z.ca * rnd(0, 14), rnd(6, 30), rnd(-22, 22) + z.sa * rnd(0, 14), rnd(2, 7), Math.random() < .5 ? facadeColor(b) : "#7d7a73"); }
-  flashLight(X(z.px + z.ca * z.L / 2), 20, Z(z.py + z.sa * z.L / 2), 1.2, .3, 0xffd0a0);
+  flashLight(X(z.px + z.ca * z.L / 2), gY(z.px + z.ca * z.L / 2, z.py + z.sa * z.L / 2) + 20, Z(z.py + z.sa * z.L / 2), 1.2, .3, 0xffd0a0);
 }
 
 /* ---------- развалины: внутри видны перекрытия, стены обломаны неровно ---------- */

@@ -21,7 +21,7 @@ function updateWorld2(dt) {
   for (const f of factions) if (!facObjs.has(f)) { const o = buildFlag(f); if (o) { scene.add(o); facObjs.set(f, o); } }
   for (const [f, o] of facObjs) { if (!factions.includes(f)) { scene.remove(o); facObjs.delete(f); continue; } o.userData.flag.rotation.y = Math.sin(simT * 2 + f.id) * .3; }
   // искры на электрозаборе
-  if (dt) for (const a of agents) if (a.zapT > 0) { a.zapT -= dt; for (let i = 0; i < dt * 60; i++) emit(PS_ADD, { x: X(a.x) + rnd(-2, 2), y: rnd(1, 6), z: Z(a.y) + rnd(-2, 2), vx: rnd(-8, 8), vy: rnd(2, 12), vz: rnd(-8, 8), l: rnd(.1, .3), s0: 1.5, s1: .3, c: [1.4, 1.6, 2.2], a: 1, g: 30 }); }
+  if (dt) for (const a of agents) if (a.zapT > 0) { a.zapT -= dt; for (let i = 0; i < dt * 60; i++) emit(PS_ADD, { x: X(a.x) + rnd(-2, 2), y: gY(a.x, a.y) + rnd(1, 6), z: Z(a.y) + rnd(-2, 2), vx: rnd(-8, 8), vy: rnd(2, 12), vz: rnd(-8, 8), l: rnd(.1, .3), s0: 1.5, s1: .3, c: [1.4, 1.6, 2.2], a: 1, g: 30 }); }
 }
 // инфраструктура: трубы электростанции, баки водонасосной, мачта радиовышки
 function decorateInfra(b, obj, w, d) {

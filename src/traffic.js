@@ -357,7 +357,8 @@ function scanAhead(c, x, y, tx, ty, l, ignore) {
     // оба давно топчемся, и один из нас на дуге: не ждём друг друга, иначе кольцо ожидания через несколько перекрёстков
     if ((c.turn || o.turn) && (c.stallT || 0) > 12 && (o.stallT || 0) > 8 && o.moving && !o.stopped && !o.park) return;
     // дистанция до стоп-точки: встаём в двух единицах от хвоста передней машины (carTarget тормозит в ноль при 13)
-    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s - 10 * ((o.len || 1) + (c.len || 1)) + 11; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = aheadClear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
+    // по положению на полосе — только едущих: брошенную или отброшенную взрывом машину смотрим по координатам (её s устарел)
+    if (l && o.lane === l && !o.turn && !c.turn && !c.over && o.moving) { const g = o.s - c.s - 10 * ((o.len || 1) + (c.len || 1)) + 11; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = aheadClear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
     const al = (o.x - x) * tx + (o.y - y) * ty, lat = Math.abs((o.x - x) * ty - (o.y - y) * tx);
     // стоп-точка — в двух единицах от его хвоста (по центрам машины заезжали друг в друга на полкузова)
     if (al > 0 && lat < 5.5 && al - 10 * ((o.len || 1) + (c.len || 1)) + 11 < clear) { clear = aheadClear = Math.max(0, al - 10 * ((o.len || 1) + (c.len || 1)) + 11); ahead = o; }
@@ -388,6 +389,7 @@ function carTarget(c, clear, slow, lv) {
     acc = Math.min(acc, IDM.a * (1 - Math.pow(ss / Math.max(gap, .3), 2)));
   }
   c.v = gap < .5 && !(lv > 2) ? Math.max(0, v - IDM.hard * dt) : Math.max(0, v + clamp(acc, -IDM.hard, IDM.a) * dt);
+  c.brake = c.v < 1 || (c.v - v) / dt < -5; // стоп-сигналы (render13.js): тормозит или стоит на тормозе
   // стоим — или нас в этом кадре упёрло в соседа (скорость тогда срезается уже после разгона)
   if (c.v < 1 || c.jam) c.wait += c.dt || .033; else c.wait = 0;
   c.jamS = c.jam ? (c.jamS || 0) + (c.dt || .033) : 0; // сколько подряд упираемся в чужой кузов
@@ -446,7 +448,8 @@ function stepRoadCar(c, dt) {
   if (!l.to.exit && sE - c.s < look && (!c.next || !canEnter(c, l, c.next))) { const back = Math.abs(c.latOff || 0) > 5 ? 10 : 0; clear = Math.min(clear, sE - c.s + 3 - back); c.atLine = sE - c.s < 16 + back; c.lineWhy = c.next ? enterWhy : "noNext"; }
   // у стоп-линии держит не светофор и не встречные, а то, что само не рассосётся (завал или брошенная машина на выезде, застрявший
   // в коробке) — водитель не стоит вечно, а едет в другую сторону; за ним тронется и очередь
-  if (c.atLine && c.v < 1 && c.next) { c.lineT = (c.lineT || 0) + dt; if (c.lineT > (c.lineWhy === "nextCell" ? 3 : 10) && !LINE_WAIT.has(c.lineWhy) && c.service !== "plow") rerouteAtLine(c, l); } else c.lineT = 0; // снегоуборщику надо именно в занесённую улицу
+  // въезд перекрыт завалом или брошенной, разбитой машиной — другой выезд через 2,5 с, иначе через 10 с (снегоуборщику надо именно в занесённую улицу)
+  if (c.atLine && c.v < 1 && c.next) { c.lineT = (c.lineT || 0) + dt; if (c.lineT > 2.5 && !LINE_WAIT.has(c.lineWhy) && c.service !== "plow") { const o = c.lineWhy === "nextLaneGap" ? nextLaneCar(c, c.next) : null; if (c.lineT > 10 || c.lineWhy === "nextCell" || (o && (o.wreck || o.stopped || !o.moving || o.burnT > 0))) rerouteAtLine(c, l); } } else c.lineT = 0;
   if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.next = null; c.trip = null; c.goal = null; c.park = null; }
   let slow = c.next && sE - c.s < 45 && (c.next.e === l.e || Math.abs(turnAngle(l, c.next)) > .45) ? 11 : 0;
   if (c.over === 2) { slow = 8; sidewalkScatter(c, tx, ty); }
@@ -493,7 +496,7 @@ function stepRoadCar(c, dt) {
   if (c.service && !c.leaving && A.zNear >= 1 && (c.service === "police" || c.service === "army")) { deployCrew(c); return; }
   // кто нас держит: очередь (передний в нашей полосе), стоп-линия или что-то ещё (люди, завал, упор) — по этому задние решают, объезжать ли
   c.hold = c.atLine ? "line" : A.ahead && clear === A.clear && A.ahead.lane === l && !A.ahead.turn ? "queue" : "other"; c.holdBy = c.hold === "queue" ? A.ahead : null;
-  stepOvertake(c, dt, tx, ty, Math.min(A.clear, cellClear), cellClear < A.clear ? null : A.ahead);
+  stepOvertake(c, dt, tx, ty, Math.min(A.clear, cellClear), cellClear < A.clear ? null : A.ahead, cellClear < A.clear);
   if (c.lane !== l) return; // развернулся
   // движение вдоль полосы
   const ds = c.v * dt;

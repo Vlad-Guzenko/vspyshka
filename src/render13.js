@@ -335,7 +335,7 @@ function makeCarMeshes(cap) {
   const mk = (geo, mat, n, shadow = true) => { const m = new THREE.InstancedMesh(geo, mat, n); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.setColorAt(0, new THREE.Color()); scene.add(m); return m; };
   cm = { parts: [], byModel: {}, fixed: {
     wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .75, metalness: .25 }), cap * 8),
-    lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 4, false),
+    lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 6, false), // фары, задние фонари и два мигающих поворотника
     beams: mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), cap, false),
     bars: mk(new THREE.BoxGeometry(1.4, .8, 2.4), new THREE.MeshBasicMaterial({ toneMapped: false }), 200, false),
   } };
@@ -354,10 +354,26 @@ function carTilt(c, len, track) {
   const pitch = Math.atan2(hF - hB, len), roll = Math.atan2(hN - hP, 2 * t), k = c.tP === undefined ? 1 : .25;
   c.tP = (c.tP || 0) + (pitch - (c.tP || 0)) * k; c.tR = (c.tR || 0) + (roll - (c.tR || 0)) * k;
 }
+// куда мигает поворотник: +1 направо, -1 налево, 2 — аварийка (обе стороны), 0 — не мигает. Угол поворота считается один раз
+// на каждое решение машины (у стоп-линии — следующая полоса, на дуге — сама дуга); кэш в WeakMap, чтобы не попасть в сохранение
+const blinkCache = new WeakMap();
+function blinkSide(c) {
+  if (c.wreck || !(c.moving || c.stopped) || c.tank) return 0;
+  if (c.stopped && !c.service) return 2; // брошенная целая машина
+  if (c.park || c.pulled || c.yieldT > 0) return 1; // к бордюру
+  if (c.over === 1 || c.over === 3) return c.overT < 2 ? -1 : 0; // выезд на левую полосу или встречную
+  let key = null, a = 0;
+  if (c.turn) key = c.turn;
+  else if (c.next && c.lane && laneEnd(c.lane) - c.s < 60) key = c.next;
+  if (!key) return 0;
+  let e = blinkCache.get(c);
+  if (!e || e.key !== key) { a = c.turn ? (c.turn.to.e === c.turn.T.l.e ? -3 : turnAngle(c.turn.T.l, c.turn.to)) : c.next.e === c.lane.e ? -3 : turnAngle(c.lane, c.next); blinkCache.set(c, e = { key, a }); }
+  return Math.abs(e.a) > .45 ? (e.a > 0 ? 1 : -1) : 0;
+}
 function updateCars() {
   const list = cars.filter(c => !c.gone);
   if (list.length > carCap) makeCarMeshes(list.length + 200);
-  const dusk = carLightK > .15, ph = (simT * 3) % 1 < .5, F = cm.fixed;
+  const dusk = carLightK > .15, ph = (simT * 3) % 1 < .5, blinkOn = (simT * 1.6) % 1 < .55, F = cm.fixed;
   for (const k in cm.byModel) cm.byModel[k].n = 0;
   let wi = 0, li = 0, bi = 0, bar = 0;
   for (const c of list) {
@@ -380,7 +396,14 @@ function updateCars() {
     for (let k = 0; k < 4; k++) {
       const front = k < 2;
       _cw.makeTranslation(front ? (M.lf !== undefined ? M.lf : hw) : (M.lr !== undefined ? M.lr : -hw), front ? M.ly : (M.lyr || M.ly), (k % 2 ? 1 : -1) * (front ? lz : M.lzr || lz)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
-      F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.v < 3 ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
+      F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.brake ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
+    }
+    // поворотники: янтарные огни на углах кузова со стороны поворота (у аварийки — с обеих), мигают полтора раза в секунду
+    const bs = blinkOn ? blinkSide(c) : 0;
+    if (bs) for (const s of bs === 2 ? [-1, 1] : [bs]) for (const front of [true, false]) {
+      if (li >= F.lights.instanceMatrix.count) break;
+      _cw.makeTranslation(front ? (M.lf !== undefined ? M.lf : hw) - .2 : (M.lr !== undefined ? M.lr : -hw) + .2, (front ? M.ly : (M.lyr || M.ly)) + .5, s * ((front ? lz : M.lzr || lz) + .7)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
+      F.lights.setColorAt(li, _cc.set("#ffa21a")); li++;
     }
     if (c.moving && dusk) { _cw.makeScale(26, 1, 18).setPosition(M.L / 2 + 7, .25, 0); F.beams.setMatrixAt(bi++, _cw.premultiply(_cm)); }
     const sir = c.police ? "police" : c.siren;

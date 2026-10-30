@@ -138,6 +138,7 @@ function stepPlayerCar(c, dt) {
   if (I.hand) v -= Math.sign(v) * Math.min(Math.abs(v), 30 * dt);
   else if (I.gas) { if (v >= -1) { if (c.fuel > 0) v += (c.bus || c.tanker || (c.len || 1) > 1.4 ? 9 : 14) * dt; } else v += 45 * dt; }
   else if (I.brake) { if (v > 1) v -= 45 * dt; else if (c.fuel > 0) v -= 9 * dt; }
+  c.brake = (I.brake && v > 1) || I.hand || Math.abs(v) < 1; // стоп-сигналы
   // инерция: сопротивление воздуха и качения
   v -= v * .25 * dt; v -= Math.sign(v) * Math.min(Math.abs(v), 1.5 * dt);
   v = clamp(v, -DRIVE_REV, vmax);

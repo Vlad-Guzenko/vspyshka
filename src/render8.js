@@ -21,7 +21,7 @@ const meteorMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(7, 1), new THREE
 meteorMesh.visible = false; scene.add(meteorMesh);
 function updateMeteors(dt) {
   const m = meteors[0]; if (!m) { meteorMesh.visible = false; return; }
-  const k = clamp(m.t / m.T), h = 900 * k * k, dx = 500 * k;
+  const k = clamp(m.t / m.T), h = gY(m.x, m.y) + 900 * k * k, dx = 500 * k; // падает на землю в точке удара, а не до уровня равнины
   meteorMesh.visible = true; meteorMesh.position.set(X(m.x) + dx, h, Z(m.y) + dx * .4); meteorMesh.rotation.x += dt * 3; meteorMesh.rotation.y += dt * 2;
   for (let i = 0; i < dt * 200; i++) emit(PS_ADD, { x: meteorMesh.position.x + rnd(-4, 4), y: h + rnd(-4, 4), z: meteorMesh.position.z + rnd(-4, 4), vx: rnd(-6, 6) + 40, vy: rnd(10, 30), vz: rnd(-6, 6) + 16, l: rnd(.4, 1), s0: rnd(8, 16), s1: 2, c: [2, 1.1, .4], c1: [.9, .2, .03], a: .9 });
   if (Math.random() < dt * 40) smokeParticle(meteorMesh.position.x, h, meteorMesh.position.z, 2.2);
@@ -40,7 +40,7 @@ function updateExtras(dt) {
     for (let i = 0; i < dt * 120; i++) emit(PS_ADD, { x: x + rnd(-.4, .4), y: y + rnd(-.4, .4), z: z + rnd(-.4, .4), vx: rnd(-1, 1), vy: rnd(-2, 1), vz: rnd(-1, 1), l: rnd(.15, .4), s0: 2.2, s1: .5, c: ACID, a: .9 });
   }
   for (const ac of acids) {
-    for (let i = 0; i < dt * 25; i++) { const a = rnd(0, TAU), r = rnd(0, ac.r); emit(PS_ADD, { x: X(ac.x + Math.cos(a) * r), y: .4, z: Z(ac.y + Math.sin(a) * r), vx: 0, vy: rnd(1, 4), vz: 0, l: rnd(.4, 1), s0: rnd(.8, 1.8), s1: .3, c: ACID, c1: ACID2, a: .7 }); }
-    if (Math.random() < dt * 3) emit(PS_SMOKE, { x: X(ac.x), y: 1, z: Z(ac.y), vx: rnd(-1, 1), vy: 3, vz: rnd(-1, 1), l: 2, s0: 3, s1: 9, c: [.45, .6, .3], a: .25, fadeIn: true });
+    for (let i = 0; i < dt * 25; i++) { const a = rnd(0, TAU), r = rnd(0, ac.r); emit(PS_ADD, { x: X(ac.x + Math.cos(a) * r), y: gY(ac.x, ac.y) + .4, z: Z(ac.y + Math.sin(a) * r), vx: 0, vy: rnd(1, 4), vz: 0, l: rnd(.4, 1), s0: rnd(.8, 1.8), s1: .3, c: ACID, c1: ACID2, a: .7 }); }
+    if (Math.random() < dt * 3) emit(PS_SMOKE, { x: X(ac.x), y: gY(ac.x, ac.y) + 1, z: Z(ac.y), vx: rnd(-1, 1), vy: 3, vz: rnd(-1, 1), l: 2, s0: 3, s1: 9, c: [.45, .6, .3], a: .25, fadeIn: true });
   }
 }

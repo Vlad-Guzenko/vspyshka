@@ -122,7 +122,14 @@ function stuckCar(o, depth) {
   if ((o.wait || 0) > 20) return true;
   return depth < 3 && o.hold === "queue" && (o.stallT || 0) > 4 && o.holdBy && o.holdBy !== o && stuckCar(o.holdBy, depth + 1);
 }
-function stepOvertake(c, dt, dx, dy, clear, ahead) {
+// впереди мёртвая преграда: разбитая, горящая, брошенная машина — или очередь, которая стоит за такой; ждать её бесполезно
+function deadBlock(o, depth) {
+  if (!o) return false;
+  if (o.wreck || o.stopped || !o.moving || o.burnT > 0) return true;
+  return depth < 4 && o.hold === "queue" && (o.stallT || 0) > 2 && !!o.holdBy && o.holdBy !== o && deadBlock(o.holdBy, depth + 1);
+}
+// cellBlock — держит не машина, а клетки впереди (завал, баррикада, дом поперёк улицы)
+function stepOvertake(c, dt, dx, dy, clear, ahead, cellBlock) {
   if (!c.lane || c.tank || c.turn) return;
   const l = c.lane, opp = oppLane(l);
   if (c.over) {
@@ -154,13 +161,26 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
     nearCars(c.x + dx * 18, c.y + dy * 18, 34, o => { if (busy || o === c || o.gone) return; if (o.lane === l && !o.turn && Math.abs((o.latOff || 0) - tgt) < 6 && o.s > c.s - 12 && o.s < c.s + 40) busy = true; });
     if (!busy) { c.over = 3; c.overT = 0; c.latTgt = tgt; c.wait = 0; return; }
   }
-  // у перекрёстка на встречку не выезжаем, но развернуться можно, если давно стоим, а встречная свободна
-  if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) { if (c.wait > 12 && opp) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; routeCache.clear(); placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } } return; }
+  // впереди мёртвая преграда (или очередь за ней): ждать нечего — разворот почти сразу, а улица на полторы минуты помечается
+  // непроезжей, чтобы остальные уходили в объезд ещё на подъезде. Первый у преграды сначала пробует объехать по встречной,
+  // стоящие в очереди за ней вереницу не обгоняют — разворачиваются
+  const dead = cellBlock || deadBlock(ahead, 0), front = cellBlock || (ahead && !(ahead.hold === "queue" && !ahead.wreck && !ahead.stopped && ahead.moving));
+  if (dead && !front && c.wait > 2.5 && uTurn(c, l, opp)) return;
+  // у перекрёстка на встречку не выезжаем, но развернуться можно, если давно стоим (у мёртвой преграды — сразу), а встречная свободна
+  if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) { if (c.wait > (dead ? 2.5 : 12)) uTurn(c, l, opp); return; }
   if (oppClear(c, opp, dx, dy)) { c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c); return; }
   // встречная занята — по тротуару справа, медленно и с сигналом
   if (c.wait > 4) { const off = sideClear(c); if (off) { c.over = 2; c.overT = 0; c.latTgt = off; c.wait = 0; sfx.horn(c); logT("sidewalk", "Машина объезжает затор по тротуару", "", 30); return; } }
   // совсем глухо (стена, завал, вереница брошенных машин, тротуар занят) — разворачиваемся на встречную и едем назад
-  if (c.wait > 12) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } }
+  if (c.wait > (dead ? 4 : 12)) uTurn(c, l, opp);
+}
+// разворот на месте на встречную полосу той же улицы, если там рядом свободно; улица помечается непроезжей для маршрутов
+function uTurn(c, l, opp) {
+  if (!opp) return false;
+  const s2 = l.e.len - c.s; if (laneBusy(opp, s2, c)) return false;
+  if (simT - l.e.blockT > 30) { l.e.blockT = simT; routeCache.clear(); } else l.e.blockT = simT;
+  const ox = c.x, oy = c.y, ang = c.ang; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0;
+  return true;
 }
 // тротуар справа свободен на 70 м: только плитка, без деревьев, фонарей, домов и толпы
 function sideClear(c) {

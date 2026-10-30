@@ -2636,7 +2636,8 @@ function scanAhead(c, x, y, tx, ty, l, ignore) {
     // оба давно топчемся, и один из нас на дуге: не ждём друг друга, иначе кольцо ожидания через несколько перекрёстков
     if ((c.turn || o.turn) && (c.stallT || 0) > 12 && (o.stallT || 0) > 8 && o.moving && !o.stopped && !o.park) return;
     // дистанция до стоп-точки: встаём в двух единицах от хвоста передней машины (carTarget тормозит в ноль при 13)
-    if (l && o.lane === l && !o.turn && !c.turn && !c.over) { const g = o.s - c.s - 10 * ((o.len || 1) + (c.len || 1)) + 11; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = aheadClear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
+    // по положению на полосе — только едущих: брошенную или отброшенную взрывом машину смотрим по координатам (её s устарел)
+    if (l && o.lane === l && !o.turn && !c.turn && !c.over && o.moving) { const g = o.s - c.s - 10 * ((o.len || 1) + (c.len || 1)) + 11; if (g > 0 && g < clear && Math.abs((o.latOff || 0) - (c.latOff || 0)) < 9.1) { clear = aheadClear = g; ahead = o; } /* разошлись меньше чем на две ширины кузова — он впереди, иначе проезжаем рядом */ return; }
     const al = (o.x - x) * tx + (o.y - y) * ty, lat = Math.abs((o.x - x) * ty - (o.y - y) * tx);
     // стоп-точка — в двух единицах от его хвоста (по центрам машины заезжали друг в друга на полкузова)
     if (al > 0 && lat < 5.5 && al - 10 * ((o.len || 1) + (c.len || 1)) + 11 < clear) { clear = aheadClear = Math.max(0, al - 10 * ((o.len || 1) + (c.len || 1)) + 11); ahead = o; }
@@ -2667,6 +2668,7 @@ function carTarget(c, clear, slow, lv) {
     acc = Math.min(acc, IDM.a * (1 - Math.pow(ss / Math.max(gap, .3), 2)));
   }
   c.v = gap < .5 && !(lv > 2) ? Math.max(0, v - IDM.hard * dt) : Math.max(0, v + clamp(acc, -IDM.hard, IDM.a) * dt);
+  c.brake = c.v < 1 || (c.v - v) / dt < -5; // стоп-сигналы (render13.js): тормозит или стоит на тормозе
   // стоим — или нас в этом кадре упёрло в соседа (скорость тогда срезается уже после разгона)
   if (c.v < 1 || c.jam) c.wait += c.dt || .033; else c.wait = 0;
   c.jamS = c.jam ? (c.jamS || 0) + (c.dt || .033) : 0; // сколько подряд упираемся в чужой кузов
@@ -2725,7 +2727,8 @@ function stepRoadCar(c, dt) {
   if (!l.to.exit && sE - c.s < look && (!c.next || !canEnter(c, l, c.next))) { const back = Math.abs(c.latOff || 0) > 5 ? 10 : 0; clear = Math.min(clear, sE - c.s + 3 - back); c.atLine = sE - c.s < 16 + back; c.lineWhy = c.next ? enterWhy : "noNext"; }
   // у стоп-линии держит не светофор и не встречные, а то, что само не рассосётся (завал или брошенная машина на выезде, застрявший
   // в коробке) — водитель не стоит вечно, а едет в другую сторону; за ним тронется и очередь
-  if (c.atLine && c.v < 1 && c.next) { c.lineT = (c.lineT || 0) + dt; if (c.lineT > (c.lineWhy === "nextCell" ? 3 : 10) && !LINE_WAIT.has(c.lineWhy) && c.service !== "plow") rerouteAtLine(c, l); } else c.lineT = 0; // снегоуборщику надо именно в занесённую улицу
+  // въезд перекрыт завалом или брошенной, разбитой машиной — другой выезд через 2,5 с, иначе через 10 с (снегоуборщику надо именно в занесённую улицу)
+  if (c.atLine && c.v < 1 && c.next) { c.lineT = (c.lineT || 0) + dt; if (c.lineT > 2.5 && !LINE_WAIT.has(c.lineWhy) && c.service !== "plow") { const o = c.lineWhy === "nextLaneGap" ? nextLaneCar(c, c.next) : null; if (c.lineT > 10 || c.lineWhy === "nextCell" || (o && (o.wreck || o.stopped || !o.moving || o.burnT > 0))) rerouteAtLine(c, l); } } else c.lineT = 0;
   if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.next = null; c.trip = null; c.goal = null; c.park = null; }
   let slow = c.next && sE - c.s < 45 && (c.next.e === l.e || Math.abs(turnAngle(l, c.next)) > .45) ? 11 : 0;
   if (c.over === 2) { slow = 8; sidewalkScatter(c, tx, ty); }
@@ -2772,7 +2775,7 @@ function stepRoadCar(c, dt) {
   if (c.service && !c.leaving && A.zNear >= 1 && (c.service === "police" || c.service === "army")) { deployCrew(c); return; }
   // кто нас держит: очередь (передний в нашей полосе), стоп-линия или что-то ещё (люди, завал, упор) — по этому задние решают, объезжать ли
   c.hold = c.atLine ? "line" : A.ahead && clear === A.clear && A.ahead.lane === l && !A.ahead.turn ? "queue" : "other"; c.holdBy = c.hold === "queue" ? A.ahead : null;
-  stepOvertake(c, dt, tx, ty, Math.min(A.clear, cellClear), cellClear < A.clear ? null : A.ahead);
+  stepOvertake(c, dt, tx, ty, Math.min(A.clear, cellClear), cellClear < A.clear ? null : A.ahead, cellClear < A.clear);
   if (c.lane !== l) return; // развернулся
   // движение вдоль полосы
   const ds = c.v * dt;
@@ -7434,7 +7437,14 @@ function stuckCar(o, depth) {
   if ((o.wait || 0) > 20) return true;
   return depth < 3 && o.hold === "queue" && (o.stallT || 0) > 4 && o.holdBy && o.holdBy !== o && stuckCar(o.holdBy, depth + 1);
 }
-function stepOvertake(c, dt, dx, dy, clear, ahead) {
+// впереди мёртвая преграда: разбитая, горящая, брошенная машина — или очередь, которая стоит за такой; ждать её бесполезно
+function deadBlock(o, depth) {
+  if (!o) return false;
+  if (o.wreck || o.stopped || !o.moving || o.burnT > 0) return true;
+  return depth < 4 && o.hold === "queue" && (o.stallT || 0) > 2 && !!o.holdBy && o.holdBy !== o && deadBlock(o.holdBy, depth + 1);
+}
+// cellBlock — держит не машина, а клетки впереди (завал, баррикада, дом поперёк улицы)
+function stepOvertake(c, dt, dx, dy, clear, ahead, cellBlock) {
   if (!c.lane || c.tank || c.turn) return;
   const l = c.lane, opp = oppLane(l);
   if (c.over) {
@@ -7466,13 +7476,26 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
     nearCars(c.x + dx * 18, c.y + dy * 18, 34, o => { if (busy || o === c || o.gone) return; if (o.lane === l && !o.turn && Math.abs((o.latOff || 0) - tgt) < 6 && o.s > c.s - 12 && o.s < c.s + 40) busy = true; });
     if (!busy) { c.over = 3; c.overT = 0; c.latTgt = tgt; c.wait = 0; return; }
   }
-  // у перекрёстка на встречку не выезжаем, но развернуться можно, если давно стоим, а встречная свободна
-  if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) { if (c.wait > 12 && opp) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; routeCache.clear(); placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } } return; }
+  // впереди мёртвая преграда (или очередь за ней): ждать нечего — разворот почти сразу, а улица на полторы минуты помечается
+  // непроезжей, чтобы остальные уходили в объезд ещё на подъезде. Первый у преграды сначала пробует объехать по встречной,
+  // стоящие в очереди за ней вереницу не обгоняют — разворачиваются
+  const dead = cellBlock || deadBlock(ahead, 0), front = cellBlock || (ahead && !(ahead.hold === "queue" && !ahead.wreck && !ahead.stopped && ahead.moving));
+  if (dead && !front && c.wait > 2.5 && uTurn(c, l, opp)) return;
+  // у перекрёстка на встречку не выезжаем, но развернуться можно, если давно стоим (у мёртвой преграды — сразу), а встречная свободна
+  if (laneEnd(l) - c.s < 40 || c.s - laneStart(l) < 8) { if (c.wait > (dead ? 2.5 : 12)) uTurn(c, l, opp); return; }
   if (oppClear(c, opp, dx, dy)) { c.over = 1; c.overT = 0; c.latTgt = 2 * l.off; c.wait = 0; sfx.horn(c); return; }
   // встречная занята — по тротуару справа, медленно и с сигналом
   if (c.wait > 4) { const off = sideClear(c); if (off) { c.over = 2; c.overT = 0; c.latTgt = off; c.wait = 0; sfx.horn(c); logT("sidewalk", "Машина объезжает затор по тротуару", "", 30); return; } }
   // совсем глухо (стена, завал, вереница брошенных машин, тротуар занят) — разворачиваемся на встречную и едем назад
-  if (c.wait > 12) { const s2 = l.e.len - c.s; if (!laneBusy(opp, s2, c)) { const ox = c.x, oy = c.y, ang = c.ang; l.e.blockT = simT; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0; } }
+  if (c.wait > (dead ? 4 : 12)) uTurn(c, l, opp);
+}
+// разворот на месте на встречную полосу той же улицы, если там рядом свободно; улица помечается непроезжей для маршрутов
+function uTurn(c, l, opp) {
+  if (!opp) return false;
+  const s2 = l.e.len - c.s; if (laneBusy(opp, s2, c)) return false;
+  if (simT - l.e.blockT > 30) { l.e.blockT = simT; routeCache.clear(); } else l.e.blockT = simT;
+  const ox = c.x, oy = c.y, ang = c.ang; placeOnLane(c, opp, s2); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.wait = 0; c.v = 0;
+  return true;
 }
 // тротуар справа свободен на 70 м: только плитка, без деревьев, фонарей, домов и толпы
 function sideClear(c) {
@@ -10097,10 +10120,10 @@ function fxBoom(x, y, R) {
   if (R >= 60) slowMo(1.4);
   flashLight(cx, gy + 20, cz, 6 * k, .9, 0xffa040);
   shake = Math.max(shake, 7 * k * clamp(1.4 - camDist() / 1400, .2, 1));
-  for (let i = 0; i < 70 * k; i++) { const a = rnd(0, TAU), v = rnd(5, 40) * k; emit(PS_ADD, { x: cx, y: rnd(2, 10), z: cz, vx: Math.cos(a) * v, vy: rnd(10, 45) * k, vz: Math.sin(a) * v, l: rnd(.5, 1.3), s0: rnd(14, 26) * k, s1: 4, c: [2, 1.3, .5], c1: [.9, .2, .02], a: .95, dr: 1.6 }); }
-  for (let i = 0; i < 90 * k; i++) { const a = rnd(0, TAU), v = rnd(4, 26) * k; emit(PS_SMOKE, { x: cx + Math.cos(a) * rnd(0, R * .3), y: rnd(3, 20), z: cz + Math.sin(a) * rnd(0, R * .3), vx: Math.cos(a) * v, vy: rnd(6, 26) * k, vz: Math.sin(a) * v, l: rnd(5, 11), s0: 10 * k, s1: rnd(40, 70) * k, c: [.07, .065, .06], c1: [.28, .26, .24], a: .75, fadeIn: true, dr: .7 }); }
-  for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 70) * k; emit(PS_SMOKE, { x: cx, y: 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 60), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(1, 2.5), s1: 1, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
-  for (let i = 0; i < 40 * k; i++) { const a = rnd(0, TAU), v = rnd(30, 90); emit(PS_ADD, { x: cx, y: 4, z: cz, vx: Math.cos(a) * v, vy: rnd(10, 50), vz: Math.sin(a) * v, l: rnd(.6, 1.4), s0: 1.3, s1: .4, c: [2, 1.4, .6], a: 1, g: 50 }); }
+  for (let i = 0; i < 70 * k; i++) { const a = rnd(0, TAU), v = rnd(5, 40) * k; emit(PS_ADD, { x: cx, y: gy + rnd(2, 10), z: cz, vx: Math.cos(a) * v, vy: rnd(10, 45) * k, vz: Math.sin(a) * v, l: rnd(.5, 1.3), s0: rnd(14, 26) * k, s1: 4, c: [2, 1.3, .5], c1: [.9, .2, .02], a: .95, dr: 1.6 }); }
+  for (let i = 0; i < 90 * k; i++) { const a = rnd(0, TAU), v = rnd(4, 26) * k; emit(PS_SMOKE, { x: cx + Math.cos(a) * rnd(0, R * .3), y: gy + rnd(3, 20), z: cz + Math.sin(a) * rnd(0, R * .3), vx: Math.cos(a) * v, vy: rnd(6, 26) * k, vz: Math.sin(a) * v, l: rnd(5, 11), s0: 10 * k, s1: rnd(40, 70) * k, c: [.07, .065, .06], c1: [.28, .26, .24], a: .75, fadeIn: true, dr: .7 }); }
+  for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 70) * k; emit(PS_SMOKE, { x: cx, y: gy + 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 60), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(1, 2.5), s1: 1, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
+  for (let i = 0; i < 40 * k; i++) { const a = rnd(0, TAU), v = rnd(30, 90); emit(PS_ADD, { x: cx, y: gy + 4, z: cz, vx: Math.cos(a) * v, vy: rnd(10, 50), vz: Math.sin(a) * v, l: rnd(.6, 1.4), s0: 1.3, s1: .4, c: [2, 1.4, .6], a: 1, g: 50 }); }
   const ring = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), shockMat.clone());
   ring.position.set(cx, gy + 1.5, cz); scene.add(ring); shocks.push({ m: ring, t: 0, R: R * 2.2 });
 }
@@ -10117,8 +10140,8 @@ function stepFires(dt) {
   // струи воды из пожарных рукавов
   for (const a of agents) if (a.spray > 0 && a.state === "alive") {
     a.spray -= dt; const t = a.sprayAt; if (!t) continue;
-    const sx = X(a.x) + Math.cos(a.dir) * 2, sz = Z(a.y) + Math.sin(a.dir) * 2, tx = X(t[0]), tz = Z(t[1]), ty = t[2] || 2, d = Math.hypot(tx - sx, tz - sz) || 1, T = clamp(d / 60, .3, 1.2);
-    for (let i = 0; i < dt * 60; i++) emit(PS_SMOKE, { x: sx, y: 5, z: sz, vx: (tx - sx) / T + rnd(-4, 4), vy: (ty - 5) / T + 19.5 * T + rnd(-2, 2), vz: (tz - sz) / T + rnd(-4, 4), l: T, s0: 1.2, s1: 3.5, c: [.75, .85, .95], a: .55, g: 39 });
+    const sx = X(a.x) + Math.cos(a.dir) * 2, sz = Z(a.y) + Math.sin(a.dir) * 2, tx = X(t[0]), tz = Z(t[1]), sy = gY(a.x, a.y) + 5, ty = (t[2] || 2) + gY(t[0], t[1]), d = Math.hypot(tx - sx, tz - sz) || 1, T = clamp(d / 60, .3, 1.2);
+    for (let i = 0; i < dt * 60; i++) emit(PS_SMOKE, { x: sx, y: sy, z: sz, vx: (tx - sx) / T + rnd(-4, 4), vy: (ty - sy) / T + 19.5 * T + rnd(-2, 2), vz: (tz - sz) / T + rnd(-4, 4), l: T, s0: 1.2, s1: 3.5, c: [.75, .85, .95], a: .55, g: 39 });
     if (Math.random() < dt * 6) emit(PS_SMOKE, { x: tx + rnd(-4, 4), y: ty, z: tz + rnd(-4, 4), vx: rnd(-2, 2), vy: rnd(6, 12), vz: rnd(-2, 2), l: rnd(2, 4), s0: 6, s1: 22, c: [.85, .86, .88], a: .35, fadeIn: true }); // пар
   }
   for (const a of agents) if (a.onFire > 0 && a.state !== "saved") { const h = gY(a.x, a.y) + (a.state === "dead" ? 1 : rnd(2, 7)); for (let i = 0; i < dt * 30; i++) fireParticle(X(a.x) + rnd(-1, 1), h, Z(a.y) + rnd(-1, 1), .35); if (Math.random() < dt * 3) smokeParticle(X(a.x), h + 3, Z(a.y), .3); }
@@ -10343,7 +10366,7 @@ function stepDebris(dt) {
     const d = debris[i]; if (!d || (d.rest && !debDirty)) continue;
     if (!d.rest) {
       d.vy -= 39 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.rx += d.wr * dt; d.ry += d.wr * .7 * dt;
-      const floor = d.sy / 2;
+      const floor = d.sy / 2 + (hasHills ? gY(d.x + W / 2, d.z + H / 2) : 0); // на склоне обломки ложатся на землю, а не проваливаются сквозь гору
       if (d.y < floor) { d.y = floor; if (Math.abs(d.vy) > 6) { d.vy *= -.3; d.vx *= .6; d.vz *= .6; d.wr *= .5; } else { d.vy = 0; d.vx *= .8; d.vz *= .8; if (Math.hypot(d.vx, d.vz) < 1) d.rest = true; } }
     }
     _de.set(d.rx, d.ry, 0); _dq.setFromEuler(_de);
@@ -10414,14 +10437,14 @@ function fxCollapse(b) {
     addChunk(cx + px, by + s / 2 + rnd(0, b.ruinH * .3 * (1 - edge)), cz + pz, 0, 0, 0, s, Math.random() < .4 ? wall : pick(["#7d7a73", "#5f5c57", "#8d8a83", "#4b4845"]));
     debris[(debN - 1) % DEB_MAX].rest = true; debDirty = true;
   }
-  flashLight(cx, 20, cz, 1.5, .4, 0xffd0a0);
+  flashLight(cx, by + 20, cz, 1.5, .4, 0xffd0a0);
 }
 function fxCannon(t, hx, hy) {
-  const tx = X(t.x), tz = Z(t.y), ca = Math.cos(t.turret), sa = Math.sin(t.turret), mx = tx + ca * 22, mz = tz + sa * 22;
-  emit(PS_ADD, { x: mx, y: 8.5, z: mz, vx: 0, vy: 0, vz: 0, l: .09, s0: 18, s1: 6, c: [2, 1.6, .8], a: 1 });
-  for (let i = 0; i < 14; i++) emit(PS_SMOKE, { x: mx, y: 8.5, z: mz, vx: ca * rnd(10, 40) + rnd(-6, 6), vy: rnd(1, 6), vz: sa * rnd(10, 40) + rnd(-6, 6), l: rnd(1.5, 3), s0: 4, s1: 18, c: [.5, .48, .45], a: .5, dr: 1.2 });
-  flashLight(mx, 10, mz, 2.5, .12, 0xffd080);
-  trList.push({ a: [mx, 8.5, mz], b: [X(hx), 3, Z(hy)], l: .07 });
+  const tx = X(t.x), tz = Z(t.y), ca = Math.cos(t.turret), sa = Math.sin(t.turret), mx = tx + ca * 22, mz = tz + sa * 22, gt = gY(t.x, t.y); // всё от земли под танком
+  emit(PS_ADD, { x: mx, y: gt + 8.5, z: mz, vx: 0, vy: 0, vz: 0, l: .09, s0: 18, s1: 6, c: [2, 1.6, .8], a: 1 });
+  for (let i = 0; i < 14; i++) emit(PS_SMOKE, { x: mx, y: gt + 8.5, z: mz, vx: ca * rnd(10, 40) + rnd(-6, 6), vy: rnd(1, 6), vz: sa * rnd(10, 40) + rnd(-6, 6), l: rnd(1.5, 3), s0: 4, s1: 18, c: [.5, .48, .45], a: .5, dr: 1.2 });
+  flashLight(mx, gt + 10, mz, 2.5, .12, 0xffd080);
+  trList.push({ a: [mx, gt + 8.5, mz], b: [X(hx), gY(hx, hy) + 3, Z(hy)], l: .07 });
   shake = Math.max(shake, 2 * clamp(1.4 - camDist() / 900, 0, 1));
 }
 
@@ -10447,9 +10470,9 @@ function updateTanks() {
     o.position.set(X(t.x), hasHills ? gY(t.x, t.y) : 0, Z(t.y)); carTilt(t, 26, 6); o.rotation.set(t.tR, -t.ang, t.tP, "YXZ");
     o.userData.turret.rotation.y = -(t.turret - t.ang);
     o.userData.barrel.position.x = 13 - t.recoil * 2.5;
-    t.muzzle = [X(t.x) + Math.cos(t.turret) * 6, 9.5, Z(t.y) + Math.sin(t.turret) * 6];
+    t.muzzle = [X(t.x) + Math.cos(t.turret) * 6, o.position.y + 9.5, Z(t.y) + Math.sin(t.turret) * 6];
     if (t.hp <= 0 && !o.userData.dead) { o.userData.dead = true; o.traverse(m => { if (m.material) { m.material = m.material.clone(); m.material.color.set("#1d1a17"); } }); }
-    if (t.hp <= 0 && Math.random() < .3) smokeParticle(X(t.x), 8, Z(t.y), 1);
+    if (t.hp <= 0 && Math.random() < .3) smokeParticle(X(t.x), o.position.y + 8, Z(t.y), 1);
   }
   for (const [t, o] of tankObjs) if (!tanks.includes(t)) { scene.remove(o); tankObjs.delete(t); }
 }
@@ -10554,13 +10577,13 @@ const nukeBallMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: 
 const nukeRingMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffe0b0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
 function fxNuke(x, y) {
   if (nukeFx) { for (const o of [nukeFx.ball, nukeFx.glow, nukeFx.wave, nukeFx.cond, nukeFx.light]) scene.remove(o); nukeFx = null; }
-  const cx = X(x), cz = Z(y);
+  const cx = X(x), cz = Z(y), gy = gY(x, y);
   const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), nukeBallMat.clone()); ball.position.set(cx, 20 + gY(x, y), cz); scene.add(ball);
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffc070, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); glow.position.copy(ball.position); scene.add(glow);
-  const wave = new THREE.Mesh(new THREE.RingGeometry(.94, 1, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xd8c8a8, transparent: true, depthWrite: false, opacity: .8, side: THREE.DoubleSide })); wave.position.set(cx, 2, cz); scene.add(wave);
-  const cond = new THREE.Mesh(new THREE.TorusGeometry(1, .08, 8, 64).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .5, depthWrite: false })); cond.position.set(cx, 260, cz); scene.add(cond);
-  const light = new THREE.PointLight(0xffd8a0, 30, 6000, 1.2); light.position.set(cx, 120, cz); scene.add(light);
-  nukeFx = { x: cx, z: cz, ball, glow, wave, cond, light, t: 0 };
+  const wave = new THREE.Mesh(new THREE.RingGeometry(.94, 1, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xd8c8a8, transparent: true, depthWrite: false, opacity: .8, side: THREE.DoubleSide })); wave.position.set(cx, gy + 2, cz); scene.add(wave);
+  const cond = new THREE.Mesh(new THREE.TorusGeometry(1, .08, 8, 64).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .5, depthWrite: false })); cond.position.set(cx, gy + 260, cz); scene.add(cond);
+  const light = new THREE.PointLight(0xffd8a0, 30, 6000, 1.2); light.position.set(cx, gy + 120, cz); scene.add(light);
+  nukeFx = { x: cx, z: cz, gy, ball, glow, wave, cond, light, t: 0 };
   $("flash").hidden = false; $("flash").style.transition = "none"; $("flash").style.opacity = 1;
   requestAnimationFrame(() => { $("flash").style.transition = "opacity 3s ease-out"; $("flash").style.opacity = 0; });
   setTimeout(() => $("flash").hidden = true, 3200);
@@ -10572,21 +10595,21 @@ function updateNuke(dt) {
   n.t += dt; const t = n.t;
   // огненный шар растёт за пару секунд, потом поднимается и темнеет
   const r = Math.min(110, 110 * Math.sqrt(t / 2)), rise = 20 + Math.min(520, t * 22);
-  n.ball.scale.setScalar(r); n.ball.position.y = rise;
+  n.ball.scale.setScalar(r); n.ball.position.y = n.gy + rise;
   const heat = clamp(1 - t / 25);
   n.ball.material.color.setRGB(1, .55 + heat * .4, .2 + heat * .55); n.ball.material.opacity = clamp(1.1 - t / 40, 0, 1);
   n.glow.position.copy(n.ball.position); n.glow.scale.setScalar(r * 6 * (.4 + heat)); n.glow.material.opacity = heat;
-  n.light.position.y = rise; n.light.intensity = 30 * heat * heat + 2 * heat;
+  n.light.position.y = n.gy + rise; n.light.intensity = 30 * heat * heat + 2 * heat;
   // ножка гриба и шапка
   if (t < 45) {
-    for (let i = 0; i < dt * 60 * fxK; i++) { const h = rnd(0, rise - r * .5), w = 14 + h * .04; emit(PS_SMOKE, { x: n.x + rnd(-w, w), y: h, z: n.z + rnd(-w, w), vx: rnd(-2, 2), vy: rnd(8, 20), vz: rnd(-2, 2), l: rnd(6, 12), s0: 30, s1: 70, c: [.35 + heat * .6, .22 + heat * .3, .12], c1: [.25, .22, .2], a: .55, fadeIn: true, dr: .3 }); }
-    for (let i = 0; i < dt * 50 * fxK; i++) { const a = rnd(0, TAU), rr = r * rnd(.6, 1.3); emit(PS_SMOKE, { x: n.x + Math.cos(a) * rr, y: rise + rnd(-r * .4, r * .5), z: n.z + Math.sin(a) * rr, vx: Math.cos(a) * rnd(6, 20), vy: rnd(-2, 6), vz: Math.sin(a) * rnd(6, 20), l: rnd(14, 30), s0: 60, s1: 150, c: [.5 + heat * .5, .3 + heat * .3, .15 + heat * .1], c1: [.3, .27, .25], a: .6, fadeIn: true, dr: .15 }); }
+    for (let i = 0; i < dt * 60 * fxK; i++) { const h = rnd(0, rise - r * .5), w = 14 + h * .04; emit(PS_SMOKE, { x: n.x + rnd(-w, w), y: n.gy + h, z: n.z + rnd(-w, w), vx: rnd(-2, 2), vy: rnd(8, 20), vz: rnd(-2, 2), l: rnd(6, 12), s0: 30, s1: 70, c: [.35 + heat * .6, .22 + heat * .3, .12], c1: [.25, .22, .2], a: .55, fadeIn: true, dr: .3 }); }
+    for (let i = 0; i < dt * 50 * fxK; i++) { const a = rnd(0, TAU), rr = r * rnd(.6, 1.3); emit(PS_SMOKE, { x: n.x + Math.cos(a) * rr, y: n.gy + rise + rnd(-r * .4, r * .5), z: n.z + Math.sin(a) * rr, vx: Math.cos(a) * rnd(6, 20), vy: rnd(-2, 6), vz: Math.sin(a) * rnd(6, 20), l: rnd(14, 30), s0: 60, s1: 150, c: [.5 + heat * .5, .3 + heat * .3, .15 + heat * .1], c1: [.3, .27, .25], a: .6, fadeIn: true, dr: .15 }); }
   }
   // волна по земле — там, где её сейчас считает симуляция
   if (nuke) {
     const R = nuke.R;
     n.wave.scale.setScalar(Math.max(1, R)); n.wave.material.opacity = clamp(1 - R / NUKE.RMAX) * .8;
-    if (R < NUKE.RMAX) for (let i = 0; i < dt * 120 * fxK; i++) { const a = rnd(0, TAU); emit(PS_SMOKE, { x: n.x + Math.cos(a) * R, y: rnd(1, 12), z: n.z + Math.sin(a) * R, vx: Math.cos(a) * rnd(30, 60), vy: rnd(4, 14), vz: Math.sin(a) * rnd(30, 60), l: rnd(3, 6), s0: 16, s1: 50, c: [.55, .5, .44], a: .55, fadeIn: true, dr: .6 }); }
+    if (R < NUKE.RMAX) for (let i = 0; i < dt * 120 * fxK; i++) { const a = rnd(0, TAU); emit(PS_SMOKE, { x: n.x + Math.cos(a) * R, y: gY(n.x + Math.cos(a) * R + W / 2, n.z + Math.sin(a) * R + H / 2) + rnd(1, 12), z: n.z + Math.sin(a) * R, vx: Math.cos(a) * rnd(30, 60), vy: rnd(4, 14), vz: Math.sin(a) * rnd(30, 60), l: rnd(3, 6), s0: 16, s1: 50, c: [.55, .5, .44], a: .55, fadeIn: true, dr: .6 }); }
     // волна дошла до камеры — трясёт
     const dc = Math.hypot(camC.tx - n.x, camC.tz - n.z);
     if (Math.abs(dc - R) < 40 && R < NUKE.RMAX) shake = Math.max(shake, 9 * clamp(1 - R / NUKE.RMAX + .3));
@@ -10777,7 +10800,7 @@ function animateTopple(b) {
   if (k > .5 && !b.broke) {
     b.broke = true; const e2 = Math.min(w, d), col = facadeColor(b), hh0 = b.h * .55;
     for (let i = 0; i < 18; i++) { const hh = hh0 + Math.random() * (b.h - hh0), ox = rnd(-w / 2, w / 2), oz = rnd(-d / 2, d / 2); const px = X(cx + ca * e) + ca * hh * Math.sin(th) + ox * Math.cos(b.fallAng + Math.PI / 2), pz = Z(cy + sa * e) + sa * hh * Math.sin(th) + oz; addChunk(px, hh * Math.cos(th), pz, ca * rnd(8, 26) + rnd(-6, 6), rnd(-6, 4), sa * rnd(8, 26) + rnd(-6, 6), rnd(5, 9), Math.random() < .7 ? col : "#7d7a73"); }
-    for (let i = 0; i < 90 * fxK; i++) emit(PS_SMOKE, { x: X(cx + ca * e) + ca * hh0 * Math.sin(th) + rnd(-e2, e2), y: hh0 * Math.cos(th) + rnd(-6, 6), z: Z(cy + sa * e) + sa * hh0 * Math.sin(th) + rnd(-e2, e2), vx: rnd(-12, 12), vy: rnd(-4, 8), vz: rnd(-12, 12), l: rnd(4, 9), s0: rnd(8, 14), s1: rnd(30, 60), c: [.45, .42, .38], c1: [.55, .52, .48], a: .55, fadeIn: true, dr: .5 });
+    for (let i = 0; i < 90 * fxK; i++) emit(PS_SMOKE, { x: X(cx + ca * e) + ca * hh0 * Math.sin(th) + rnd(-e2, e2), y: (b.baseY || 0) + hh0 * Math.cos(th) + rnd(-6, 6), z: Z(cy + sa * e) + sa * hh0 * Math.sin(th) + rnd(-e2, e2), vx: rnd(-12, 12), vy: rnd(-4, 8), vz: rnd(-12, 12), l: rnd(4, 9), s0: rnd(8, 14), s1: rnd(30, 60), c: [.45, .42, .38], c1: [.55, .52, .48], a: .55, fadeIn: true, dr: .5 });
     o.scale.y = .6;
   }
   // во время падения сыплется мусор с фасада
@@ -10812,10 +10835,10 @@ function fxToppleImpact(b) {
   shake = Math.max(shake, 9 * clamp(1.4 - camDist() / 2000, .2, 1));
   for (let i = 0; i < 260 * fxK; i++) {
     const al = rnd(0, z.L), lat = rnd(-z.half, z.half), x = X(z.px + z.ca * al - z.sa * lat), zz = Z(z.py + z.sa * al + z.ca * lat);
-    emit(PS_SMOKE, { x, y: rnd(2, 20), z: zz, vx: rnd(-25, 25), vy: rnd(4, 18), vz: rnd(-25, 25), l: rnd(6, 13), s0: rnd(14, 22), s1: rnd(50, 90), c: [.42, .39, .34], c1: [.5, .48, .44], a: .6, fadeIn: true, dr: .6 });
+    emit(PS_SMOKE, { x, y: gY(x + W / 2, zz + H / 2) + rnd(2, 20), z: zz, vx: rnd(-25, 25), vy: rnd(4, 18), vz: rnd(-25, 25), l: rnd(6, 13), s0: rnd(14, 22), s1: rnd(50, 90), c: [.42, .39, .34], c1: [.5, .48, .44], a: .6, fadeIn: true, dr: .6 });
   }
   for (let i = 0; i < 160; i++) { const al = rnd(0, z.L); addChunk(X(z.px + z.ca * al) + rnd(-z.half, z.half), rnd(2, 14), Z(z.py + z.sa * al) + rnd(-z.half, z.half), rnd(-22, 22) + z.ca * rnd(0, 14), rnd(6, 30), rnd(-22, 22) + z.sa * rnd(0, 14), rnd(2, 7), Math.random() < .5 ? facadeColor(b) : "#7d7a73"); }
-  flashLight(X(z.px + z.ca * z.L / 2), 20, Z(z.py + z.sa * z.L / 2), 1.2, .3, 0xffd0a0);
+  flashLight(X(z.px + z.ca * z.L / 2), gY(z.px + z.ca * z.L / 2, z.py + z.sa * z.L / 2) + 20, Z(z.py + z.sa * z.L / 2), 1.2, .3, 0xffd0a0);
 }
 
 /* ---------- развалины: внутри видны перекрытия, стены обломаны неровно ---------- */
@@ -10882,7 +10905,7 @@ const meteorMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(7, 1), new THREE
 meteorMesh.visible = false; scene.add(meteorMesh);
 function updateMeteors(dt) {
   const m = meteors[0]; if (!m) { meteorMesh.visible = false; return; }
-  const k = clamp(m.t / m.T), h = 900 * k * k, dx = 500 * k;
+  const k = clamp(m.t / m.T), h = gY(m.x, m.y) + 900 * k * k, dx = 500 * k; // падает на землю в точке удара, а не до уровня равнины
   meteorMesh.visible = true; meteorMesh.position.set(X(m.x) + dx, h, Z(m.y) + dx * .4); meteorMesh.rotation.x += dt * 3; meteorMesh.rotation.y += dt * 2;
   for (let i = 0; i < dt * 200; i++) emit(PS_ADD, { x: meteorMesh.position.x + rnd(-4, 4), y: h + rnd(-4, 4), z: meteorMesh.position.z + rnd(-4, 4), vx: rnd(-6, 6) + 40, vy: rnd(10, 30), vz: rnd(-6, 6) + 16, l: rnd(.4, 1), s0: rnd(8, 16), s1: 2, c: [2, 1.1, .4], c1: [.9, .2, .03], a: .9 });
   if (Math.random() < dt * 40) smokeParticle(meteorMesh.position.x, h, meteorMesh.position.z, 2.2);
@@ -10901,8 +10924,8 @@ function updateExtras(dt) {
     for (let i = 0; i < dt * 120; i++) emit(PS_ADD, { x: x + rnd(-.4, .4), y: y + rnd(-.4, .4), z: z + rnd(-.4, .4), vx: rnd(-1, 1), vy: rnd(-2, 1), vz: rnd(-1, 1), l: rnd(.15, .4), s0: 2.2, s1: .5, c: ACID, a: .9 });
   }
   for (const ac of acids) {
-    for (let i = 0; i < dt * 25; i++) { const a = rnd(0, TAU), r = rnd(0, ac.r); emit(PS_ADD, { x: X(ac.x + Math.cos(a) * r), y: .4, z: Z(ac.y + Math.sin(a) * r), vx: 0, vy: rnd(1, 4), vz: 0, l: rnd(.4, 1), s0: rnd(.8, 1.8), s1: .3, c: ACID, c1: ACID2, a: .7 }); }
-    if (Math.random() < dt * 3) emit(PS_SMOKE, { x: X(ac.x), y: 1, z: Z(ac.y), vx: rnd(-1, 1), vy: 3, vz: rnd(-1, 1), l: 2, s0: 3, s1: 9, c: [.45, .6, .3], a: .25, fadeIn: true });
+    for (let i = 0; i < dt * 25; i++) { const a = rnd(0, TAU), r = rnd(0, ac.r); emit(PS_ADD, { x: X(ac.x + Math.cos(a) * r), y: gY(ac.x, ac.y) + .4, z: Z(ac.y + Math.sin(a) * r), vx: 0, vy: rnd(1, 4), vz: 0, l: rnd(.4, 1), s0: rnd(.8, 1.8), s1: .3, c: ACID, c1: ACID2, a: .7 }); }
+    if (Math.random() < dt * 3) emit(PS_SMOKE, { x: X(ac.x), y: gY(ac.x, ac.y) + 1, z: Z(ac.y), vx: rnd(-1, 1), vy: 3, vz: rnd(-1, 1), l: 2, s0: 3, s1: 9, c: [.45, .6, .3], a: .25, fadeIn: true });
   }
 }
 
@@ -10974,7 +10997,7 @@ function updateWorld2(dt) {
   for (const f of factions) if (!facObjs.has(f)) { const o = buildFlag(f); if (o) { scene.add(o); facObjs.set(f, o); } }
   for (const [f, o] of facObjs) { if (!factions.includes(f)) { scene.remove(o); facObjs.delete(f); continue; } o.userData.flag.rotation.y = Math.sin(simT * 2 + f.id) * .3; }
   // искры на электрозаборе
-  if (dt) for (const a of agents) if (a.zapT > 0) { a.zapT -= dt; for (let i = 0; i < dt * 60; i++) emit(PS_ADD, { x: X(a.x) + rnd(-2, 2), y: rnd(1, 6), z: Z(a.y) + rnd(-2, 2), vx: rnd(-8, 8), vy: rnd(2, 12), vz: rnd(-8, 8), l: rnd(.1, .3), s0: 1.5, s1: .3, c: [1.4, 1.6, 2.2], a: 1, g: 30 }); }
+  if (dt) for (const a of agents) if (a.zapT > 0) { a.zapT -= dt; for (let i = 0; i < dt * 60; i++) emit(PS_ADD, { x: X(a.x) + rnd(-2, 2), y: gY(a.x, a.y) + rnd(1, 6), z: Z(a.y) + rnd(-2, 2), vx: rnd(-8, 8), vy: rnd(2, 12), vz: rnd(-8, 8), l: rnd(.1, .3), s0: 1.5, s1: .3, c: [1.4, 1.6, 2.2], a: 1, g: 30 }); }
 }
 // инфраструктура: трубы электростанции, баки водонасосной, мачта радиовышки
 function decorateInfra(b, obj, w, d) {
@@ -11622,7 +11645,7 @@ function makeCarMeshes(cap) {
   const mk = (geo, mat, n, shadow = true) => { const m = new THREE.InstancedMesh(geo, mat, n); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.setColorAt(0, new THREE.Color()); scene.add(m); return m; };
   cm = { parts: [], byModel: {}, fixed: {
     wheels: mk(wheelGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .75, metalness: .25 }), cap * 8),
-    lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 4, false),
+    lights: mk(lightGeo, new THREE.MeshBasicMaterial({ toneMapped: false }), cap * 6, false), // фары, задние фонари и два мигающих поворотника
     beams: mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2d0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), cap, false),
     bars: mk(new THREE.BoxGeometry(1.4, .8, 2.4), new THREE.MeshBasicMaterial({ toneMapped: false }), 200, false),
   } };
@@ -11641,10 +11664,26 @@ function carTilt(c, len, track) {
   const pitch = Math.atan2(hF - hB, len), roll = Math.atan2(hN - hP, 2 * t), k = c.tP === undefined ? 1 : .25;
   c.tP = (c.tP || 0) + (pitch - (c.tP || 0)) * k; c.tR = (c.tR || 0) + (roll - (c.tR || 0)) * k;
 }
+// куда мигает поворотник: +1 направо, -1 налево, 2 — аварийка (обе стороны), 0 — не мигает. Угол поворота считается один раз
+// на каждое решение машины (у стоп-линии — следующая полоса, на дуге — сама дуга); кэш в WeakMap, чтобы не попасть в сохранение
+const blinkCache = new WeakMap();
+function blinkSide(c) {
+  if (c.wreck || !(c.moving || c.stopped) || c.tank) return 0;
+  if (c.stopped && !c.service) return 2; // брошенная целая машина
+  if (c.park || c.pulled || c.yieldT > 0) return 1; // к бордюру
+  if (c.over === 1 || c.over === 3) return c.overT < 2 ? -1 : 0; // выезд на левую полосу или встречную
+  let key = null, a = 0;
+  if (c.turn) key = c.turn;
+  else if (c.next && c.lane && laneEnd(c.lane) - c.s < 60) key = c.next;
+  if (!key) return 0;
+  let e = blinkCache.get(c);
+  if (!e || e.key !== key) { a = c.turn ? (c.turn.to.e === c.turn.T.l.e ? -3 : turnAngle(c.turn.T.l, c.turn.to)) : c.next.e === c.lane.e ? -3 : turnAngle(c.lane, c.next); blinkCache.set(c, e = { key, a }); }
+  return Math.abs(e.a) > .45 ? (e.a > 0 ? 1 : -1) : 0;
+}
 function updateCars() {
   const list = cars.filter(c => !c.gone);
   if (list.length > carCap) makeCarMeshes(list.length + 200);
-  const dusk = carLightK > .15, ph = (simT * 3) % 1 < .5, F = cm.fixed;
+  const dusk = carLightK > .15, ph = (simT * 3) % 1 < .5, blinkOn = (simT * 1.6) % 1 < .55, F = cm.fixed;
   for (const k in cm.byModel) cm.byModel[k].n = 0;
   let wi = 0, li = 0, bi = 0, bar = 0;
   for (const c of list) {
@@ -11667,7 +11706,14 @@ function updateCars() {
     for (let k = 0; k < 4; k++) {
       const front = k < 2;
       _cw.makeTranslation(front ? (M.lf !== undefined ? M.lf : hw) : (M.lr !== undefined ? M.lr : -hw), front ? M.ly : (M.lyr || M.ly), (k % 2 ? 1 : -1) * (front ? lz : M.lzr || lz)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
-      F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.v < 3 ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
+      F.lights.setColorAt(li, _cc.set(k < 2 ? (lit ? (dusk ? "#fff6dd" : "#dfe6ea") : "#9aa0a4") : (lit && c.brake ? "#ff2a1a" : lit && dusk ? "#b0201a" : "#5a1a16"))); li++;
+    }
+    // поворотники: янтарные огни на углах кузова со стороны поворота (у аварийки — с обеих), мигают полтора раза в секунду
+    const bs = blinkOn ? blinkSide(c) : 0;
+    if (bs) for (const s of bs === 2 ? [-1, 1] : [bs]) for (const front of [true, false]) {
+      if (li >= F.lights.instanceMatrix.count) break;
+      _cw.makeTranslation(front ? (M.lf !== undefined ? M.lf : hw) - .2 : (M.lr !== undefined ? M.lr : -hw) + .2, (front ? M.ly : (M.lyr || M.ly)) + .5, s * ((front ? lz : M.lzr || lz) + .7)); F.lights.setMatrixAt(li, _cw.premultiply(_cm));
+      F.lights.setColorAt(li, _cc.set("#ffa21a")); li++;
     }
     if (c.moving && dusk) { _cw.makeScale(26, 1, 18).setPosition(M.L / 2 + 7, .25, 0); F.beams.setMatrixAt(bi++, _cw.premultiply(_cm)); }
     const sir = c.police ? "police" : c.siren;
@@ -14509,6 +14555,7 @@ function stepPlayerCar(c, dt) {
   if (I.hand) v -= Math.sign(v) * Math.min(Math.abs(v), 30 * dt);
   else if (I.gas) { if (v >= -1) { if (c.fuel > 0) v += (c.bus || c.tanker || (c.len || 1) > 1.4 ? 9 : 14) * dt; } else v += 45 * dt; }
   else if (I.brake) { if (v > 1) v -= 45 * dt; else if (c.fuel > 0) v -= 9 * dt; }
+  c.brake = (I.brake && v > 1) || I.hand || Math.abs(v) < 1; // стоп-сигналы
   // инерция: сопротивление воздуха и качения
   v -= v * .25 * dt; v -= Math.sign(v) * Math.min(Math.abs(v), 1.5 * dt);
   v = clamp(v, -DRIVE_REV, vmax);
@@ -15093,7 +15140,8 @@ $("helpClose").addEventListener("click", () => { $("help").hidden = true; });
 
 /* ---------- предпросмотр инструмента под курсором ---------- */
 const ghostMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .55, depthWrite: false, toneMapped: false });
-const ghost = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 48).rotateX(-Math.PI / 2), ghostMat);
+const ghost = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 96).rotateX(-Math.PI / 2), ghostMat);
+const ghostUnit = ghost.geometry.attributes.position.array.slice(); // кольцо радиуса 1: из него каждый кадр строится кольцо по рельефу
 ghost.renderOrder = 7; ghost.visible = false; scene.add(ghost);
 const GHOST = { tower: [8, "#b58a55"], flood: [95, "#fff1c0"], camp: [46, "#f2b33d"], supply: [170, "#c9a5f0"], wall: [6, "#9d998f"], boom: [48, "#ff8a3a"], meteor: [120, "#c0502a"], fire: [16, "#ff5a2a"], horde: [28, "#4fa52a"], depot: [10, "#f2b33d"], lab: [10, "#7fd0e0"], vaccinate: [14, "#5fe0a0"], quarantine: [4, "#9d998f"], nuke: [440, "#ffd23a"], firefighters: [14, "#ff5a3a"], repair: [14, "#f08a1c"], barricade: [6, "#d9a35a"], erase: [6, "#bbbbbb"], strike: [70, "#ff4a3a"], tank: [14, "#c6d36a"], army: [22, "#c6d36a"], police: [18, "#6f9cff"], medic: [16, "#ffffff"], evac: [20, "#c9a5f0"], zombie: [4, "#7fdf5a"], infect: [5, "#e8c447"] };
 let ghostPos = null;
@@ -15105,7 +15153,11 @@ function updateGhost() {
   const g = GHOST[tool];
   ghost.visible = !!(g && ghostPos && !drag);
   if (!ghost.visible) return;
-  ghost.position.set(X(ghostPos[0]), gY(ghostPos[0], ghostPos[1]) + .4, Z(ghostPos[1])); ghost.scale.setScalar(g[0]); ghostMat.color.set(g[1]);
+  // на равнине — плоское кольцо; в горах каждая точка кольца ставится на землю под ней, иначе на склоне круг уходил под грунт
+  const P = ghost.geometry.attributes.position, gx = ghostPos[0], gz = ghostPos[1];
+  if (hasHills) { for (let i = 0; i < P.count; i++) { const ux = ghostUnit[i * 3] * g[0], uz = ghostUnit[i * 3 + 2] * g[0]; P.setXYZ(i, ux, gY(gx + ux, gz + uz) + .8, uz); } P.needsUpdate = true; ghost.position.set(X(gx), 0, Z(gz)); ghost.scale.setScalar(1); ghost.geometry.computeBoundingSphere(); }
+  else { if (ghost.userData.draped) { P.array.set(ghostUnit); P.needsUpdate = true; ghost.geometry.computeBoundingSphere(); } ghost.position.set(X(gx), .4, Z(gz)); ghost.scale.setScalar(g[0]); }
+  ghost.userData.draped = hasHills; ghostMat.color.set(g[1]);
   ghostMat.opacity = .45 + .2 * Math.sin(performance.now() / 180);
 }
 

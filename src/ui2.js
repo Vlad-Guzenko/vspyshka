@@ -234,7 +234,8 @@ $("helpClose").addEventListener("click", () => { $("help").hidden = true; });
 
 /* ---------- предпросмотр инструмента под курсором ---------- */
 const ghostMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .55, depthWrite: false, toneMapped: false });
-const ghost = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 48).rotateX(-Math.PI / 2), ghostMat);
+const ghost = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 96).rotateX(-Math.PI / 2), ghostMat);
+const ghostUnit = ghost.geometry.attributes.position.array.slice(); // кольцо радиуса 1: из него каждый кадр строится кольцо по рельефу
 ghost.renderOrder = 7; ghost.visible = false; scene.add(ghost);
 const GHOST = { tower: [8, "#b58a55"], flood: [95, "#fff1c0"], camp: [46, "#f2b33d"], supply: [170, "#c9a5f0"], wall: [6, "#9d998f"], boom: [48, "#ff8a3a"], meteor: [120, "#c0502a"], fire: [16, "#ff5a2a"], horde: [28, "#4fa52a"], depot: [10, "#f2b33d"], lab: [10, "#7fd0e0"], vaccinate: [14, "#5fe0a0"], quarantine: [4, "#9d998f"], nuke: [440, "#ffd23a"], firefighters: [14, "#ff5a3a"], repair: [14, "#f08a1c"], barricade: [6, "#d9a35a"], erase: [6, "#bbbbbb"], strike: [70, "#ff4a3a"], tank: [14, "#c6d36a"], army: [22, "#c6d36a"], police: [18, "#6f9cff"], medic: [16, "#ffffff"], evac: [20, "#c9a5f0"], zombie: [4, "#7fdf5a"], infect: [5, "#e8c447"] };
 let ghostPos = null;
@@ -246,6 +247,10 @@ function updateGhost() {
   const g = GHOST[tool];
   ghost.visible = !!(g && ghostPos && !drag);
   if (!ghost.visible) return;
-  ghost.position.set(X(ghostPos[0]), gY(ghostPos[0], ghostPos[1]) + .4, Z(ghostPos[1])); ghost.scale.setScalar(g[0]); ghostMat.color.set(g[1]);
+  // на равнине — плоское кольцо; в горах каждая точка кольца ставится на землю под ней, иначе на склоне круг уходил под грунт
+  const P = ghost.geometry.attributes.position, gx = ghostPos[0], gz = ghostPos[1];
+  if (hasHills) { for (let i = 0; i < P.count; i++) { const ux = ghostUnit[i * 3] * g[0], uz = ghostUnit[i * 3 + 2] * g[0]; P.setXYZ(i, ux, gY(gx + ux, gz + uz) + .8, uz); } P.needsUpdate = true; ghost.position.set(X(gx), 0, Z(gz)); ghost.scale.setScalar(1); ghost.geometry.computeBoundingSphere(); }
+  else { if (ghost.userData.draped) { P.array.set(ghostUnit); P.needsUpdate = true; ghost.geometry.computeBoundingSphere(); } ghost.position.set(X(gx), .4, Z(gz)); ghost.scale.setScalar(g[0]); }
+  ghost.userData.draped = hasHills; ghostMat.color.set(g[1]);
   ghostMat.opacity = .45 + .2 * Math.sin(performance.now() / 180);
 }
