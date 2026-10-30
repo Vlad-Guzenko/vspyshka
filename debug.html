@@ -2354,7 +2354,7 @@ let enterWhy = "", enterBy = null;
 const enterNo = w => { if (!enterWhy) enterWhy = w; return false; };
 function canEnter(c, l, m, deep) {
   enterWhy = ""; enterBy = null;
-  const n = l.to, sig = n.sig && !settings.dark; // без света светофоры гаснут — едут по старшинству
+  const n = l.to, sig = sigOn(n); // в обесточенном квартале светофоры гаснут — едут по старшинству
   // долго ждёт у «уступи дорогу» — проезжает, но не на красный, не через завал и не туда, где за перекрёстком нет места
   const force = c.wait > 40 || (c.stallT || 0) > 40;
   // за перекрёстком короткая полоса до следующего: въезжаем, только если проедем и его (иначе встанем поперёк этого)
@@ -2456,7 +2456,7 @@ function oncomingNear(c, l) {
     if (e === l.e || busy) continue;
     const v = edgeDirFrom(e, n); if (u[0] * v[0] + u[1] * v[1] > -.6) continue; // не напротив
     const inL = e.b === n ? e.L[0] : e.L[1]; if (!inL) continue;
-    if (n.sig && !settings.dark && lightFor(n, e) === "r") continue; // у них красный
+    if (sigOn(n) && lightFor(n, e) === "r") continue; // у них красный
     const p = lanePos(inL, Math.max(laneStart(inL), laneEnd(inL) - 30));
     // считаем тех, кто едет, и тех, кто только что подъехал к линии; давно стоящий у линии встречный сам чего-то ждёт — его не ждём
     nearCars(p.x, p.y, 42, o => { if (busy || o === c || o.gone || o.lane !== inL || o.turn || !o.moving) return; const d = laneEnd(inL) - o.s; if (d < 60 && d > -2 && (o.v > 2 || (d < 16 && (o.stallT || 0) < 3)) && !(o.next && turnAngle(inL, o.next) < -.45)) busy = true; });
@@ -2551,7 +2551,7 @@ function zebraPeople(e, t, hw, side) {
 function zebrasOnLane(l) {
   const e = l.e; if (e.rural) return null;
   const out = []; if (e.kind !== "ring" && e.len > 260) out.push([e.len / 2, 0]);
-  const n = l.to; if (n.ed.length >= 3) out.push([laneEnd(l) + 6, n.sig && !settings.dark ? l.d : 0]);
+  const n = l.to; if (n.ed.length >= 3) out.push([laneEnd(l) + 6, sigOn(n) ? l.d : 0]);
   return out;
 }
 // перед переходом с людьми машина встаёт так, чтобы нос не заходил на зебру (полоса зебры ±5 от центра, полкузова 10);
@@ -2570,7 +2570,7 @@ function zebraStopTurn(c, clear) {
   if (c.panic || c.flee || (c.service && c.siren)) return clear;
   const T = c.turn, n = T.n; if (n.ed.length < 3) return clear;
   const m = T.to, dOut = T.len - T.u - 6;
-  if (dOut >= 15 && dOut < 48 && !m.e.rural && zebraPeople(m.e, edgeTOfLane(m, laneStart(m) - 6), m.e.hw, n.sig && !settings.dark ? m.d : 0)) clear = Math.min(clear, Math.max(0, dOut - 17));
+  if (dOut >= 15 && dOut < 48 && !m.e.rural && zebraPeople(m.e, edgeTOfLane(m, laneStart(m) - 6), m.e.hw, sigOn(n) ? m.d : 0)) clear = Math.min(clear, Math.max(0, dOut - 17));
   return clear;
 }
 // спокойный пешеход перед проезжей частью смотрит по сторонам: машина близко и едет на него — ждёт у бордюра
@@ -2581,7 +2581,7 @@ function zebraWait(a, m) {
   const nx = a.x + m[0] / L * 7, ny = a.y + m[1] / L * 7, ni = ci(nx, ny); if (!(grid[ni] === 0 && roadMask[ni] === 1)) return m;
   // у светофора переход открыт, когда машинам на этой улице красный
   const q = gEdgeNear(nx, ny, 40);
-  if (q && !q.e.rural) { const n = q.t < q.e.len / 2 ? q.e.a : q.e.b; if (n.sig && !settings.dark && Math.hypot(n.x - nx, n.y - ny) < q.e.hw * 2.5 + 20 && lightFor(n, q.e) !== "r") return [0, 0, 0]; }
+  if (q && !q.e.rural) { const n = q.t < q.e.len / 2 ? q.e.a : q.e.b; if (sigOn(n) && Math.hypot(n.x - nx, n.y - ny) < q.e.hw * 2.5 + 20 && lightFor(n, q.e) !== "r") return [0, 0, 0]; }
   // ждёт, если машина едет на него, или если у перехода уже стоит и ждёт своей очереди машина (по очереди, а не вечный поток людей)
   let car = false;
   nearCars(a.x, a.y, 48, c => {
@@ -4046,7 +4046,7 @@ function shoot(s, t) {
   noises.push({ x: s.x, y: s.y, t: simT, r: army ? 320 : 240 });
   const d = Math.hypot(t.x - s.x, t.y - s.y), moving = Math.hypot(t.vx, t.vy) > 10 ? .85 : 1;
   const sniper = s.hero === "sniper";
-  const nightK2 = settings.night && !litAt(t.x, t.y) ? (settings.dark ? .5 : .7) : 1;
+  const nightK2 = settings.night && !litAt(t.x, t.y) ? (powerAt(t.x, t.y) ? .7 : .5) : 1;
   const acc = clamp((army ? .85 : sniper ? .92 : police ? .6 : .4) * (1 - d / (sniper ? 600 : 360)) * nightK2 * moving * (t.ztype === "crawler" ? .55 : 1) * (t.ztype === "titan" ? 1.3 : 1) * (s.post ? 1.15 : 1), .05, .95);
   sfx.shot(s);
   const ang = Math.atan2(t.y - s.y, t.x - s.x);
@@ -4080,7 +4080,7 @@ function shoot(s, t) {
 
 /* ---------- поведение ---------- */
 function ignite(a) { if (!(a.onFire > 0)) { a.onFire = rnd(4, 9); if (a.role !== "zombie") { a.panic = 1; first("burn", "Люди горят заживо", "bad"); } } }
-function sightR(a) { const night = settings.night && !(a && litAt(a.x, a.y)); return (night ? (settings.dark ? 60 : 85) : 150) * (settings.vis || 1) * (1 + .12 * strainK()) * (a && a.post ? 2 : 1); }
+function sightR(a) { const night = settings.night && !(a && litAt(a.x, a.y)); return (night ? (a && !powerAt(a.x, a.y) ? 60 : 85) : 150) * (settings.vis || 1) * (1 + .12 * strainK()) * (a && a.post ? 2 : 1); }
 function wander(a, dt) {
   // прогулка вдоль улиц: идём по прямой, на перекрёстках иногда сворачиваем, иногда стоим
   a.wanderT -= dt;
@@ -4161,7 +4161,7 @@ function thinkHuman(a, dt) {
   // спокойный прохожий принимает бредущего зомби за пьяного, пока тот не подойдёт вплотную
   const lit = !settings.night || litAt(a.x, a.y);
   const fac = a.faction ? factionOf(a) : null;
-  const aware = a.panic > .3 || a.role === "army" || a.role === "police" ? sight : (settings.fast ? 34 : 12) * (lit ? 1 : settings.dark ? .45 : .65);
+  const aware = a.panic > .3 || a.role === "army" || a.role === "police" ? sight : (settings.fast ? 34 : 12) * (lit ? 1 : powerAt(a.x, a.y) ? .65 : .45);
   nearZ(a.x, a.y, aware, b => {
     if (b.state !== "alive") return;
     const d = Math.hypot(b.x - a.x, b.y - a.y);
@@ -6740,17 +6740,104 @@ function stepDrops(dt) {
 function callDrop(x, y) { drops.push({ x, y, t: 4, T: 4 }); logE("Самолёт сбрасывает припасы на парашюте", "good"); sfx.jet(); }
 function hungryCount() { let n = 0; for (const b of buildings) if (b.occ && b.occ.length && b.food === 0) n += b.occ.length; for (const c of camps) if (c.food <= 0) n += c.n; return n; }
 
-/* ---------- авария на подстанции: ночью гаснет свет ---------- */
-let blackout = null;
-function startBlackout(t = 240) { blackout = { t, T: t }; settings.dark = true; logE("Авария на подстанции: город остался без света. Фонари и окна погасли, видно только у прожекторов", "bad"); radio("Диспетчер: обесточен весь город, ремонтные бригады выехали"); sfx.radio(); }
-function stepBlackout(dt) {
-  if (!blackout) { if (settings.night && (lastCounts || counts()).Z > 50 && !firsts.blackoutDone && Math.random() < dt * .012) { firsts.blackoutDone = true; startBlackout(); } return; }
-  let workers = 0; for (const a of agents) if (a.state === "alive" && a.role === "worker") workers++;
-  blackout.t -= dt * (1 + Math.min(3, workers) * .5);
-  if (blackout.t <= 0) { blackout = null; settings.dark = false; logE("Электроснабжение восстановлено", "good"); radio("Диспетчер: свет дали"); }
+/* ---------- электросеть по кварталам: ТЭЦ → подстанции районов → кварталы ----------
+   У каждого квартала (blocks) свой ввод; клетки дорог отнесены к ближайшему кварталу (pwCell), поэтому «есть ли свет здесь» —
+   это свет квартала: фонари, окна и вывески (render7.js), светофоры и старшинство на перекрёстках (traffic.js).
+   Отключение и включение идут волной от источника к окраинам: у квартала свой срок переключения (pwSw), до него всё по-старому.
+   Авария или удар по ТЭЦ гасит город за 20–40 с, удар по подстанции — только её район; генератор держит свет в своём квартале. */
+let blackout = null, pwLoad = null;
+let pwBlocks = null, pwCell = null, pwGrid = null, pwWant = null, pwSw = null, pwOn = null, pwGen = null, pwSubOf = null, pwSubs = [], pwPlant = false, pwOffK = 0, pwStepB = null;
+const SUB_KINDS = new Set(["warehouse", "hangar", "garages", "container", "autoservice", "barn"]), SUB_NO = new Set(["monument", "ferris", "tvtower", "stadium", "church", "wtower", "gas", "barracks", "basehq", "kinder", "school", "cafe"]);
+function pwReady() { if (pwBlocks !== blocks || !pwCell || pwCell.length !== GW * GH) pwBuild(); return blocks.length > 0; }
+function pwBlockAt(x, y) { if (!pwReady()) return -1; const gx = Math.floor(x / CS), gy = Math.floor(y / CS); return pwCell[(gy < 0 ? 0 : gy >= GH ? GH - 1 : gy) * GW + (gx < 0 ? 0 : gx >= GW ? GW - 1 : gx)]; }
+function powerAt(x, y) { const b = pwBlockAt(x, y); return b < 0 || pwOn[b] === 1; }
+function sigOn(n) { return !!n.sig && powerAt(n.x, n.y); } // светофор горит, только если в его квартале есть свет; иначе — старшинство
+function pwBuild() {
+  pwBlocks = blocks; const nb = blocks.length, L = pwLoad; pwLoad = null;
+  pwCells();
+  pwGrid = new Uint8Array(nb).fill(1); pwWant = new Uint8Array(nb).fill(1); pwOn = new Uint8Array(nb).fill(1); pwGen = new Uint8Array(nb); pwSw = new Float64Array(nb).fill(-1);
+  pwSubs = L && L.subs ? L.subs.map(i => buildings[i]).filter(Boolean).map(b => ({ b, x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, down: b.state !== "ok" })) : [];
+  pwPlant = false;
+  if (L && L.grid && L.grid.length === nb) { for (let i = 0; i < nb; i++) { pwGrid[i] = L.grid[i]; pwWant[i] = L.want[i]; pwSw[i] = L.sw[i] < 0 ? -1 : simT + L.sw[i]; } pwPlant = !!L.plant; }
+  pwSubsAssign(); pwOnUpdate();
 }
-function stepBuild(dt) { stepSelection(); stepCamps(dt); stepFood(dt); stepDrops(dt); stepBlackout(dt); }
-function resetBuild() { selected = []; orderMark = null; towers = []; floods = []; camps = []; drops = []; blackout = null; settings.dark = false; }
+// клетка → квартал; клетки дорог — ближайшему кварталу (волна сразу от всех кварталов)
+function pwCells() {
+  const N = GW * GH, nb = blocks.length; pwCell = new Int16Array(N).fill(-1);
+  const q = new Int32Array(N); let h = 0, t = 0;
+  for (let i = 0; i < N; i++) { const r = regionOf[i]; if (r >= 0 && r < nb) { pwCell[i] = r; q[t++] = i; } }
+  while (h < t) {
+    const i = q[h++], x = i % GW, r = pwCell[i];
+    if (x > 0 && pwCell[i - 1] < 0) { pwCell[i - 1] = r; q[t++] = i - 1; } if (x < GW - 1 && pwCell[i + 1] < 0) { pwCell[i + 1] = r; q[t++] = i + 1; }
+    if (i >= GW && pwCell[i - GW] < 0) { pwCell[i - GW] = r; q[t++] = i - GW; } if (i + GW < N && pwCell[i + GW] < 0) { pwCell[i + GW] = r; q[t++] = i + GW; }
+  }
+}
+function pwSubsAssign() {
+  pwSubOf = new Int8Array(blocks.length).fill(-1);
+  blocks.forEach((k, i) => { let best = 1e18; pwSubs.forEach((s, j) => { const d = (s.x - k.cx) ** 2 + (s.y - k.cy) ** 2; if (d < best) { best = d; pwSubOf[i] = j; } }); });
+  for (const s of pwSubs) s.b.sub = true;
+}
+// подстанции: город делится на районы (k-средних по центрам кварталов), в каждом районе подстанция — склад, гаражи или ангар
+// поближе к его середине (если таких нет — нежилое здание, в крайнем случае любое)
+function pwPlaceSubs() {
+  const city = blocks.filter(b => !b.rural && b.n > 4); if (!city.length) return [];
+  let sx = 0, sy = 0, sn = 0; for (const b of city) { sx += b.cx * b.n; sy += b.cy * b.n; sn += b.n; } sx /= sn; sy /= sn;
+  let r = 0; for (const b of city) r += Math.hypot(b.cx - sx, b.cy - sy) * b.n; r /= sn;
+  const k = Math.min(city.length, mapSize === "big" ? 6 : 4), C = [], near = (x, y) => { let bj = 0, bd = 1e18; C.forEach((c, j) => { const d = (c[0] - x) ** 2 + (c[1] - y) ** 2; if (d < bd) { bd = d; bj = j; } }); return bj; };
+  for (let j = 0; j < k; j++) { const a = j / k * TAU + .4; C.push([sx + Math.cos(a) * r, sy + Math.sin(a) * r]); }
+  for (let it = 0; it < 8; it++) {
+    const S = C.map(() => [0, 0, 0]);
+    for (const b of city) { const j = near(b.cx, b.cy); S[j][0] += b.cx * b.n; S[j][1] += b.cy * b.n; S[j][2] += b.n; }
+    S.forEach((s, j) => { if (s[2]) C[j] = [s[0] / s[2], s[1] / s[2]]; });
+  }
+  const spec = new Set(Object.values(special).map(s => s.b)), best = C.map(() => [null, 1e18]);
+  for (const b of buildings) {
+    if (spec.has(b) || b.sub || b.state !== "ok" || SUB_NO.has(b.kind)) continue;
+    const x = (b.x0 + b.x1) / 2, y = (b.y0 + b.y1) / 2, bk = blockAt(x, y); if (!bk || bk.rural) continue;
+    const j = near(x, y), d = Math.hypot(x - C[j][0], y - C[j][1]) + (SUB_KINDS.has(b.kind) ? 0 : HOME_KINDS.has(b.kind) ? 2500 : 1200);
+    if (d < best[j][1]) best[j] = [b, d];
+  }
+  return best.filter(([b]) => b).map(([b]) => ({ b, x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, down: false }));
+}
+// волна: источник и за сколько секунд она доходит до самого дальнего квартала (своего района, если это подстанция)
+function pwWave(x, y, sub, T) { let dmax = 1; blocks.forEach((b, i) => { if (sub < 0 ? !b.rural : pwSubOf[i] === sub) dmax = Math.max(dmax, Math.hypot(b.cx - x, b.cy - y)); }); return { x, y, T, dmax }; }
+function pwDelay(ev, b) { return ev.T * Math.min(1, Math.hypot(b.cx - ev.x, b.cy - ev.y) / ev.dmax) + rnd(0, 1.5); }
+function pwOnUpdate() {
+  let off = 0, n = 0;
+  for (let i = 0; i < pwOn.length; i++) { const on = pwGrid[i] || pwGen[i] ? 1 : 0; pwOn[i] = on; if (!blocks[i].rural) { n++; if (!on) off++; } }
+  pwOffK = n ? off / n : 0; settings.dark = pwOffK > .5; // settings.dark — «город по большей части без света»: для подписей и старых проверок
+}
+function startBlackout(t = 240) { blackout = { t, T: t }; logE("Авария на ТЭЦ: свет гаснет квартал за кварталом. Видно только у прожекторов и генераторов", "bad"); radio("Диспетчер: авария на ТЭЦ, город обесточивается, ремонтные бригады выехали"); sfx.radio(); }
+function stepPower(dt) {
+  if (!pwReady()) return;
+  // первый шаг в этом городе: город достроен — карта кварталов заново, подстанции по районам (у загруженной игры — свои)
+  if (pwStepB !== blocks) { pwStepB = blocks; pwCells(); if (!pwSubs.length) pwSubs = pwPlaceSubs(); pwSubsAssign(); }
+  // авария ночью при большой эпидемии — одна за игру; с рабочими в городе чинят быстрее
+  if (!blackout) { if (settings.night && (lastCounts || counts()).Z > 50 && !firsts.blackoutDone && Math.random() < dt * .012) { firsts.blackoutDone = true; startBlackout(); } }
+  else {
+    let workers = 0; for (const a of agents) if (a.state === "alive" && a.role === "worker") workers++;
+    blackout.t -= dt * (1 + Math.min(3, workers) * .5);
+    if (blackout.t <= 0) { blackout = null; logE("Аварию на ТЭЦ устранили: свет дают квартал за кварталом", "good"); radio("Диспетчер: подаём напряжение, район за районом"); }
+  }
+  const pl = special.power, plant = !!blackout || (!!pl && !infraOk("power")), ox = pl ? pl.x : W / 2, oy = pl ? pl.y : H / 2;
+  let plantEv = null, fb = null;
+  if (plant !== pwPlant) { pwPlant = plant; plantEv = pwWave(ox, oy, -1, rnd(20, 40)); }
+  const subEv = pwSubs.map((s, j) => {
+    const d = s.b.state !== "ok"; if (d === s.down) return null; s.down = d;
+    logE(d ? "Разрушена подстанция: её район обесточен, пока её не отстроят" : "Подстанцию отстроили: в район снова дают свет", d ? "bad" : "good");
+    return pwWave(s.x, s.y, j, rnd(5, 12));
+  });
+  for (let i = 0; i < pwWant.length; i++) {
+    const sj = pwSubOf[i], want = plant || (sj >= 0 && pwSubs[sj] && pwSubs[sj].down) ? 0 : 1;
+    if (want !== pwWant[i]) { pwWant[i] = want; const ev = plantEv || (sj >= 0 && subEv[sj]) || (fb = fb || pwWave(ox, oy, -1, 20)); pwSw[i] = simT + pwDelay(ev, blocks[i]); }
+    if (pwSw[i] >= 0 && simT >= pwSw[i]) { pwSw[i] = -1; pwGrid[i] = pwWant[i]; }
+  }
+  pwGen.fill(0); for (const g of gens) if (g.fuel > 0) { const b = pwBlockAt(g.x, g.y); if (b >= 0) pwGen[b] = 1; }
+  pwOnUpdate();
+}
+function pwSave() { if (!pwReady()) return null; return { subs: pwSubs.map(s => buildings.indexOf(s.b)), grid: Array.from(pwGrid), want: Array.from(pwWant), sw: Array.from(pwSw, t => t < 0 ? -1 : +(t - simT).toFixed(2)), plant: pwPlant }; }
+function stepBuild(dt) { stepSelection(); stepCamps(dt); stepFood(dt); stepDrops(dt); stepPower(dt); }
+function resetBuild() { selected = []; orderMark = null; towers = []; floods = []; camps = []; drops = []; blackout = null; pwBlocks = null; pwStepB = null; pwLoad = null; settings.dark = false; }
 
 /* ---------- сооружения занимают клетки: люди и зомби обходят палатки, будки, ящики ---------- */
 function blockFree(x0, y0, x1, y1) {
@@ -6822,14 +6909,14 @@ function infraOk(k) { const s = special[k]; return !!(s && s.b && s.b.state === 
 function stepInfra(dt) {
   for (const k in INFRA) {
     const s = special[k]; if (!s) continue; const b = s.b;
-    if (b.state !== "ok" && !s.down) { s.down = true; logE(`Выведена из строя ${INFRA[k]}` + (k === "power" ? ": город без света, пока её не отстроят" : k === "water" ? ": пожарным нечем тушить, в убежищах нет воды" : ": диспетчер не слышит вызовы, оповещения не работают"), "bad"); radio(k === "radio" ? "…связи нет…" : `Диспетчер: потеряна ${INFRA[k]}`); }
+    if (b.state !== "ok" && !s.down) { s.down = true; logE(`Выведена из строя ${INFRA[k]}` + (k === "power" ? ": свет гаснет квартал за кварталом, пока её не отстроят" : k === "water" ? ": пожарным нечем тушить, в убежищах нет воды" : ": диспетчер не слышит вызовы, оповещения не работают"), "bad"); radio(k === "radio" ? "…связи нет…" : `Диспетчер: потеряна ${INFRA[k]}`); }
     if (b.state === "ok" && s.down) { s.down = false; logE(`Восстановлена ${INFRA[k]}`, "good"); }
     if (b.fire > 0 && !s.fireLogged) { s.fireLogged = true; logE(`Пожар: горит ${INFRA[k]}`, "bad"); }
     if (b.fire <= 0) s.fireLogged = false;
   }
   settings.noWater = special.water ? !infraOk("water") : false;
   settings.noRadio = special.radio ? !infraOk("radio") : false;
-  if (special.power) { const down = !infraOk("power"); if (down && !blackout) { blackout = { t: 1e9, T: 1e9, infra: true }; settings.dark = true; } if (!down && blackout && blackout.infra) { blackout = null; settings.dark = false; logE("Свет дали", "good"); } }
+  // свет при отказе ТЭЦ гаснет волной по кварталам — stepPower (sim12.js)
 }
 
 /* ---------- оповещения и слухи ---------- */
@@ -10281,12 +10368,12 @@ function updateLighting(dt, simDt) {
   stars.position.copy(sp); stars.material.opacity = nightK * (1 - gloom) * .9;
   sky.position.set(sp.x, 0, sp.z); // купол едет за камерой: иначе на широкой карте его дальняя стенка уходит за дальность камеры и в небе чёрная дыра
   for (const c of clouds) { c.position.x += dt * 12; if (c.position.x > sp.x + 4500) c.position.x -= 9000; c.material.color.setRGB(.25 + day * .75, .25 + day * .72, .3 + day * .7).lerp(_lc1.setHex(0xff9a70), dusk * .5); c.material.opacity = .35 + gloom * .55; }
-  // окна, фонари, мокрый асфальт
-  const powerK = settings.dark ? 0 : 1;
-  for (const m of facadeMats) m.emissiveIntensity = nightK * 1.1 * powerK;
-  for (const m of glowSignMats) m.emissiveIntensity = nightK * .9 * powerK;
-  if (lampHeads) { lampHeads.material.emissiveIntensity = nightK * 3 * powerK; lampPools.material.opacity = nightK * .5 * powerK; }
-  if (settings.dark) { hemi.intensity *= .6; sun.intensity *= .8; }
+  // окна, фонари, мокрый асфальт; без света они гаснут по кварталам — шейдер по карте питания (render7.js)
+  for (const m of facadeMats) m.emissiveIntensity = nightK * 1.1;
+  for (const m of glowSignMats) m.emissiveIntensity = nightK * .9;
+  if (lampHeads) { lampHeads.material.emissiveIntensity = nightK * 3; lampPools.material.opacity = nightK * .5; }
+  const dk = 1 - pwLvAt(camC.tx + W / 2, camC.tz + H / 2); // обесточенный квартал под камерой: ночью без городского зарева темнее
+  if (dk > 0) { hemi.intensity *= 1 - .4 * dk * nightK; sun.intensity *= 1 - .2 * dk * nightK; }
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);
   // молнии в грозу
   world.flash = clamp(world.flash - Math.max(0, dt) * 4, 0, 1.5);
@@ -10745,12 +10832,72 @@ function buildTrafficLights() {
   tlT = 0;
 }
 let tlT = 0;
+
+/* ---------- свет по кварталам: карта питания в шейдерах окон, вывесок, фонарей и гирлянд ----------
+   pwCellT — номер квартала каждой клетки (pwCell из sim12.js), pwLvT — яркость квартала 0..1. При отключении лампы
+   коротко мигают и гаснут, при включении разгораются; светофоры гаснут по той же яркости. */
+const PW_U = { pwCellT: { value: null }, pwLvT: { value: null }, pwG: { value: new THREE.Vector4(1, 1, 1, 1) }, pwO: { value: new THREE.Vector2() } };
+for (const [k, v] of [["pwCellT", 0], ["pwLvT", 255]]) { const t = new THREE.DataTexture(new Uint8Array([v, v, v, 255]), 1, 1); t.needsUpdate = true; PW_U[k].value = t; }
+const PW_GLSL = `uniform sampler2D pwCellT, pwLvT; uniform vec4 pwG; uniform vec2 pwO; varying vec3 vPwW;
+float pwAt(vec3 w) {
+  vec2 uv = (w.xz + pwO) * pwG.xy;
+  if (uv.x < 0. || uv.y < 0. || uv.x > 1. || uv.y > 1.) return 1.;
+  vec4 c = texture2D(pwCellT, uv); if (c.b < .5) return 1.;
+  float id = floor(c.r * 255. + .5) + 256. * floor(c.g * 255. + .5);
+  return texture2D(pwLvT, vec2((mod(id, pwG.z) + .5) / pwG.z, (floor(id / pwG.z) + .5) / pwG.w)).r;
+}`;
+// origin: яркость берётся в точке самого экземпляра (фонарь, лампочка гирлянды), иначе — в каждой точке поверхности (фасад, вывеска)
+function powerMat(m, origin) {
+  if (!m || m.userData.pw) return; m.userData.pw = true;
+  const prev = m.onBeforeCompile, key = m.customProgramCacheKey() + "|pw" + (origin ? "o" : ""), v = origin ? "vec4(0., 0., 0., 1.)" : "vec4(transformed, 1.)";
+  m.onBeforeCompile = (sh, r) => {
+    prev.call(m, sh, r); Object.assign(sh.uniforms, PW_U);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vPwW;").replace("#include <project_vertex>", `#include <project_vertex>
+      #ifdef USE_INSTANCING
+        vPwW = (modelMatrix * instanceMatrix * ${v}).xyz;
+      #else
+        vPwW = (modelMatrix * ${v}).xyz;
+      #endif`);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\n" + PW_GLSL);
+    sh.fragmentShader = m.isMeshStandardMaterial ? sh.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  totalEmissiveRadiance *= pwAt(vPwW);")
+      : sh.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= pwAt(vPwW);");
+  };
+  m.customProgramCacheKey = () => key; m.needsUpdate = true;
+}
+let pwLvR = null, pwFt = null, pwTexB = null, pwTexC = null;
+function pwLvAt(x, y) { const b = typeof pwBlockAt === "function" ? pwBlockAt(x, y) : -1; return b < 0 || !pwLvR || b >= pwLvR.length ? 1 : pwLvR[b]; }
+function updatePower(dt) {
+  if (!pwReady()) return;
+  for (const m of facadeMats) powerMat(m); for (const m of glowSignMats) powerMat(m);
+  if (lampHeads) { powerMat(lampHeads.material, true); powerMat(lampPools.material, true); }
+  if (cozy.bulbs) powerMat(cozy.bulbs.material, true);
+  const nb = blocks.length, lh = Math.max(1, Math.ceil(nb / 256));
+  if (pwTexC !== pwCell) { // карта клеток пересобрана: новый город, загрузка, первый шаг
+    pwTexC = pwCell; const d = new Uint8Array(GW * GH * 4);
+    for (let i = 0; i < GW * GH; i++) { const id = pwCell[i]; if (id >= 0) { d[i * 4] = id & 255; d[i * 4 + 1] = id >> 8; d[i * 4 + 2] = 255; } }
+    const t = new THREE.DataTexture(d, GW, GH); t.needsUpdate = true; PW_U.pwCellT.value.dispose(); PW_U.pwCellT.value = t; PW_U.pwO.value.set(W / 2, H / 2);
+  }
+  if (pwTexB !== blocks || !pwLvR || pwLvR.length !== nb) {
+    pwTexB = blocks; pwLvR = Float32Array.from(pwOn); pwFt = new Float32Array(nb);
+    const d = new Uint8Array(256 * lh * 4).fill(255); for (let i = 0; i < nb; i++) d[i * 4] = pwOn[i] * 255;
+    const t = new THREE.DataTexture(d, 256, lh); t.needsUpdate = true; PW_U.pwLvT.value.dispose(); PW_U.pwLvT.value = t;
+  }
+  PW_U.pwG.value.set(1 / (GW * CS), 1 / (GH * CS), 256, lh);
+  const d = PW_U.pwLvT.value.image.data; let ch = false;
+  for (let i = 0; i < nb; i++) {
+    let v = pwLvR[i];
+    if (pwOn[i]) { pwFt[i] = 0; if (v < 1) v = Math.min(1, v + dt * 1.6); } // дали свет — лампы разгораются
+    else if (v > 0) { pwFt[i] += dt; v = pwFt[i] < .8 ? (Math.random() < .4 ? .12 : 1 - pwFt[i] * .6) : 0; } // отключили — мигают и гаснут
+    if (v !== pwLvR[i]) { pwLvR[i] = v; d[i * 4] = v * 255; ch = true; }
+  }
+  if (ch) PW_U.pwLvT.value.needsUpdate = true;
+}
 const TL_COL = { g: new THREE.Color("#30ff60"), y: new THREE.Color("#ffc020"), r: new THREE.Color("#ff2a20"), off: new THREE.Color("#202020") };
 function updateTrafficLights(dt) {
+  updatePower(dt);
   if (!tlLamps || !tlList.length) return; tlT -= dt; if (tlT > 0) return; tlT = .25;
-  const dark = typeof settings !== "undefined" && settings.dark;
   tlList.forEach((t, j) => {
-    const st = dark || t.n.sigBroken ? "off" : lightFor(t.n, t.e);
+    const st = t.n.sigBroken || pwLvAt(t.n.x, t.n.y) < .5 ? "off" : lightFor(t.n, t.e); // квартал обесточен — светофор погас
     // верхняя лампа — красный/жёлтый, нижняя — зелёный
     tlLamps.setColorAt(j * 2, st === "g" || st === "off" ? TL_COL.off : TL_COL[st]);
     tlLamps.setColorAt(j * 2 + 1, st === "g" ? TL_COL.g : TL_COL.off);
@@ -12456,6 +12603,129 @@ function regulPose(s, a) {
   aimBone(s.bones.LeftForeArm, s.bones.LeftHand, _snv.set(fx, .6, fz).normalize());
   aimBone(s.bones.RightForeArm, s.bones.RightHand, _snv.set(-fz, .2, fx).normalize());
 }
+
+/* ---------- фары и фонари: конусы света на земле и лучи в воздухе ----------
+   У едущих в сумерках и ночью машин от каждой фары на асфальт ложится вытянутый конус, а в воздухе виден полупрозрачный
+   луч — как у фонарика: в ясную ночь едва заметный, в дождь, снег, туман и дым густой. У военных и полицейских ночью
+   такие же фонари, только узкие. Настоящие источники света (освещают людей и стены) — только у машины игрока и у трёх
+   ближайших к камере машин: их число постоянно (пул), иначе шейдеры пересобирались бы на каждом включении. */
+// конус на земле: u — вперёд от фары, v — поперёк; две фары — два конуса, расходящихся из точек ±lamp
+function coneTex(lamps, spread) {
+  return canvasTex(128, 64, (g, w, h) => {
+    const img = g.createImageData(w, h);
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const f = i / (w - 1), y = (j / (h - 1) - .5) * 2; let a = 0;
+      for (const y0 of lamps) {
+        const half = .05 + f * spread, e = Math.abs(y - y0) / half;
+        a += (1 - clamp((e - .55) / .45)) * clamp(f / .07) * Math.pow(1 - f, 1.4) * (1 - .35 * clamp(e));
+      }
+      const k = (j * w + i) * 4, v = Math.round(clamp(a) * 255); img.data[k] = img.data[k + 1] = img.data[k + 2] = 255; img.data[k + 3] = v;
+    }
+    g.putImageData(img, 0, 0);
+  });
+}
+const beamGroundMat = (tex, col) => new THREE.MeshBasicMaterial({ map: tex, color: col, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
+// объёмный луч: открытый конус, вершина у фары, основание на расстоянии 1 по +x; ярче там, где поверхность смотрит на нас
+// (середина луча), и гаснет к краям силуэта и к дальнему концу
+const beamGeo = new THREE.ConeGeometry(1, 1, 14, 1, true).rotateZ(Math.PI / 2).translate(.5, 0, 0);
+const beamMat = new THREE.ShaderMaterial({
+  uniforms: { uK: { value: 0 }, uCol: { value: new THREE.Color(0xfff0d0) } },
+  vertexShader: `varying float vT; varying vec3 vN, vV, vC;
+    void main() {
+      vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.);
+      vT = position.x; vN = normalize(mat3(modelMatrix * instanceMatrix) * normal); vV = cameraPosition - wp.xyz; vC = vec3(1.);
+      #ifdef USE_INSTANCING_COLOR
+        vC = instanceColor;
+      #endif
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }`,
+  fragmentShader: `uniform float uK; uniform vec3 uCol; varying float vT; varying vec3 vN, vV, vC;
+    void main() {
+      float face = pow(abs(dot(normalize(vV), normalize(vN))), 1.6);
+      float along = smoothstep(0., .05, vT) * pow(1. - vT, 1.8);
+      gl_FragColor = vec4(uCol * vC * (uK * face * along), 1.);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+});
+const hb = { cap: 0, beams: null, carCones: null, handCones: null, smoke: new Map(), smokeT: 0, spots: [] };
+function hbMeshes(cap) {
+  for (const m of [hb.beams, hb.carCones, hb.handCones]) if (m) { scene.remove(m); m.dispose(); }
+  hb.cap = cap;
+  const mk = (geo, mat, n) => { const m = new THREE.InstancedMesh(geo, mat, n); m.count = 0; m.frustumCulled = false; m.renderOrder = 2; scene.add(m); return m; };
+  hb.beams = mk(beamGeo, beamMat, cap * 2 + 300); hb.beams.setColorAt(0, new THREE.Color(1, 1, 1));
+  hb.carCones = mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), beamGroundMat(coneTex([-.22, .22], .6), 0xfff2d0), cap);
+  hb.handCones = mk(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), beamGroundMat(coneTex([0], .55), 0xfff1d6), 300);
+}
+// пул настоящих фар: машина игрока и три ближайшие к камере
+for (let i = 0; i < 4; i++) { const l = new THREE.SpotLight(0xfff0d8, 0, 230, .5, .7, 1.2); scene.add(l, l.target); hb.spots.push(l); }
+// дым у земли — по частицам дыма, клетками по 48 ед.: в дыму лучи гуще
+function hbSmokeAt(x, z) { return hb.smoke.get((Math.floor(x / 48) + 2048) * 4096 + Math.floor(z / 48) + 2048) || 0; }
+const _hm = new THREE.Matrix4(), _hq = new THREE.Quaternion(), _he = new THREE.Euler(), _hv = new THREE.Vector3(), _hs = new THREE.Vector3(), _hc = new THREE.Color();
+function hbPut(mesh, i, x, y, z, yaw, pitch, sx, sy, sz) { _he.set(0, yaw, pitch, "YXZ"); _hq.setFromEuler(_he); _hm.compose(_hv.set(x, y, z), _hq, _hs.set(sx, sy, sz)); mesh.setMatrixAt(i, _hm); }
+function updateHeadBeams(dt) {
+  if (!cm) return;
+  cm.fixed.beams.visible = false; // старое круглое пятно — заменено конусами
+  if (!hb.beams || hb.cap < carCap) hbMeshes(Math.max(carCap, 200));
+  hb.smokeT -= dt;
+  if (hb.smokeT <= 0) { hb.smokeT = .3; hb.smoke.clear(); for (const p of PS_SMOKE.list) if (p.y < 70) { const k = (Math.floor(p.x / 48) + 2048) * 4096 + Math.floor(p.z / 48) + 2048; hb.smoke.set(k, (hb.smoke.get(k) || 0) + 1); } }
+  // погода: в ясную ночь луч едва виден, в дождь, снегопад и туман — густой
+  const air = .045 + world.rain * .4 + world.fogK * .4 + Math.min(1, cozy.fall) * .35;
+  let bi = 0, ci = 0, hi = 0;
+  const cand = [], camX = camera.position.x, camZ = camera.position.z;
+  if (carLightK > .15) for (const c of cars) {
+    const player = drive.car === c;
+    if (c.gone || c.wreck || !(c.moving || player) || (c.char || 0) > .5 || c.exploded || ci >= hb.cap) continue;
+    const M = carModelOf(c), half = (c.vlen || c.len || 1) * 9, cs = Math.cos(c.ang), sn = Math.sin(c.ang), yaw = -c.ang;
+    const rx = c.rx !== undefined ? c.rx : c.x, ry = c.ry !== undefined ? c.ry : c.y, fx = rx + cs * half, fy = ry + sn * half;
+    // конусы на земле — по уклону дороги перед машиной
+    const g0 = gY(fx, fy), g1 = gY(fx + cs * 60, fy + sn * 60), slope = Math.atan2(g1 - g0, 60);
+    hbPut(hb.carCones, ci++, X(fx + cs * 32), (g0 + g1) / 2 + .3, Z(fy + sn * 32), yaw, slope, 64, 1, 34);
+    const smk = clamp(hbSmokeAt(X(fx + cs * 30), Z(fy + sn * 30)) / 6), lz = M.lz || Math.min(M.track - .3, 2.6 * M.track / 3.45), ly = (M.ly || 2.4) + (c.z || 0), tilt = Math.atan2(ly + 1.5, 70);
+    _hc.setScalar(1 + smk * 2.5);
+    for (const s of [-1, 1]) if (bi < hb.beams.instanceMatrix.count) { hbPut(hb.beams, bi, X(fx - sn * lz * s), g0 + ly, Z(fy + cs * lz * s), yaw, slope - tilt, 80, 11, 11); hb.beams.setColorAt(bi++, _hc); }
+    const d = Math.hypot(X(fx) - camX, Z(fy) - camZ); cand.push([player ? -1 : d, c, fx, fy, g0 + ly, cs, sn, g1]);
+  }
+  // фонари силовиков: узкий луч из руки вперёд, конус на земле (раньше было круглое пятно — render3.js)
+  flashGlow.visible = false;
+  if (nightK > .05) for (const a of agents) {
+    if (a.state !== "alive" || (a.role !== "army" && a.role !== "police") || a.hidden || hi >= 300) continue;
+    const cs = Math.cos(a.dir), sn = Math.sin(a.dir), g = gY(a.x, a.y), yaw = -a.dir;
+    hbPut(hb.handCones, hi++, X(a.x + cs * 22), g + .25, Z(a.y + sn * 22), yaw, 0, 40, 1, 18);
+    if (bi < hb.beams.instanceMatrix.count) { _hc.setScalar(.55 + clamp(hbSmokeAt(X(a.x), Z(a.y)) / 6) * 2); hbPut(hb.beams, bi, X(a.x + cs * 1.5), g + 5, Z(a.y + sn * 1.5), yaw, -Math.atan2(5, 44), 46, 5.5, 5.5); hb.beams.setColorAt(bi++, _hc); }
+  }
+  hb.carCones.count = ci; hb.handCones.count = hi; hb.beams.count = bi;
+  for (const m of [hb.carCones, hb.handCones, hb.beams]) m.instanceMatrix.needsUpdate = true;
+  if (hb.beams.instanceColor) hb.beams.instanceColor.needsUpdate = true;
+  hb.carCones.material.opacity = carLightK * (.25 + nightK * .4); hb.handCones.material.opacity = nightK * .6;
+  beamMat.uniforms.uK.value = Math.max(carLightK, nightK) * air;
+  // настоящие фары: ближайшие к камере (игрок — всегда первым), не дальше 700 ед. от камеры
+  cand.sort((p, q) => p[0] - q[0]);
+  hb.spots.forEach((l, i) => {
+    const p = cand[i]; if (!p || p[0] > 700) { l.intensity = 0; return; }
+    const [, c, fx, fy, y, cs, sn, g1] = p;
+    l.position.set(X(fx), y + 1, Z(fy)); l.target.position.set(X(fx + cs * 70), g1, Z(fy + sn * 70)); l.target.updateMatrixWorld();
+    l.intensity = carLightK * 5;
+  });
+}
+// подстанции районов (sim12.js): значок над крышей одного размера на экране — видно, по чему ударить или что беречь; разрушена — красный
+const subMarks = new Map();
+function subMarkTex(i, down) {
+  return canvasTex(128, 64, g => { g.fillStyle = down ? "rgba(150,20,20,.85)" : "rgba(20,24,28,.8)"; g.fillRect(4, 4, 120, 56); g.strokeStyle = down ? "#ff6050" : "#ffd23c"; g.lineWidth = 4; g.strokeRect(4, 4, 120, 56); g.fillStyle = down ? "#ffb0a8" : "#ffd23c"; g.font = "bold 34px Oswald, Arial Narrow, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("⚡ПС-" + (i + 1), 64, 34); });
+}
+function updateSubMarks() {
+  for (const [b, o] of subMarks) if (!pwSubs.some(s => s.b === b)) { scene.remove(o); o.material.map.dispose(); o.material.dispose(); subMarks.delete(b); }
+  pwSubs.forEach((s, i) => {
+    let o = subMarks.get(s.b), down = s.b.state !== "ok";
+    if (!o || o.userData.down !== down) {
+      if (o) { scene.remove(o); o.material.map.dispose(); o.material.dispose(); }
+      o = new THREE.Sprite(new THREE.SpriteMaterial({ map: subMarkTex(i, down), depthWrite: false, depthTest: false, sizeAttenuation: false })); o.scale.set(.075, .0375, 1); o.renderOrder = 5; o.userData.down = down; subMarks.set(s.b, o); scene.add(o);
+    }
+    o.position.set(X(s.x), gY(s.x, s.y) + (down ? 10 : s.b.h || 20) + 12, Z(s.y));
+  });
+}
+const _hbUpdateCars = updateCars;
+updateCars = function () { _hbUpdateCars(); try { updateHeadBeams(Math.min(.1, fpsDtH())); updateSubMarks(); } catch (e) { console.warn("фары", e); } };
+let _hbT = 0; function fpsDtH() { const t = performance.now(), d = _hbT ? (t - _hbT) / 1000 : .016; _hbT = t; return d; }
 
 /* ---------- обработка картинки: свечение, затенение, цветокоррекция ---------- */
 // финальный проход: тональная кривая ACES, насыщенность, контраст, тёплый оттенок, виньетка, плёночное зерно, перевод в sRGB
@@ -14327,8 +14597,8 @@ function updateCozy(fxDt, dt) {
   cozy.aut += ((autumn ? 1 : 0) - cozy.aut) * Math.min(1, dt * .35);
   COZY.snow.value = cozy.cover; COZY.aut.value = cozy.aut;
   if (typeof grass !== "undefined" && cozy.cover > .55) grass.visible = false; // траву замело
-  // гирлянды: днём лампочки чуть видны, в сумерках разгораются; без света гаснут
-  if (cozy.bulbs) { const k = settings.dark ? 0 : .35 + clamp(nightK * 1.4) * 2.2, tw = 1 + Math.sin(performance.now() / 700) * .04; cozy.bulbs.material.color.setScalar(k * tw); }
+  // гирлянды: днём лампочки чуть видны, в сумерках разгораются; без света гаснут по кварталам (powerMat, render7.js)
+  if (cozy.bulbs) { const k = .35 + clamp(nightK * 1.4) * 2.2, tw = 1 + Math.sin(performance.now() / 700) * .04; cozy.bulbs.material.color.setScalar(k * tw); }
   stepSnow(dt); stepLeaves(fxDt); stepFireflies(dt); stepSmoke(fxDt); stepSitters(dt); stepDogs(fxDt); stepCats(dt);
 }
 
@@ -14756,7 +15026,7 @@ function serializeGame() {
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather, season: world.season }, settings: { ...settings }, editRoads,
-    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
+    families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, power: pwSave(), traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     camp, // кампания: день, итоги по дням, бюджет (campaign.js)
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
@@ -14791,7 +15061,7 @@ function loadGame(S) {
   buildCrossings(); evac = null; strikes = []; noises = []; machines = []; nuke = null; radZones = []; timers = []; reports = []; wallJobs = []; interests = []; stats = []; events = []; firsts = { zombie: true, ...(S.firstsX || {}) };
   resetExtras(); families = S.families || []; famMap = {}; for (const f of families) famMap[f.id] = f;
   heroes = (S.heroes || []).map(agentById).filter(Boolean); metros = S.metros || []; depots = S.depots || []; strain = S.strain || { lvl: 1, t: 0 }; chDone = S.chDone || 0; chFail = S.chFail || 0;
-  resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout || null; settings.dark = !!blackout;
+  resetBuild(); towers = S.towers || []; floods = S.floods || []; camps = S.camps || []; blackout = S.blackout && !S.blackout.infra ? S.blackout : null; pwLoad = S.power || null; // свет по кварталам (sim12.js); старая «авария ТЭЦ» infra — теперь по состоянию ТЭЦ
   resetWorld2(); traps = S.traps || []; gens = S.gens || []; if (S.elecMask) elecMask.set(S.elecMask); quarMask.fill(0); if (S.quarMask) quarMask.set(S.quarMask); cps = S.cps || []; factions = S.factions || []; hq = S.hq || hq; dangers = S.dangers || []; dayN = S.dayN || 1; resetResponse(); alert = S.alert || 0; alertT = S.alertT || 0; respLog = S.respLog || {}; resetAuto(); medpoints = S.medpoints || []; for (const m of medpoints) { m.cells = []; for (let gy = Math.floor((m.y - 6) / CS); gy <= Math.floor((m.y + 6) / CS); gy++) for (let gx = Math.floor((m.x - 9) / CS); gx <= Math.floor((m.x + 9) / CS); gx++) { const i = gy * GW + gx; if (grid[i] === 5) m.cells.push([i, 1]); } } settings.curfew = !!S.curfew;
   // зоны карантина; у старых сохранений нет ни ворот, ни снятия — такие зоны остаются как поставил игрок
   wallJobs = (S.wallJobs || []).map(j => ({ prev: {}, mouths: [], quietT: 0, ...j, gate: j.gate || [(j.x0 + j.x1) / 2, j.y1], cp: cps[j.cp] || null })); zoneOf.fill(0); if (S.zones) zoneOf.set(unb64(S.zones, Int16Array)); zoneSeq = S.zoneSeq || wallJobs.length;
@@ -15879,7 +16149,7 @@ function updateUI() {
   for (const [id, v] of [["nH", c.H], ["nI", c.I], ["nZ", c.Z], ["nD", c.D], ["nS", c.S], ["nF", c.F]]) $(id).textContent = v;
   $("vacBar").style.width = Math.floor(research * 100) + "%"; $("vacO").textContent = vaccineReady ? "готова" : Math.floor(research * 100) + "%";
   const hungry = hungryCount();
-  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: world.season === "winter" ? "метель" : "гроза", snow: "снегопад" }[world.weather] : ""}${world.season !== "summer" ? " · " + { autumn: "осень", winter: "зима" }[world.season] : ""}${settings.dark ? " · нет света" : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
+  $("clock").textContent = `${hourLabel()}${world.weather !== "clear" ? " · " + { rain: "дождь", fog: "туман", storm: world.season === "winter" ? "метель" : "гроза", snow: "снегопад" }[world.weather] : ""}${world.season !== "summer" ? " · " + { autumn: "осень", winter: "зима" }[world.season] : ""}${pwOffK > .01 ? ` · нет света: ${Math.round(pwOffK * 100)}% кварталов` : ""} · ${mmss(simT)} · укусов ${bites} · зомби уничтожено ${zkills}${cured ? " · вылечено " + cured : ""}${firsts.zombie ? " · штамм " + STRAIN_NAMES[strain.lvl - 1] : ""}${hungry ? " · голодают " + hungry : ""}${settings.noWater ? " · нет воды" : ""}${settings.noRadio ? " · нет связи" : ""}${dayN > 1 ? " · день " + dayN : ""}${(alert ? " · ЧС " + alert + " " + ALERT_N[alert] + (hq.known ? " · штабу известно " + hq.known : "") : "") + (typeof threatLabel === "function" ? threatLabel() : "")}${settings.curfew ? " · комендантский час" : ""} · ${perfStats.fps} к/с`;
   renderHeroes(); squadHud(); renderFactions(); updateCampaignUI();
   if (logDirty) { logDirty = false; $("log").innerHTML = events.slice(0, 40).map(e => `<li class="${e.cls || ""}"><time>${mmss(e.t)}</time>${e.text}</li>`).join(""); updateNews(); }
   drawChart();

@@ -295,12 +295,12 @@ function updateLighting(dt, simDt) {
   stars.position.copy(sp); stars.material.opacity = nightK * (1 - gloom) * .9;
   sky.position.set(sp.x, 0, sp.z); // купол едет за камерой: иначе на широкой карте его дальняя стенка уходит за дальность камеры и в небе чёрная дыра
   for (const c of clouds) { c.position.x += dt * 12; if (c.position.x > sp.x + 4500) c.position.x -= 9000; c.material.color.setRGB(.25 + day * .75, .25 + day * .72, .3 + day * .7).lerp(_lc1.setHex(0xff9a70), dusk * .5); c.material.opacity = .35 + gloom * .55; }
-  // окна, фонари, мокрый асфальт
-  const powerK = settings.dark ? 0 : 1;
-  for (const m of facadeMats) m.emissiveIntensity = nightK * 1.1 * powerK;
-  for (const m of glowSignMats) m.emissiveIntensity = nightK * .9 * powerK;
-  if (lampHeads) { lampHeads.material.emissiveIntensity = nightK * 3 * powerK; lampPools.material.opacity = nightK * .5 * powerK; }
-  if (settings.dark) { hemi.intensity *= .6; sun.intensity *= .8; }
+  // окна, фонари, мокрый асфальт; без света они гаснут по кварталам — шейдер по карте питания (render7.js)
+  for (const m of facadeMats) m.emissiveIntensity = nightK * 1.1;
+  for (const m of glowSignMats) m.emissiveIntensity = nightK * .9;
+  if (lampHeads) { lampHeads.material.emissiveIntensity = nightK * 3; lampPools.material.opacity = nightK * .5; }
+  const dk = 1 - pwLvAt(camC.tx + W / 2, camC.tz + H / 2); // обесточенный квартал под камерой: ночью без городского зарева темнее
+  if (dk > 0) { hemi.intensity *= 1 - .4 * dk * nightK; sun.intensity *= 1 - .2 * dk * nightK; }
   ground.material.roughness = .93 - world.wet * .55; ground.material.color.setScalar(1 - world.wet * .3);
   // молнии в грозу
   world.flash = clamp(world.flash - Math.max(0, dt) * 4, 0, 1.5);

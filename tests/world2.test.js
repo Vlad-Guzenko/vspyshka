@@ -23,7 +23,8 @@ for(let k=0;k<8;k++){const z=newAgent('zombie',cx+rnd(-60,60),cy-80+rnd(-30,30))
 let errs=0;
 for(let i=0;i<20*330;i++){
   try{step(0.05);}catch(e){errs++; if(errs<3)console.log('ERR',simT|0,e.stack.slice(0,400));}
-  if(i===20*60){ if(special.power){const b=special.power.b; b.state='ruin'; log('power plant ruined ->', 'blackout', !!blackout);} }
+  if(i===20*60){ if(special.power){const b=special.power.b; b.state='ruin'; log('power plant ruined ->', 'off', pwOffK.toFixed(2));} }
+  if(i===20*110){ log('dark blocks after 50s', pwOffK.toFixed(2), 'settings.dark', settings.dark); }
   if(i===20*150){ if(special.power){special.power.b.state='ok';} if(special.radio){special.radio.b.state='ruin';} log('radio ruined');}
   if(i===20*200){ log('gather w/o radio', broadcastGather(cx,cy)); if(special.radio) special.radio.b.state='ok'; }
   if(i===20*240){ const f=factions.find(f=>f.kind==='commune'); log('commune?', !!f, f?f.members.length:0); if(f) supplyFaction(f); hqRep(1,'test'); hqRep(1,'test'); }

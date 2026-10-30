@@ -156,7 +156,7 @@ function shoot(s, t) {
   noises.push({ x: s.x, y: s.y, t: simT, r: army ? 320 : 240 });
   const d = Math.hypot(t.x - s.x, t.y - s.y), moving = Math.hypot(t.vx, t.vy) > 10 ? .85 : 1;
   const sniper = s.hero === "sniper";
-  const nightK2 = settings.night && !litAt(t.x, t.y) ? (settings.dark ? .5 : .7) : 1;
+  const nightK2 = settings.night && !litAt(t.x, t.y) ? (powerAt(t.x, t.y) ? .7 : .5) : 1;
   const acc = clamp((army ? .85 : sniper ? .92 : police ? .6 : .4) * (1 - d / (sniper ? 600 : 360)) * nightK2 * moving * (t.ztype === "crawler" ? .55 : 1) * (t.ztype === "titan" ? 1.3 : 1) * (s.post ? 1.15 : 1), .05, .95);
   sfx.shot(s);
   const ang = Math.atan2(t.y - s.y, t.x - s.x);
@@ -190,7 +190,7 @@ function shoot(s, t) {
 
 /* ---------- поведение ---------- */
 function ignite(a) { if (!(a.onFire > 0)) { a.onFire = rnd(4, 9); if (a.role !== "zombie") { a.panic = 1; first("burn", "Люди горят заживо", "bad"); } } }
-function sightR(a) { const night = settings.night && !(a && litAt(a.x, a.y)); return (night ? (settings.dark ? 60 : 85) : 150) * (settings.vis || 1) * (1 + .12 * strainK()) * (a && a.post ? 2 : 1); }
+function sightR(a) { const night = settings.night && !(a && litAt(a.x, a.y)); return (night ? (a && !powerAt(a.x, a.y) ? 60 : 85) : 150) * (settings.vis || 1) * (1 + .12 * strainK()) * (a && a.post ? 2 : 1); }
 function wander(a, dt) {
   // прогулка вдоль улиц: идём по прямой, на перекрёстках иногда сворачиваем, иногда стоим
   a.wanderT -= dt;
@@ -271,7 +271,7 @@ function thinkHuman(a, dt) {
   // спокойный прохожий принимает бредущего зомби за пьяного, пока тот не подойдёт вплотную
   const lit = !settings.night || litAt(a.x, a.y);
   const fac = a.faction ? factionOf(a) : null;
-  const aware = a.panic > .3 || a.role === "army" || a.role === "police" ? sight : (settings.fast ? 34 : 12) * (lit ? 1 : settings.dark ? .45 : .65);
+  const aware = a.panic > .3 || a.role === "army" || a.role === "police" ? sight : (settings.fast ? 34 : 12) * (lit ? 1 : powerAt(a.x, a.y) ? .65 : .45);
   nearZ(a.x, a.y, aware, b => {
     if (b.state !== "alive") return;
     const d = Math.hypot(b.x - a.x, b.y - a.y);

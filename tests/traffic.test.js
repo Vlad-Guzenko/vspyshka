@@ -58,7 +58,7 @@ for (let i = 0; i < 20 * secs; i++) {
     if (c.v >= 1) continue;
     cur.s++; const w = why(c)[0]; cur.why[w] = (cur.why[w] || 0) + 1;
     // стоит у стоп-линии на зелёный (или у погасшего светофора): то, на что жалуются игроки
-    if (!c.turn && c.lane.to.sig && !settings.dark && laneEnd(c.lane) - c.s < 34 && lightFor(c.lane.to, c.lane.e) === 'g') { cur.g = (cur.g || 0) + 1; cur.gw = cur.gw || {}; cur.gw[w] = (cur.gw[w] || 0) + 1; }
+    if (!c.turn && sigOn(c.lane.to) && laneEnd(c.lane) - c.s < 34 && lightFor(c.lane.to, c.lane.e) === 'g') { cur.g = (cur.g || 0) + 1; cur.gw = cur.gw || {}; cur.gw[w] = (cur.gw[w] || 0) + 1; }
     if (i % 40 === 0) { const st = c.stallT || 0; if (!longest[w] || longest[w].st < st) longest[w] = { st, i: cars.indexOf(c), t: simT | 0 }; }
     if (simT > 120) { const nd = c.turn ? c.turn.n : c.lane.to; let o = nodeStat.get(nd); if (!o) nodeStat.set(nd, o = { n: 0, why: {} }); o.n++; o.why[w] = (o.why[w] || 0) + 1; }
   }
