@@ -434,8 +434,8 @@ function updateCozy(fxDt, dt) {
   cozy.aut += ((autumn ? 1 : 0) - cozy.aut) * Math.min(1, dt * .35);
   COZY.snow.value = cozy.cover; COZY.aut.value = cozy.aut;
   if (typeof grass !== "undefined" && cozy.cover > .55) grass.visible = false; // траву замело
-  // гирлянды: днём лампочки чуть видны, в сумерках разгораются; без света гаснут
-  if (cozy.bulbs) { const k = settings.dark ? 0 : .35 + clamp(nightK * 1.4) * 2.2, tw = 1 + Math.sin(performance.now() / 700) * .04; cozy.bulbs.material.color.setScalar(k * tw); }
+  // гирлянды: днём лампочки чуть видны, в сумерках разгораются; без света гаснут по кварталам (powerMat, render7.js)
+  if (cozy.bulbs) { const k = .35 + clamp(nightK * 1.4) * 2.2, tw = 1 + Math.sin(performance.now() / 700) * .04; cozy.bulbs.material.color.setScalar(k * tw); }
   stepSnow(dt); stepLeaves(fxDt); stepFireflies(dt); stepSmoke(fxDt); stepSitters(dt); stepDogs(fxDt); stepCats(dt);
 }
 

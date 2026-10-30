@@ -22,12 +22,72 @@ function buildTrafficLights() {
   tlT = 0;
 }
 let tlT = 0;
+
+/* ---------- свет по кварталам: карта питания в шейдерах окон, вывесок, фонарей и гирлянд ----------
+   pwCellT — номер квартала каждой клетки (pwCell из sim12.js), pwLvT — яркость квартала 0..1. При отключении лампы
+   коротко мигают и гаснут, при включении разгораются; светофоры гаснут по той же яркости. */
+const PW_U = { pwCellT: { value: null }, pwLvT: { value: null }, pwG: { value: new THREE.Vector4(1, 1, 1, 1) }, pwO: { value: new THREE.Vector2() } };
+for (const [k, v] of [["pwCellT", 0], ["pwLvT", 255]]) { const t = new THREE.DataTexture(new Uint8Array([v, v, v, 255]), 1, 1); t.needsUpdate = true; PW_U[k].value = t; }
+const PW_GLSL = `uniform sampler2D pwCellT, pwLvT; uniform vec4 pwG; uniform vec2 pwO; varying vec3 vPwW;
+float pwAt(vec3 w) {
+  vec2 uv = (w.xz + pwO) * pwG.xy;
+  if (uv.x < 0. || uv.y < 0. || uv.x > 1. || uv.y > 1.) return 1.;
+  vec4 c = texture2D(pwCellT, uv); if (c.b < .5) return 1.;
+  float id = floor(c.r * 255. + .5) + 256. * floor(c.g * 255. + .5);
+  return texture2D(pwLvT, vec2((mod(id, pwG.z) + .5) / pwG.z, (floor(id / pwG.z) + .5) / pwG.w)).r;
+}`;
+// origin: яркость берётся в точке самого экземпляра (фонарь, лампочка гирлянды), иначе — в каждой точке поверхности (фасад, вывеска)
+function powerMat(m, origin) {
+  if (!m || m.userData.pw) return; m.userData.pw = true;
+  const prev = m.onBeforeCompile, key = m.customProgramCacheKey() + "|pw" + (origin ? "o" : ""), v = origin ? "vec4(0., 0., 0., 1.)" : "vec4(transformed, 1.)";
+  m.onBeforeCompile = (sh, r) => {
+    prev.call(m, sh, r); Object.assign(sh.uniforms, PW_U);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vPwW;").replace("#include <project_vertex>", `#include <project_vertex>
+      #ifdef USE_INSTANCING
+        vPwW = (modelMatrix * instanceMatrix * ${v}).xyz;
+      #else
+        vPwW = (modelMatrix * ${v}).xyz;
+      #endif`);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\n" + PW_GLSL);
+    sh.fragmentShader = m.isMeshStandardMaterial ? sh.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  totalEmissiveRadiance *= pwAt(vPwW);")
+      : sh.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= pwAt(vPwW);");
+  };
+  m.customProgramCacheKey = () => key; m.needsUpdate = true;
+}
+let pwLvR = null, pwFt = null, pwTexB = null, pwTexC = null;
+function pwLvAt(x, y) { const b = typeof pwBlockAt === "function" ? pwBlockAt(x, y) : -1; return b < 0 || !pwLvR || b >= pwLvR.length ? 1 : pwLvR[b]; }
+function updatePower(dt) {
+  if (!pwReady()) return;
+  for (const m of facadeMats) powerMat(m); for (const m of glowSignMats) powerMat(m);
+  if (lampHeads) { powerMat(lampHeads.material, true); powerMat(lampPools.material, true); }
+  if (cozy.bulbs) powerMat(cozy.bulbs.material, true);
+  const nb = blocks.length, lh = Math.max(1, Math.ceil(nb / 256));
+  if (pwTexC !== pwCell) { // карта клеток пересобрана: новый город, загрузка, первый шаг
+    pwTexC = pwCell; const d = new Uint8Array(GW * GH * 4);
+    for (let i = 0; i < GW * GH; i++) { const id = pwCell[i]; if (id >= 0) { d[i * 4] = id & 255; d[i * 4 + 1] = id >> 8; d[i * 4 + 2] = 255; } }
+    const t = new THREE.DataTexture(d, GW, GH); t.needsUpdate = true; PW_U.pwCellT.value.dispose(); PW_U.pwCellT.value = t; PW_U.pwO.value.set(W / 2, H / 2);
+  }
+  if (pwTexB !== blocks || !pwLvR || pwLvR.length !== nb) {
+    pwTexB = blocks; pwLvR = Float32Array.from(pwOn); pwFt = new Float32Array(nb);
+    const d = new Uint8Array(256 * lh * 4).fill(255); for (let i = 0; i < nb; i++) d[i * 4] = pwOn[i] * 255;
+    const t = new THREE.DataTexture(d, 256, lh); t.needsUpdate = true; PW_U.pwLvT.value.dispose(); PW_U.pwLvT.value = t;
+  }
+  PW_U.pwG.value.set(1 / (GW * CS), 1 / (GH * CS), 256, lh);
+  const d = PW_U.pwLvT.value.image.data; let ch = false;
+  for (let i = 0; i < nb; i++) {
+    let v = pwLvR[i];
+    if (pwOn[i]) { pwFt[i] = 0; if (v < 1) v = Math.min(1, v + dt * 1.6); } // дали свет — лампы разгораются
+    else if (v > 0) { pwFt[i] += dt; v = pwFt[i] < .8 ? (Math.random() < .4 ? .12 : 1 - pwFt[i] * .6) : 0; } // отключили — мигают и гаснут
+    if (v !== pwLvR[i]) { pwLvR[i] = v; d[i * 4] = v * 255; ch = true; }
+  }
+  if (ch) PW_U.pwLvT.value.needsUpdate = true;
+}
 const TL_COL = { g: new THREE.Color("#30ff60"), y: new THREE.Color("#ffc020"), r: new THREE.Color("#ff2a20"), off: new THREE.Color("#202020") };
 function updateTrafficLights(dt) {
+  updatePower(dt);
   if (!tlLamps || !tlList.length) return; tlT -= dt; if (tlT > 0) return; tlT = .25;
-  const dark = typeof settings !== "undefined" && settings.dark;
   tlList.forEach((t, j) => {
-    const st = dark || t.n.sigBroken ? "off" : lightFor(t.n, t.e);
+    const st = t.n.sigBroken || pwLvAt(t.n.x, t.n.y) < .5 ? "off" : lightFor(t.n, t.e); // квартал обесточен — светофор погас
     // верхняя лампа — красный/жёлтый, нижняя — зелёный
     tlLamps.setColorAt(j * 2, st === "g" || st === "off" ? TL_COL.off : TL_COL[st]);
     tlLamps.setColorAt(j * 2 + 1, st === "g" ? TL_COL.g : TL_COL.off);

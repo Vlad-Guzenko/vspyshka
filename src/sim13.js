@@ -68,14 +68,14 @@ function infraOk(k) { const s = special[k]; return !!(s && s.b && s.b.state === 
 function stepInfra(dt) {
   for (const k in INFRA) {
     const s = special[k]; if (!s) continue; const b = s.b;
-    if (b.state !== "ok" && !s.down) { s.down = true; logE(`Выведена из строя ${INFRA[k]}` + (k === "power" ? ": город без света, пока её не отстроят" : k === "water" ? ": пожарным нечем тушить, в убежищах нет воды" : ": диспетчер не слышит вызовы, оповещения не работают"), "bad"); radio(k === "radio" ? "…связи нет…" : `Диспетчер: потеряна ${INFRA[k]}`); }
+    if (b.state !== "ok" && !s.down) { s.down = true; logE(`Выведена из строя ${INFRA[k]}` + (k === "power" ? ": свет гаснет квартал за кварталом, пока её не отстроят" : k === "water" ? ": пожарным нечем тушить, в убежищах нет воды" : ": диспетчер не слышит вызовы, оповещения не работают"), "bad"); radio(k === "radio" ? "…связи нет…" : `Диспетчер: потеряна ${INFRA[k]}`); }
     if (b.state === "ok" && s.down) { s.down = false; logE(`Восстановлена ${INFRA[k]}`, "good"); }
     if (b.fire > 0 && !s.fireLogged) { s.fireLogged = true; logE(`Пожар: горит ${INFRA[k]}`, "bad"); }
     if (b.fire <= 0) s.fireLogged = false;
   }
   settings.noWater = special.water ? !infraOk("water") : false;
   settings.noRadio = special.radio ? !infraOk("radio") : false;
-  if (special.power) { const down = !infraOk("power"); if (down && !blackout) { blackout = { t: 1e9, T: 1e9, infra: true }; settings.dark = true; } if (!down && blackout && blackout.infra) { blackout = null; settings.dark = false; logE("Свет дали", "good"); } }
+  // свет при отказе ТЭЦ гаснет волной по кварталам — stepPower (sim12.js)
 }
 
 /* ---------- оповещения и слухи ---------- */

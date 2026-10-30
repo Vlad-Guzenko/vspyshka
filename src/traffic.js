@@ -75,7 +75,7 @@ let enterWhy = "", enterBy = null;
 const enterNo = w => { if (!enterWhy) enterWhy = w; return false; };
 function canEnter(c, l, m, deep) {
   enterWhy = ""; enterBy = null;
-  const n = l.to, sig = n.sig && !settings.dark; // без света светофоры гаснут — едут по старшинству
+  const n = l.to, sig = sigOn(n); // в обесточенном квартале светофоры гаснут — едут по старшинству
   // долго ждёт у «уступи дорогу» — проезжает, но не на красный, не через завал и не туда, где за перекрёстком нет места
   const force = c.wait > 40 || (c.stallT || 0) > 40;
   // за перекрёстком короткая полоса до следующего: въезжаем, только если проедем и его (иначе встанем поперёк этого)
@@ -177,7 +177,7 @@ function oncomingNear(c, l) {
     if (e === l.e || busy) continue;
     const v = edgeDirFrom(e, n); if (u[0] * v[0] + u[1] * v[1] > -.6) continue; // не напротив
     const inL = e.b === n ? e.L[0] : e.L[1]; if (!inL) continue;
-    if (n.sig && !settings.dark && lightFor(n, e) === "r") continue; // у них красный
+    if (sigOn(n) && lightFor(n, e) === "r") continue; // у них красный
     const p = lanePos(inL, Math.max(laneStart(inL), laneEnd(inL) - 30));
     // считаем тех, кто едет, и тех, кто только что подъехал к линии; давно стоящий у линии встречный сам чего-то ждёт — его не ждём
     nearCars(p.x, p.y, 42, o => { if (busy || o === c || o.gone || o.lane !== inL || o.turn || !o.moving) return; const d = laneEnd(inL) - o.s; if (d < 60 && d > -2 && (o.v > 2 || (d < 16 && (o.stallT || 0) < 3)) && !(o.next && turnAngle(inL, o.next) < -.45)) busy = true; });
@@ -272,7 +272,7 @@ function zebraPeople(e, t, hw, side) {
 function zebrasOnLane(l) {
   const e = l.e; if (e.rural) return null;
   const out = []; if (e.kind !== "ring" && e.len > 260) out.push([e.len / 2, 0]);
-  const n = l.to; if (n.ed.length >= 3) out.push([laneEnd(l) + 6, n.sig && !settings.dark ? l.d : 0]);
+  const n = l.to; if (n.ed.length >= 3) out.push([laneEnd(l) + 6, sigOn(n) ? l.d : 0]);
   return out;
 }
 // перед переходом с людьми машина встаёт так, чтобы нос не заходил на зебру (полоса зебры ±5 от центра, полкузова 10);
@@ -291,7 +291,7 @@ function zebraStopTurn(c, clear) {
   if (c.panic || c.flee || (c.service && c.siren)) return clear;
   const T = c.turn, n = T.n; if (n.ed.length < 3) return clear;
   const m = T.to, dOut = T.len - T.u - 6;
-  if (dOut >= 15 && dOut < 48 && !m.e.rural && zebraPeople(m.e, edgeTOfLane(m, laneStart(m) - 6), m.e.hw, n.sig && !settings.dark ? m.d : 0)) clear = Math.min(clear, Math.max(0, dOut - 17));
+  if (dOut >= 15 && dOut < 48 && !m.e.rural && zebraPeople(m.e, edgeTOfLane(m, laneStart(m) - 6), m.e.hw, sigOn(n) ? m.d : 0)) clear = Math.min(clear, Math.max(0, dOut - 17));
   return clear;
 }
 // спокойный пешеход перед проезжей частью смотрит по сторонам: машина близко и едет на него — ждёт у бордюра
@@ -302,7 +302,7 @@ function zebraWait(a, m) {
   const nx = a.x + m[0] / L * 7, ny = a.y + m[1] / L * 7, ni = ci(nx, ny); if (!(grid[ni] === 0 && roadMask[ni] === 1)) return m;
   // у светофора переход открыт, когда машинам на этой улице красный
   const q = gEdgeNear(nx, ny, 40);
-  if (q && !q.e.rural) { const n = q.t < q.e.len / 2 ? q.e.a : q.e.b; if (n.sig && !settings.dark && Math.hypot(n.x - nx, n.y - ny) < q.e.hw * 2.5 + 20 && lightFor(n, q.e) !== "r") return [0, 0, 0]; }
+  if (q && !q.e.rural) { const n = q.t < q.e.len / 2 ? q.e.a : q.e.b; if (sigOn(n) && Math.hypot(n.x - nx, n.y - ny) < q.e.hw * 2.5 + 20 && lightFor(n, q.e) !== "r") return [0, 0, 0]; }
   // ждёт, если машина едет на него, или если у перехода уже стоит и ждёт своей очереди машина (по очереди, а не вечный поток людей)
   let car = false;
   nearCars(a.x, a.y, 48, c => {
