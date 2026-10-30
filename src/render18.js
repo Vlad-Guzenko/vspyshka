@@ -91,6 +91,14 @@ function districtMesh(b, obj, box, w, d) {
     lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
     return true;
   }
+  if (k === "kom" || k === "stroy") {
+    // базы служб: ряд гаражных ворот на фасаде к площадке, вывеска над ними, плоская крыша
+    const gm = k === "kom" ? gateMats[2] : gateMats[1], n = Math.max(2, Math.floor((w - 4) / 11));
+    for (let i = 0; i < n; i++) lmAdd(obj, new THREE.BoxGeometry(8.4, 8, .3), gm, -w / 2 + 2 + (w - 4) * (i + .5) / n, 4.1, d / 2 + .16);
+    landSign(obj, k === "kom" ? "КОММУНАЛЬНОЕ ДЕПО" : "СТРОЙБАЗА · СПЕЦТЕХНИКА", k === "kom" ? "#2e5a3a" : "#2a2d30", k === "kom" ? "#f2f0e8" : "#f2c846", Math.min(30, w - 2), b.h - 1.4, d / 2 + .35);
+    lmAdd(obj, new THREE.BoxGeometry(w + .6, .5, d + .6), parapetMat, 0, b.h + .25, 0);
+    return true;
+  }
   if (k === "autoservice") {
     // автосервис: широкие ворота, вывеска, стопка шин у стены
     lmAdd(obj, new THREE.BoxGeometry(11, 9, .3), gateMats[3], -w / 2 + 8, 4.6, d / 2 + .16);

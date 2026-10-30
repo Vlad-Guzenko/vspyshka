@@ -7,7 +7,7 @@ const src = ['sim1.js', 'roads.js', 'layout.js', 'layout2.js', 'traffic.js', 'te
 const stub = `let dn=0;function addDecal(){return dn++}function fxBlood(){}function fxHit(){}function fxShot(){}function fxBoom(){}function fxDebris(){}function fxCollapse(){}function fxToppleImpact(){}function fxCannon(){}function onBanner(t){} function onResult(){} function onRadio(){} const world={hour:13}; function hourLabel(){return ""} function mmss(t){return t} let lastCounts=null;
 const sfx=new Proxy({},{get:()=>()=>{}});`;
 const body = `
-const [layout, secs, tripShare, density, seed] = [process.argv[2] || 'suburb', +process.argv[3] || 240, process.argv[4] !== undefined ? +process.argv[4] : TRAFFIC_TUNE.tripShare, +process.argv[5] || 1, +process.argv[6] || 1];
+const [layout, secs, tripShare, density, seed] = [process.argv[2] || 'suburb', +process.argv[3] || 240, process.argv[4] !== undefined && process.argv[4] !== '' ? +process.argv[4] : TRAFFIC_TUNE.tripShare, +process.argv[5] || 1, +process.argv[6] || 1];
 // свой генератор случайных чисел с сидом: один и тот же город и поток от прогона к прогону
 let sd = seed >>> 0 || 1; Math.random = () => { sd += 0x6D2B79F5; let t = sd; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 settings.fast = true; TRAFFIC_TUNE.tripShare = tripShare; TRAFFIC_TUNE.density = density;
@@ -19,7 +19,7 @@ function why(c) {
   if (c.jamS > 0 || c.jam) return [(c.turn ? 'turn' : 'lane') + ':jam', null]; // упёрлась в чужой кузов (sim16.js)
   if (c.turn) {
     const T = c.turn, p = plPos(T.pts, T.cum, T.u), m = T.to;
-    if (c.yieldTo && simT < c.yieldT && !c.yieldTo.gone) return ['turn:yieldTo', c.yieldTo];
+    if (c.yieldTo && simT < c.yieldUntil && !c.yieldTo.gone) return ['turn:yieldTo', c.yieldTo];
     const A = scanAhead(c, c.x, c.y, p.tx, p.ty, null);
     if (A.clear < 13.5) return [A.ahead ? (A.ahead.turn ? 'turn:aheadTurn' : 'turn:aheadLane') : 'turn:people', A.ahead];
     if (nextLaneGap(c, m, laneStart(m) - (T.len - T.u)) < 13) return ['turn:nextLaneGap', gapCar(c, m)];
@@ -31,16 +31,10 @@ function why(c) {
   for (let k = 10; k < 40; k += 6) { const q = lanePos(l, Math.min(c.s + k, l.e.len)), cc = cellAt(q.x + q.ty * (c.latOff || 0), q.y - q.tx * (c.latOff || 0)); if (cc === 5 && !c.over && k - 6 < 13) return ['lane:cell5', null]; if ((cc === 3 || cc === 4 || cc === 6 || cc === 8 || cc === 9) && k < 13) return ['lane:cell' + cc, null]; }
   if (A.clear < 13.5) return [A.ahead ? (A.ahead.turn ? 'lane:aheadTurn' : A.ahead.lane === l ? 'lane:queue' : 'lane:aheadOther') : 'lane:people', A.ahead];
   if (zebraStop(c, l, 1e9) < 13) return ['lane:zebra', null];
-  if (!l.to.exit && sE - c.s < 34 && (!c.next || !canEnter(c, l, c.next))) {
+  // у стоп-линии: причину отказа сообщает сам canEnter (enterWhy, enterBy)
+  if (!l.to.exit && sE - c.s < Math.max(34, c.v * c.v / 45 + 18) && (!c.next || !canEnter(c, l, c.next))) {
     if (!c.next) return ['line:noNext', null];
-    const n = l.to, m = c.next, sig = n.sig && !settings.dark;
-    if (shortLane(c, m) && c.next2 && !canEnter(c, m, c.next2, true)) return ['line:short', null];
-    if (sig) { const st = lightFor(n, l.e); if (st === 'r' || (st === 'y' && c.v < 6)) return ['line:red', null]; if (m.e.len < 90 && m.to.sig && n.grpA.has(l.e) === n.grpA.has(m.e) && lightFor(m.to, m.e) !== 'g') return ['line:nextRed', null]; }
-    if (!sig && n.ed.length >= 3) { const my = rankAt(l.e); for (const e of n.ed) { if (e === l.e || rankAt(e) <= my) continue; const inL = e.b === n ? e.L[0] : e.L[1]; if (!inL) continue; let b = null; const q = lanePos(inL, laneEnd(inL) - 14); nearCars(q.x, q.y, 22, o => { if (!b && o !== c && o.lane === inL && !o.turn && o.moving && laneEnd(inL) - o.s < 30 && o.v > 1.5) b = o; }); if (b) return ['line:rank', b]; } }
-    if (n.ed.length >= 3 && turnAngle(l, m) < -.45 && oncomingNear(c, l)) return ['line:oncoming', null];
-    const mine = makeTurn(l, m); for (const o of n.occ) if (o !== c && !o.gone && o.turn && o.turn.from !== l.e && turnsCross(mine, o.turn.T, o.turn.u)) return ['line:occ', o];
-    for (let k = 4; k < 46; k += 7) { const q = lanePos(m, Math.min(m.e.len, laneStart(m) + k)), cc = cellAt(q.x, q.y); if (cc === 8 || cc === 6) return ['line:nextCell', null]; }
-    return ['line:nextLaneGap', gapCar(c, m)];
+    return ['line:' + enterWhy, enterBy || (enterWhy === 'nextLaneGap' ? gapCar(c, c.next) : null)];
   }
   return ['lane:other', null];
 }
@@ -63,12 +57,16 @@ for (let i = 0; i < 20 * secs; i++) {
   for (const c of cs) {
     if (c.v >= 1) continue;
     cur.s++; const w = why(c)[0]; cur.why[w] = (cur.why[w] || 0) + 1;
+    // стоит у стоп-линии на зелёный (или у погасшего светофора): то, на что жалуются игроки
+    if (!c.turn && c.lane.to.sig && !settings.dark && laneEnd(c.lane) - c.s < 34 && lightFor(c.lane.to, c.lane.e) === 'g') { cur.g = (cur.g || 0) + 1; cur.gw = cur.gw || {}; cur.gw[w] = (cur.gw[w] || 0) + 1; }
     if (i % 40 === 0) { const st = c.stallT || 0; if (!longest[w] || longest[w].st < st) longest[w] = { st, i: cars.indexOf(c), t: simT | 0 }; }
     if (simT > 120) { const nd = c.turn ? c.turn.n : c.lane.to; let o = nodeStat.get(nd); if (!o) nodeStat.set(nd, o = { n: 0, why: {} }); o.n++; o.why[w] = (o.why[w] || 0) + 1; }
   }
 }
 console.log('layout', layoutKey, 'cars', cars.filter(civ).length, 'nodes', RN.length, 'sig', RN.filter(n => n.sig).length, 'trip', tripShare, 'dens', density, 'seed', seed);
 for (const m of mins) { if (!m.n) continue; const tot = Object.values(m.why).reduce((a, b) => a + b, 0) || 1; console.log('min', m.m, 'stopped', (m.s / m.n).toFixed(3), Object.entries(m.why).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => k + ' ' + (v / tot * 100).toFixed(0) + '%').join('  ')); }
+// JSON=1 — одна строка со сводкой для пакетного прогона по многим городам (tests/traffic-batch.js)
+if (process.env.JSON) { console.log('JSON ' + JSON.stringify({ layout: layoutKey, seed, mins: mins.map(m => ({ n: m.n, s: m.s, g: m.g || 0, why: m.why, gw: m.gw || {} })) })); return; }
 // самые тяжёлые перекрёстки с третьей минуты: номер, светофор, степень, доля простоя, рёбра (вид, ширина/длина[полоса между стоп-линиями])
 const tot = [...nodeStat.values()].reduce((a, o) => a + o.n, 0) || 1;
 for (const [nd, o] of [...nodeStat.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 5)) console.log('node', nd.id, 'sig', nd.sig ? 1 : 0, 'deg', nd.ed.length, 'share', (o.n / tot).toFixed(2), 'edges', nd.ed.map(e => e.kind + e.hw + '/' + (e.len | 0) + '[' + ((e.len - e.ra - e.rb) | 0) + ']').join(' '), Object.entries(o.why).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => k + ' ' + (v / o.n * 100).toFixed(0) + '%').join('  '));

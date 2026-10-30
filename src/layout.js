@@ -469,6 +469,10 @@ const SPECIAL = {
   power: { w: 50, d: 36, set: 10, floors: 3, style: 15, lot: [80, 64, 0], ok: k => k === "industry" || k === "suburb" || k === "apt", d0: 2 },
   water: { w: 40, d: 30, set: 10, floors: 2, style: 15, lot: [66, 54, 0], ok: k => k === "industry" || k === "suburb" || k === "apt", d0: 2 },
   radio: { w: 22, d: 22, set: 14, floors: 2, style: 6, lot: [52, 52, 2], ok: k => k === "suburb" || k === "apt" || k === "industry" || k === "park", d0: 2 },
+  // базы служб (sim4.js, SERVICE_HOME): коммунальное депо — мусоровозы, поливалки, снегоуборщики, эвакуаторы, аварийные бригады,
+  // автобусы; стройбаза — строители, самосвалы, бетономешалки, тралы с экскаваторами. Гаражные боксы в глубине асфальтовой площадки
+  kom: { w: 52, d: 20, set: 4, floors: 1, style: 15, lot: [84, 60, 0], ok: k => k === "industry" || k === "apt" || k === "suburb", d0: 2 },
+  stroy: { w: 36, d: 16, set: 4, floors: 2, style: 15, lot: [76, 58, 0], ok: k => k === "industry" || k === "suburb" || k === "apt", d0: 2 },
 };
 function placeSpecial(kind) {
   const S = SPECIAL[kind], cand = RE.filter(e => !e.rural && e.kind !== "ring" && e.kind !== "ln" && (!S.av || e.kind === "av") && e.len > S.w + 60);
@@ -493,6 +497,17 @@ function placeSpecial(kind) {
     return true;
   }
   return false;
+}
+// стоянка базы: несколько служебных машин на площадке перед боксами (неподвижные, как у автосервиса)
+function parkFleet(sp, fleet) {
+  const bb = sp && sp.b; if (!bb || !bb.lotRect || !bb.front) return;
+  const f = bb.front, ang = Math.atan2(f.ny, f.nx), S = SPECIAL[bb.kind]; // носом к улице
+  fleet.forEach(([model, col, len], i) => {
+    const u = (i - (fleet.length - 1) / 2) * 15, v = S.d / 2 + 20, x = bb.cx + f.ux * u + f.nx * v, y = bb.cy + f.uy * u + f.ny * v, cs = rotCells(x, y, len * 20 + 2, 9, ang);
+    if (!cs.length || cs.some(i2 => grid[i2] !== 0)) return;
+    for (const i2 of cs) grid[i2] = 5;
+    cars.push({ x, y, ang, model, len, col, wreck: false, boomT: 0, burnT: 0 });
+  });
 }
 // застройка вдоль всех улиц
 function buildFrontage() {
@@ -536,7 +551,13 @@ function addTree(x, y, r, h, extra) {
   const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 1 || gy < 1 || gx >= GW - 1 || gy >= GH - 1) return false;
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (grid[(gy + dy) * GW + gx + dx] === 3) return false;
   if (grid[gy * GW + gx] === 9 || (lakes.length && waterD(x, y) < 6)) return false; // в воде и у самого уреза деревья не растут, и клетка воды не становится лесом
-  trees.push({ x, y, r, h, ...(extra || {}) }); fillCells(x - 2, y - 2, x + 2, y + 2, 4); return true;
+  if (roadMask[gy * GW + gx] === 1) return false; // на проезжей части деревья не растут
+  trees.push({ x, y, r, h, ...(extra || {}) }); treeCells(x, y, 2); return true;
+}
+// клетки под деревом становятся препятствием (4), кроме проезжей части: дерево у самой бровки раньше занимало клетку дороги,
+// и машины стояли перед ним вечно (lane:cell4 в tests/traffic.test.js)
+function treeCells(x, y, r) {
+  for (let gy = Math.max(0, Math.floor((y - r) / CS)); gy < Math.min(GH, Math.ceil((y + r) / CS)); gy++) for (let gx = Math.max(0, Math.floor((x - r) / CS)); gx < Math.min(GW, Math.ceil((x + r) / CS)); gx++) { const i = gy * GW + gx; if (roadMask[i] !== 1) grid[i] = 4; }
 }
 // случайная клетка квартала
 function blockCells(b) { if (!b.cells) { b.cells = []; for (let gy = Math.floor(b.y0 / CS); gy < Math.ceil(b.y1 / CS); gy++) for (let gx = Math.floor(b.x0 / CS); gx < Math.ceil(b.x1 / CS); gx++) if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && regionOf[gy * GW + gx] === b.id) b.cells.push(gy * GW + gx); } return b.cells; }
@@ -713,7 +734,9 @@ function fillCity() {
   computeDistRoad(); computeLaneMask(); usedMask.fill(0);
   classifyBlocks();
   buildWalls();
-  for (const k of ["hospital", "police", "mall", "fire", "power", "water", "radio"]) if (!placeSpecial(k)) placeSpecialFallback(k);
+  for (const k of ["hospital", "police", "mall", "fire", "power", "water", "radio", "kom", "stroy"]) if (!placeSpecial(k)) placeSpecialFallback(k);
+  parkFleet(special.kom, [["garbage", "#3f7a3a", 1.5], ["truck", "#e8781c", 1.4], ["tow", "#f0c020", 1.45]]);
+  parkFleet(special.stroy, [["truck", "#c9701c", 1.6], ["truck", "#f2efe6", 1.4], ["bus", "#e8a81a", 1.45]]);
   placeLandmarks(true);
   placeDistrictBuildings();
   buildFrontage();

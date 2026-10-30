@@ -12,14 +12,15 @@ function nearCars(x, y, r, fn) {
   for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) for (const c of carHash[gy * CHW + gx]) fn(c);
 }
 // точка внутри движущейся машины или танка (повёрнутый прямоугольник)
-function vehicleAt(x, y) {
+// машина, в кузов которой попадает точка (кроме skip: из кузова, в который человека уже затолкало, он выходит свободно)
+function vehicleAt(x, y, skip) {
   let hit = null;
-  nearCars(x, y, 14, c => {
-    if (hit || !(c.moving || c.tank)) return;
-    const ca = Math.cos(c.ang), sa = Math.sin(c.ang), dx = x - c.x, dy = y - c.y;
-    if (Math.abs(dx * ca + dy * sa) < (c.tank ? 13 : 10) && Math.abs(-dx * sa + dy * ca) < (c.tank ? 7 : 4.5)) hit = c;
-  });
+  nearCars(x, y, 24, c => { if (!hit && c !== skip && (c.moving || c.tank) && insideCar(c, x, y)) hit = c; });
   return hit;
+}
+function insideCar(c, x, y) {
+  const ca = Math.cos(c.ang), sa = Math.sin(c.ang), dx = x - c.x, dy = y - c.y;
+  return Math.abs(dx * ca + dy * sa) < (c.tank ? 13 : 10 * (c.len || 1)) && Math.abs(-dx * sa + dy * ca) < (c.tank ? 7 : 4.5);
 }
 let fled = 0;
 // клетки под брошенной машиной: запоминаем, что было, чтобы вернуть, когда её увезут
@@ -47,7 +48,7 @@ function abandonCar(c, why) {
 }
 let carsCompactT = 20;
 function stepTraffic(dt) {
-  gasTick(dt); signalTick(dt);
+  gasTick(dt); signalTick(dt); laneIndex();
   carsCompactT -= dt; if (carsCompactT <= 0) { carsCompactT = 20; if (cars.some(c => c.gone)) cars = cars.filter(c => !c.gone); for (const n of RN) if (n.occ.length) n.occ = n.occ.filter(o => !o.gone && o.turn && o.turn.n === n); }
   for (const c of cars) {
     if (c.gone) { c.moving = false; continue; }

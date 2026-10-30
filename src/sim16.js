@@ -66,7 +66,7 @@ function resolveCarOverlaps(dt) {
           const y = rc >= ro ? c : o, w = y === c ? o : c, sg = y === c ? 1 : -1;
           // уступающий восемь секунд не может ни отъехать, ни дождаться — протискивается сам (иначе кольцо из трёх ждущих стоит вечно)
           if ((y.stallT || 0) > 8) { y.ghostT = simT + 3; y.yieldTo = null; return; }
-          nudgeBack(y, h.nx * sg, h.ny * sg, push); y.v = 0; y.jam = true; y.yieldTo = w; y.yieldT = simT + 1; // пока касаются и секунду после
+          nudgeBack(y, h.nx * sg, h.ny * sg, push); y.v = 0; y.jam = true; y.yieldTo = w; y.yieldUntil = simT + 1; // пока касаются и секунду после (yieldT — другое: уступка сирене, traffic.js)
           if (w.yieldTo === y) w.yieldTo = null; if ((y.stallT || 0) < 4) w.v = Math.min(w.v, 2); // уступающий не может отъехать — второй протискивается мимо
           return;
         }
@@ -113,6 +113,15 @@ function ownLaneBlocked(c) {
   nearCars(q.x, q.y, 30, o => { if (b || o === c || o.gone) return; if (o.lane === l && !o.turn && o.s > c.s - 10 && o.s < c.s + 40 && (o.stopped || o.wreck || (o.moving && o.v < 1 && o.wait > 4 && !o.atLine))) b = true; });
   return b;
 }
+// машина впереди застряла, а не ждёт своей очереди: брошена, разбита, стоит у бордюра, давно стоит не у стоп-линии и не в очереди
+// (её держат люди, завал, упор), или стоит в очереди за такой же застрявшей — тогда объезжаем всю вереницу
+function stuckCar(o, depth) {
+  if (o.stopped || o.wreck || !o.moving || o.park) return true;
+  if (o.atLine || o.turn) return false;
+  if ((o.stallT || 0) > 6 && o.hold === "other") return true;
+  if ((o.wait || 0) > 20) return true;
+  return depth < 3 && o.hold === "queue" && (o.stallT || 0) > 4 && o.holdBy && o.holdBy !== o && stuckCar(o.holdBy, depth + 1);
+}
 function stepOvertake(c, dt, dx, dy, clear, ahead) {
   if (!c.lane || c.tank || c.turn) return;
   const l = c.lane, opp = oppLane(l);
@@ -133,12 +142,15 @@ function stepOvertake(c, dt, dx, dy, clear, ahead) {
   if (c.wait < 2.5 || clear > 26 || c.panic || c.atLine) return;
   // очередь у светофора не объезжаем; объезжаем стоящее, разбитое, брошенное
   const wide = l.e.hw >= 22 && !l.e.oneway;
-  const obstacle = !ahead || ahead.stopped || ahead.wreck || !ahead.moving || ahead.park || (ahead.wait > 20 && !ahead.atLine) || wide; // стоящий у бордюра (автобус на остановке) — тоже
+  const obstacle = !ahead || stuckCar(ahead, 0) || wide; // стоящий у бордюра (автобус на остановке) — тоже
   if (!obstacle) return;
   if (!opp) return;
   // широкая улица (две полосы в каждую сторону): объезжаем по своей левой полосе, встречную не трогаем, можно и у перекрёстка
   if (l.e.hw >= 22 && !l.e.oneway && laneEnd(l) - c.s > 14) {
-    const tgt = l.off - .6; let busy = false; // центр машины у осевой: от стоящей и от встречной — больше двух ширин кузова
+    // центр машины у осевой: от стоящей и от встречной — больше двух ширин кузова; на бульваре с деревьями посередине — у края
+    // разделительной полосы, а если и там на пути дерево или завал, левой полосой не объезжаем (раньше машина упиралась в дерево)
+    const free = o => { for (let k = 0; k < 44; k += 6) { const q = lanePos(l, Math.min(c.s + k, l.e.len)), g = cellAt(q.x + q.ty * o, q.y - q.tx * o); if (g === 3 || g === 4 || g === 6 || g === 8) return false; } return true; }; // кузова (5) смотрит проверка машин ниже
+    const tgt = free(l.off - .6) ? l.off - .6 : free(l.off - 5) ? l.off - 5 : null; let busy = tgt === null;
     nearCars(c.x + dx * 18, c.y + dy * 18, 34, o => { if (busy || o === c || o.gone) return; if (o.lane === l && !o.turn && Math.abs((o.latOff || 0) - tgt) < 6 && o.s > c.s - 12 && o.s < c.s + 40) busy = true; });
     if (!busy) { c.over = 3; c.overT = 0; c.latTgt = tgt; c.wait = 0; return; }
   }

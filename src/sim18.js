@@ -386,8 +386,9 @@ function digStep(a, dt) {
 // снегоуборщик на улицу e: сначала к точке (x, y) на ней — иначе маршрут объехал бы закрытую улицу кругом; на ней — дальше по ходу, насквозь.
 // Его же вызывает игрок (инструмент «Снегоуборщик»): снега нет — проедет улицу и уедет
 function callPlow(e, x, y) { const c = spawnService("plow", x, y, null); c.job = { plow: e }; c.plowPass = 0; c.plowIn = false; e.plowBy = c; return c; }
-// остался ли на полосах улицы снег, который стоит чистить
-function snowLeft(e) { if (!snowD) return false; for (const l of e.L) if (l) for (let s = 0; s < e.len; s += 6) { const q = lanePos(l, s); if (snowD[snowIdx(q.x, q.y)] >= .3) return true; } return false; }
+// остался ли на полосах улицы снег, который стоит чистить; смотрим так же часто и так же широко, как laneBlocked (через 4 единицы,
+// по оси полосы и в трёх единицах по бокам), иначе уборщик уезжал, а сугроб сбоку от оси держал улицу перекрытой
+function snowLeft(e) { if (!snowD) return false; for (const l of e.L) if (l) for (let s = 0; s <= e.len; s += 4) { const q = lanePos(l, s); for (const o of [-3, 0, 3]) if (snowD[snowIdx(q.x + q.ty * o, q.y - q.tx * o)] >= .3) return true; } return false; }
 // снегоуборщик ведёт отвалом перед собой по всей ширине проезжей части; проходит улицу туда и обратно, потом берёт следующую
 function stepPlow(c, dt) {
   const e = c.job && c.job.plow, hw = c.lane ? c.lane.e.hw + Math.abs(c.lane.off || 0) : 10, dx = Math.cos(c.ang), dy = Math.sin(c.ang); // отвал — на всю проезжую часть
@@ -404,11 +405,15 @@ function stepPlow(c, dt) {
   if (!c.plowIn && c.lane && c.lane.e !== e && (c.lane.to === e.a || c.lane.to === e.b)) { const m = e.L.find(l => l && l.from === c.lane.to); if (m) c.next = m; }
   // въехал на свою улицу: цель — её конец по ходу, сугроб проходит насквозь
   if (!c.plowIn && c.lane && c.lane.e === e) { c.plowIn = true; const to = c.lane.to; c.goal = { x: to.x, y: to.y }; c.next = null; c.route = null; }
-  // дошёл до конца: разворачивается и идёт обратно; проходов столько, сколько нужно, чтобы снять всю кучу
-  if (c.plowIn && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 30) {
+  // дошёл до конца: разворачивается и идёт обратно; проходов столько, сколько нужно, чтобы снять всю кучу. Конец своей улицы —
+  // у её стоп-линии (дальше машина уже в коробке, и развернуться на ту же улицу нельзя), с чужой улицы — у самого узла
+  const own = c.lane && !c.turn && c.lane.e === e;
+  if (c.plowIn && c.goal && (own ? Math.hypot(c.goal.x - c.lane.to.x, c.goal.y - c.lane.to.y) < 5 && laneEnd(c.lane) - c.s < 24 : Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 30)) {
     c.plowPass++;
     if (!left || c.plowPass >= 14) { e.plowBy = null; logT("plow_done", "Улицу расчистили от снега", "good", 30); releaseUnit(c); return; }
     const other = Math.hypot(c.goal.x - e.a.x, c.goal.y - e.a.y) < 5 ? e.b : e.a; c.goal = { x: other.x, y: other.y }; c.next = null; c.route = null;
+    // ещё на своей улице — разворот на встречную полосу той же улицы: маршрут повёл бы в объезд квартала (сама улица для маршрутов закрыта)
+    if (c.lane && !c.turn && c.lane.e === e) { const u = oppLane(c.lane); if (u) c.next = u; }
   }
 }
 // эвакуатор с лебёдкой: подъезжает к краю сугроба и вытягивает машину к себе, потом забирает

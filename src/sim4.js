@@ -1,5 +1,7 @@
 /* ---------- городские службы: выезжают сами по вызовам ---------- */
-// полиция из участка, пожарные из части, скорая из больницы, ремонтники и армия въезжают в город с окраины
+// каждая служба выезжает со своей базы и возвращается на неё (SERVICE_HOME): полиция — участок, пожарные — часть, скорая и
+// санитары — больница, армия и снабжение — военная часть, коммунальщики, эвакуатор, снегоуборщик, ремонтники и автобусы —
+// коммунальное депо, строители, самосвалы, бетономешалки и тралы — стройбаза, доставка — склад у торгового центра
 const SERVICE = {
   police: { col: "#e9e9ee", len: 1, crew: "police", n: 2, siren: "police", name: "Полиция" },
   fire: { col: "#b3241a", len: 1.7, crew: "fire", n: 4, siren: "fire", name: "Пожарные" },
@@ -67,13 +69,42 @@ function clearCarCells(c) {
 }
 let reports = [], dispatchT = 0, armyWaves = 0, serviceLog = {}, lostUnits = []; // где недавно погиб целый экипаж: туда патрули больше не шлют
 function report(x, y, kind) { if (reports.length < 80) reports.push({ x, y, t: simT, kind }); if (kind === "attack") nearZ(x, y, 70, z => { z.spotT = simT; }); }
+// базы по видам служб, по порядку замены: своя разрушена — едут с запасной (техника — с другого депо); нет ни одной — из соседнего
+// района, с края карты, туда же и уезжают. Базы ставит fillCity (layout.js): kom — коммунальное депо, stroy — стройбаза
+const SERVICE_HOME = {
+  police: ["police"], fire: ["fire"], ambulance: ["hospital"], sanit: ["hospital"], army: ["base"], supply: ["base", "stroy", "kom"],
+  repair: ["kom", "stroy"], tow: ["kom", "stroy"], plow: ["kom", "stroy"], garbage: ["kom", "stroy"], sweeper: ["kom", "stroy"], bus: ["kom", "stroy"],
+  builder: ["stroy", "kom"], dump: ["stroy", "kom"], mixer: ["stroy", "kom"], lowboy: ["stroy", "kom"], delivery: ["warehouse", "stroy", "kom"],
+};
+const BASE_NAME = { police: "Полицейский участок", fire: "Пожарная часть", hospital: "Больница", base: "Военная часть", kom: "Коммунальное депо", stroy: "Стройбаза" };
+function baseOk(sp) { return !!(sp && sp.b && sp.b.state === "ok"); }
+// склад, откуда возят товар в торговый центр: ближайший к нему целый склад у дороги (не в глубине промзоны)
+function warehouseBase(x, y) {
+  let best = null, bd = 1e18;
+  for (const b of buildings) { if (b.kind !== "warehouse" || b.state !== "ok" || !b.door || !gEdgeNear(b.door[0], b.door[1], 50)) continue; const d = Math.hypot(b.door[0] - x, b.door[1] - y); if (d < bd) { bd = d; best = b; } }
+  return best ? { x: best.door[0], y: best.door[1], b: best } : null;
+}
+// база службы: первая целая из списка; null — своей базы в городе нет, едут из соседнего района
+function serviceHome(type, x, y) {
+  for (const k of SERVICE_HOME[type] || []) { const sp = k === "warehouse" ? warehouseBase(x === undefined ? W / 2 : x, y === undefined ? H / 2 : y) : special[k]; if (baseOk(sp)) return sp; }
+  return null;
+}
+// своя база разрушена: один раз сообщаем, откуда теперь едут
+function baseLostNote(type, home) {
+  const k = (SERVICE_HOME[type] || [])[0], sp = special[k]; if (!sp || !sp.b || sp.b.state === "ok" || !BASE_NAME[k]) return;
+  logT("baselost_" + k, home ? `${BASE_NAME[k]} разрушена: машины выезжают с запасной базы` : `${BASE_NAME[k]} разрушена: машины едут из соседнего района`, "bad", 180);
+}
+// откуда войти армейской технике (танку): ворота военной части, без неё — край карты у цели
+function armyEntry(x, y) { const sp = special.base; return baseOk(sp) ? [sp.x, sp.y] : edgePointNear(x, y); }
 function spawnService(type, gx, gy, from) {
   const S = SERVICE[type];
-  // армия выезжает из своей части; from === false — приходят извне, с края карты (федеральные войска)
-  if (from == null && type === "army" && special.base && special.base.b && special.base.b.state === "ok") from = special.base;
-  let p = from ? nearestLanePoint(from.x, from.y) : null;
+  // from — явно заданная база; from === false — приходят извне, с края карты (федеральные войска)
+  const home = from === false ? null : baseOk(from) ? from : serviceHome(type, gx, gy);
+  if (from !== false) baseLostNote(type, home);
+  let p = home ? nearestLanePoint(home.x, home.y) : null;
   if (!p) p = edgeLanePoint(gx, gy);
   const c = { ...newCar(), model: SERVICE_MODEL[type] || "van", service: type, col: S.col, len: S.len, vlen: S.vlen, spd: 46, v: 20, goal: { x: gx, y: gy }, siren: S.siren, crew: [] };
+  c.home = home; c.fromEdge = !home; // c.home — куда вернуться; с края карты — уезжают за край
   styleService(c, type);
   placeOnLane(c, p.l, p.s);
   // разворачиваемся, если по встречной полосе к цели ближе
@@ -135,8 +166,19 @@ function releaseUnit(c) {
   if (c.leaving) return;
   releaseJob(c.job); c.stopped = false;
   c.leaving = true; c.moving = true; c.deployed = false; c.v = 0; c.next = null; c.route = null;
-  const home = c.service === "fire" ? special.fire : c.service === "police" ? special.police : c.service === "ambulance" ? special.hospital : c.service === "army" && !c.fed ? special.base : null;
-  c.goal = home && home.b && home.b.state === "ok" ? { x: home.x, y: home.y } : null; c.homeGoal = !!c.goal;
+  goHome(c);
+}
+// домой: на свою базу, если цела, иначе на запасную; федералы и те, у кого базы нет, уезжают за край карты
+function goHome(c) {
+  const home = c.fed || c.fromEdge ? null : baseOk(c.home) ? c.home : serviceHome(c.service, c.x, c.y);
+  c.home = home; c.goal = home ? { x: home.x, y: home.y } : null; c.homeGoal = !!home; c.next = null; c.next2 = null;
+}
+// доехали до своей базы: у ворот или на её улице напротив въезда — машина заезжает внутрь
+function atHome(c) {
+  if (!c.homeGoal || !c.goal) return false;
+  if (Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 40) return true;
+  if (!c.lane || c.turn) return false;
+  const R = routeTo(c.goal.x, c.goal.y); return !!(R && c.lane.e === R.e && Math.abs(laneSOfT(c.lane, R.et) - c.s) < 26);
 }
 function stepServiceCar(c, dt) {
   if (c.wreck) { if (!c.wreckRel) { c.wreckRel = true; releaseJob(c.job); for (const a of c.crew) { a.unit = null; a.job = null; a.done = false; } c.crew = []; c.stopped = true; c.stopT = simT; } return; }
@@ -167,7 +209,13 @@ function stepServiceCar(c, dt) {
   }
   // не может подъехать к цели (кружит, цель далеко от дорог): за пять минут пути — встаёт где есть; время на поворотах тоже идёт
   if (!c.leaving && c.goal && !c.patrol) { c.tripT = (c.tripT || 0) + dt; if (c.tripT > 300) { c.tripT = 0; deployCrew(c); return; } } else c.tripT = 0;
-  if (c.leaving) { c.leaveT = (c.leaveT || 0) + dt; if (c.homeGoal && c.goal && Math.hypot(c.goal.x - c.x, c.goal.y - c.y) < 40) { if (c.passengers && c.passengers.length) hospitalIntake(c); c.gone = true; return; } if (c.leaveT > (c.homeGoal ? 180 : 60) || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25) { c.gone = true; return; } }
+  if (c.leaving) {
+    c.leaveT = (c.leaveT || 0) + dt;
+    if (atHome(c)) { if (c.passengers && c.passengers.length) hospitalIntake(c); c.gone = true; return; }
+    if (c.homeGoal && !baseOk(c.home)) goHome(c); // база разрушена, пока ехали, — на запасную или за край карты
+    // за край карты; домой — без срока (едет, пока не доедет), разве что совсем застрял
+    if ((!c.homeGoal && (c.leaveT > 90 || c.x < 25 || c.y < 25 || c.x > W - 25 || c.y > H - 25)) || c.leaveT > 600) { c.gone = true; return; }
+  }
   // на месте: у цели; в пробке — только если цель уже близко, иначе ищем другой путь
   if (!c.leaving && c.goal && !c.turn) { const d = Math.hypot(c.goal.x - c.x, c.goal.y - c.y); if (d < 50 || (c.service === "dump" ? c.wait > 8 && d < 60 : c.wait > 25 && d < 260)) deployCrew(c); else if (c.wait > 40 && c.lane && c.service !== "dump") { c.lane.e.blockT = simT; c.next = null; c.wait = 20; } }
 }
@@ -207,7 +255,7 @@ function siteScore(b) {
   const [x0, y0, x1, y1] = rubbleBounds(null, b); let road = 0;
   for (let y = y0; y < y1; y += CS) for (let x = x0; x < x1; x += CS) { const gx = Math.floor(x / CS), gy = Math.floor(y / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; const i = gy * GW + gx; if (grid[i] === 8 && roadMask[i] === 1) road++; }
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; let s = road ? 400 + road * 4 : 0;
-  for (const k of ["hospital", "fire", "police", "power", "water", "radio"]) { const sp = special[k]; if (!sp) continue; if (sp.b === b) s += 600; else if (road && Math.hypot(sp.x - cx, sp.y - cy) < 350) s += 200; }
+  for (const k of ["hospital", "fire", "police", "power", "water", "radio", "kom", "stroy"]) { const sp = special[k]; if (!sp) continue; if (sp.b === b) s += 600; else if (road && Math.hypot(sp.x - cx, sp.y - cy) < 350) s += 200; }
   if (b.gutted && b.state === "ok") s += (b.nest || 0) * 60 + 50;
   let dm = 1e9; for (const m of machines) if (!m.gone) dm = Math.min(dm, Math.hypot(m.x - cx, m.y - cy)); if (dm < 1e9) s -= dm / 20;
   return s;
@@ -292,7 +340,7 @@ function stepServices(dt) {
     armyWaves++;
     let cx = 0, cy = 0, n = 0; for (const a of agents) if (a.state === "alive" && a.role === "zombie") { cx += a.x; cy += a.y; n++; }
     for (let i = 0; i < 2; i++) spawnService("army", cx / n + rnd(-80, 80), cy / n + rnd(-80, 80), null);
-    if (armyWaves >= 3) { const [tx, ty] = freeNear(cx / n, cy / n, 200); addTank(...edgePointNear(tx, ty)); }
+    if (armyWaves >= 3) { const [tx, ty] = freeNear(cx / n, cy / n, 200); addTank(...armyEntry(tx, ty)); }
     logE(armyWaves === 1 ? "Введена армия: колонна въезжает в город" : `Подкрепление армии, волна ${armyWaves}`, "good"); sfx.radio();
   }
 }

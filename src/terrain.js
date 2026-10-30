@@ -253,7 +253,7 @@ function hillBlock(b) {
     TH[gy * GW + gx] += amp * k * (.35 + .65 * (1 - Math.min(1, r * r))) * (.7 + fbm(x / 90, y / 90) * .6);
   }
   const n = w * d / 2600;
-  for (let t = 0; t < n; t++) { const x = rnd(b.x0 + 10, b.x1 - 10), y = rnd(b.y0 + 10, b.y1 - 10); if (cellAt(x, y) !== 2) continue; trees.push({ x, y, r: rnd(6, 11), h: rnd(14, 26) }); fillCells(x - 3, y - 3, x + 3, y + 3, 4); }
+  for (let t = 0; t < n; t++) { const x = rnd(b.x0 + 10, b.x1 - 10), y = rnd(b.y0 + 10, b.y1 - 10); if (cellAt(x, y) !== 2 || roadMask[Math.floor(y / CS) * GW + Math.floor(x / CS)]) continue; trees.push({ x, y, r: rnd(6, 11), h: rnd(14, 26) }); treeCells(x, y, 3); }
   for (let t = 0; t < 2 + Math.random() * 4; t++) {
     const x = rnd(b.x0 + 14, b.x1 - 14), y = rnd(b.y0 + 14, b.y1 - 14), s = rnd(5, 11);
     if (cellAt(x, y) !== 2) continue;

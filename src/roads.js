@@ -312,31 +312,44 @@ function lanePos(l, s) {
 }
 function edgeTOfLane(l, s) { return l.d > 0 ? s : l.e.len - s; }
 function laneSOfT(l, t) { return l.d > 0 ? t : l.e.len - t; }
-// светофор: фазы 0 — зелёный по главной оси, 1 — жёлтый, 2 — зелёный поперечной, 3 — жёлтый; переключает signalTick (traffic.js)
-// по очередям: зелёный держится от 8 до 24 с и отдаётся поперечной, когда там ждут, а здесь пусто или очередь заметно короче
+// светофор: фазы 0 — зелёный по главной оси, 1 — жёлтый, 2 — зелёный поперечной, 3 — жёлтый; в конце жёлтого секунда общего красного
+// (n.ar), чтобы успели проехать въехавшие на жёлтый. Переключает signalTick по спросу: зелёный не уходит с улицы, к которой подъезжают
+// машины, и не отдаётся пустой поперечной; ждущим поперёк — не дольше SIG.max
+const SIG = { min: 6, max: 18, yel: 2.5, red: 1, look: 110 };
 function lightFor(n, e) {
   if (!n.sig) return "g";
   const ph = n.ph === undefined ? ((simT + (n.off || 0)) % 30 < 15 ? 0 : 2) : n.ph, A = n.grpA.has(e);
+  if ((ph === 1 || ph === 3) && n.ar) return "r";
   return ph === 0 ? (A ? "g" : "r") : ph === 1 ? (A ? "y" : "r") : ph === 2 ? (A ? "r" : "g") : (A ? "r" : "y");
 }
 let sigT = 0;
 function signalTick(dt) {
-  sigT -= dt; if (sigT > 0) return; sigT = .5;
+  sigT -= dt; if (sigT > 0) return; sigT = .25;
+  // спрос по осям: [ждут у линии главной, подъезжают по главной, ждут поперечной, подъезжают по поперечной]
   const q = new Map();
-  for (const c of cars) { if (c.gone || !c.moving || !c.lane || c.turn || c.v > 3) continue; const l = c.lane, n = l.to; if (!n.sig || laneEnd(l) - c.s > 70) continue; let a = q.get(n); if (!a) q.set(n, a = [0, 0]); a[n.grpA.has(l.e) ? 0 : 1]++; }
-  // очереди группы светофоров суммируются у ведущего (с учётом переворота осей)
+  for (const c of cars) {
+    if (c.gone || !c.moving || !c.lane || c.turn || c.park || c.gas) continue;
+    const l = c.lane, n = l.to; if (!n.sig) continue;
+    const d = laneEnd(l) - c.s; if (d > SIG.look || d < -2) continue;
+    let a = q.get(n); if (!a) q.set(n, a = [0, 0, 0, 0]);
+    const k = n.grpA.has(l.e) ? 0 : 2;
+    if (c.v < 4 && d < 70) a[k]++; else if (c.v >= 4) a[k + 1]++;
+  }
+  // спрос группы светофоров суммируется у ведущего (с учётом переворота осей)
   const qq = new Map();
-  for (const [n, a] of q) { const L = n.sigLead || n, f = n.sigFlip; let b = qq.get(L); if (!b) qq.set(L, b = [0, 0]); b[0] += a[f ? 1 : 0]; b[1] += a[f ? 0 : 1]; }
+  for (const [n, a] of q) { const L = n.sigLead || n, f = n.sigFlip; let b = qq.get(L); if (!b) qq.set(L, b = [0, 0, 0, 0]); for (let i = 0; i < 4; i++) b[i] += a[f ? (i + 2) % 4 : i]; }
   for (const n of RN) {
     if (!n.sig || (n.sigLead && n.sigLead !== n)) continue;
     if (n.ph === undefined) { n.ph = Math.random() < .5 ? 0 : 2; n.phT = simT - rnd(0, 8); }
     const t = simT - n.phT;
-    if (n.ph === 1 || n.ph === 3) { if (t >= 2) { n.ph = (n.ph + 1) % 4; n.phT = simT; } continue; }
-    if (t < 8) continue;
-    const a = qq.get(n) || [0, 0], own = a[n.ph === 0 ? 0 : 1], oth = a[n.ph === 0 ? 1 : 0];
-    if (t >= 24 || (oth > 0 && (own === 0 || oth > own + 2))) { n.ph = (n.ph + 1) % 4; n.phT = simT; }
+    if (n.ph === 1 || n.ph === 3) { n.ar = t >= SIG.yel; if (t >= SIG.yel + SIG.red) { n.ph = (n.ph + 1) % 4; n.phT = simT; n.ar = false; } continue; }
+    if (t < SIG.min) continue;
+    const a = qq.get(n) || [0, 0, 0, 0], k = n.ph === 0 ? 0 : 2, ownW = a[k], ownA = a[k + 1], othW = a[2 - k], othA = a[3 - k];
+    if (!othW && !othA) continue; // поперёк никого — зелёный остаётся
+    // своя улица пуста — сразу; поперёк ждут, а у нас только подъезжающие — после 12 с; иначе не дольше SIG.max
+    if ((!ownW && !ownA) || (othW && !ownW && t >= 12) || (othW > ownW + ownA + 3 && t >= 12) || (othW && t >= SIG.max) || t >= SIG.max * 2) { n.ph = (n.ph + 1) % 4; n.phT = simT; n.ar = false; }
   }
-  for (const n of RN) if (n.sig && n.sigLead && n.sigLead !== n && n.sigLead.ph !== undefined) { n.ph = n.sigFlip ? (n.sigLead.ph + 2) % 4 : n.sigLead.ph; n.phT = n.sigLead.phT; }
+  for (const n of RN) if (n.sig && n.sigLead && n.sigLead !== n && n.sigLead.ph !== undefined) { n.ph = n.sigFlip ? (n.sigLead.ph + 2) % 4 : n.sigLead.ph; n.phT = n.sigLead.phT; n.ar = n.sigLead.ar; }
 }
 
 /* ---------- клетки: проезжая часть, тротуары, кварталы ---------- */

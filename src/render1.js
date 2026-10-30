@@ -55,7 +55,7 @@ function groundColOf(i) {
   if (b && b.rural) { const pt = patchOf[i] >= 0 ? patches[patchOf[i]] : null; return !pt ? "#5f7f42" : pt.kind === "forest" ? "#3f5c2f" : pt.kind === "meadow" ? "#6f8f45" : pt.kind === "orchard" ? "#67883f" : FIELD[pt.crop]; }
   if (c === 7) return k === "old" || k === "square" ? "#9a8f7e" : "#a8a092";
   if (c === 1) return "#8f8f8a";
-  if (c === 0) return k === "industry" ? "#6d6c66" : "#3f4244";
+  if (c === 0 || (c === 5 && b && b.lot)) return k === "industry" ? "#6d6c66" : "#3f4244"; // под машиной на стоянке базы или автосервиса — тоже асфальт
   if (c === 3) return k === "suburb" ? "#56763d" : k === "old" || k === "square" ? "#9a8f7e" : k === "towers" || k === "plaza" ? "#a8a092" : "#8f8f8a";
   return k === "suburb" ? "#5b7c40" : k === "park" || k === "bigpark" || k === "glacis" || k === "lake" ? "#4b6e35" : "#56763d";
 }

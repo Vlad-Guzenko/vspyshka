@@ -339,7 +339,7 @@ function hqRep(d, why) {
     if (soldiers < (settings.fast ? 32 : 28) - 6 && cl) { radio("Штаб: хорошая работа, высылаем подкрепление"); spawnService("army", cl.x + rnd(-60, 60), cl.y + rnd(-60, 60), null); }
     else radio("Штаб: хорошая работа, так держать");
   }
-  if (hq.rep >= 4 && d > 0 && !hq.tankGiven) { hq.tankGiven = true; radio("Штаб: передаём вам танк"); const e = edgeLanePoint(); addTank(e.x, e.y); }
+  if (hq.rep >= 4 && d > 0 && !hq.tankGiven) { hq.tankGiven = true; radio("Штаб: передаём вам танк"); addTank(...armyEntry(W / 2, H / 2)); }
   if (hq.rep <= -2 && d < 0) { hq.withdrawnT = 180; radio("Штаб: ваши действия неприемлемы, армия отзывается на 3 минуты"); for (const a of agents) if (a.state === "alive" && a.role === "army" && !a.post) { a.order = { x: a.x < W / 2 ? 12 : W - 12, y: clamp(a.y, 12, H - 12) }; a.withdraw = true; a.unit = null; } }
 }
 // отбой: армия уходит к краю карты, полиция и медики — на базу, там исчезают

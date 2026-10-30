@@ -12,7 +12,7 @@ function nameFor(a, last) {
 const ROLE_NAME = { civ: "горожанин", police: "полицейский", army: "солдат", medic: "медик", fire: "пожарный", worker: "ремонтник", builder: "строитель", sanitar: "санитар", bandit: "мародёр", zombie: "зомби" };
 // семьи: 1–4 человека, общий дом; половина сейчас дома, остальные в городе
 let families = [], famMap = {};
-const HOME_KINDS = new Set(["apt", "house", "cottage", "manor", "farmhouse", "dacha"]), WORK_KINDS = new Set(["tower", "mall", "warehouse", "hospital", "police", "fire", "barn", "hangar", "autoservice", "kinder", "market", "cafe", "school"]);
+const HOME_KINDS = new Set(["apt", "house", "cottage", "manor", "farmhouse", "dacha"]), WORK_KINDS = new Set(["tower", "mall", "warehouse", "hospital", "police", "fire", "barn", "hangar", "autoservice", "kinder", "market", "cafe", "school", "kom", "stroy"]);
 function assignHomes() {
   families = []; famMap = {};
   const homes = buildings.map((b, i) => [b, i]).filter(([b]) => b.door && HOME_KINDS.has(b.kind));

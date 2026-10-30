@@ -97,11 +97,11 @@ const LOWBOY_DECK = -1.5; // центр платформы от центра м�
 function deckPos(c) { const k = (c.len || 2.83) * 18 / 51, ca = Math.cos(c.ang), sa = Math.sin(c.ang); return [c.x + ca * LOWBOY_DECK * k, c.y + sa * LOWBOY_DECK * k]; }
 function rearOf(c, extra = 10) { const ca = Math.cos(c.ang), sa = Math.sin(c.ang), r = (c.len || 2.83) * 9 + extra; return [c.x - ca * r, c.y - sa * r]; }
 function deliverMachine(kind, job, gx, gy, delay) {
-  const [ex, ey] = edgePointNear(gx, gy), m = addMachine(kind, ex, ey, job);
+  const h = serviceHome("lowboy", gx, gy), [ex, ey] = h ? [h.x, h.y] : edgePointNear(gx, gy), m = addMachine(kind, ex, ey, job); // ждёт трал на стройбазе
   m.carried = true; m.wantTruckT = simT + (delay || 0);
   return m;
 }
-// трал выезжает за экскаватором: доставка (m.carried — ещё за краем карты) или вывоз (m.pickupBy)
+// трал выезжает за экскаватором: доставка (m.carried — ещё на стройбазе, не виден) или вывоз (m.pickupBy)
 function sendLowboy(m, gx, gy, pickup) {
   const c = spawnService("lowboy", gx, gy, null);
   if (pickup) { c.pickup = m; m.pickupBy = c; m.pickT = simT; } else { c.cargo = m; m.onTruck = c; }
@@ -150,7 +150,7 @@ function machineGoHome(m, dt) {
 function stepCarried(m) {
   if (!m.carried) return false;
   if (!m.onTruck) {
-    // ещё за краем карты: трал выезжает в свой черёд
+    // ещё на стройбазе (или за краем карты, если её нет): трал выезжает в свой черёд
     if (simT >= (m.wantTruckT || 0) && settings.services) { const J = m.job || {}, b = J.ruin || J.demo; const [gx, gy] = b ? siteGoal(b) : [m.x, m.y]; sendLowboy(m, gx, gy, false); }
     else if (!settings.services) m.carried = false;
     return true;
@@ -173,7 +173,8 @@ function stepMachines(dt) {
     if (!m.leave) { let zc = 0; nearZ(m.x, m.y, 60, () => zc++); if (zc) { m.v *= .3; m.progT = simT; m.workT = 0; continue; } }
     // домой: к ближайшему выезду
     if (m.leave && machineGoHome(m, dt)) continue;
-    if (m.leave) { const e = m.exit || (m.exit = edgePointNear(m.x, m.y)); m.leaveT = (m.leaveT || 0) + dt; steerTo(m, e[0], e[1], 14, dt); if (Math.hypot(e[0] - m.x, e[1] - m.y) < 30 || m.leaveT > 90 || m.x < 12 || m.y < 12 || m.x > W - 12 || m.y > H - 12) m.gone = true; continue; }
+    // без трала — своим ходом на стройбазу (нет её — за край карты)
+    if (m.leave) { const h = serviceHome("lowboy", m.x, m.y), e = m.exit || (m.exit = h ? [h.x, h.y] : edgePointNear(m.x, m.y)); m.leaveT = (m.leaveT || 0) + dt; steerTo(m, e[0], e[1], 14, dt); if (Math.hypot(e[0] - m.x, e[1] - m.y) < 30 || m.leaveT > 90 || m.x < 12 || m.y < 12 || m.x > W - 12 || m.y > H - 12) m.gone = true; continue; }
     const J = m.job || {};
     // снос выгоревшего остова: подъезжает к стене, бьёт ковшом, дом оседает
     if (J.demo) {

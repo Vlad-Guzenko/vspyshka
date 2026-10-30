@@ -20,7 +20,7 @@ function updateMachines() {
   for (const m of machines) {
     let o = machineObjs.get(m);
     if (!o) { o = buildLoader(); o.scale.setScalar(1.3); scene.add(o); machineObjs.set(m, o); }
-    o.visible = !(m.carried && !m.onTruck); // ещё за краем карты
+    o.visible = !(m.carried && !m.onTruck); // ещё на стройбазе, ждёт трал
     o.position.set(X(m.x), gY(m.x, m.y) + (m.carried && m.onTruck ? 3.9 : 0), Z(m.y)); o.rotation.y = -m.ang;
     // ковш: черпает у земли, при погрузке поднимается над бортом и опрокидывается
     const ph = (m.workT || 0) / (m.loading ? 1.2 : 1.1), lift = m.loading ? .9 - Math.sin(Math.min(1, ph) * Math.PI) * .25 : m.bucket > 0 ? .5 + Math.sin(simT * 4) * .35 : .15;

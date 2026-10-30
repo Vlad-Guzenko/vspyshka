@@ -165,13 +165,13 @@ function useTool(e, x, y) {
   if (tool === "watch") { const a = agentAt(e); if (a) { followA = a; camS.dist = Math.min(camS.dist, 160); camS.pitch = Math.min(camS.pitch, .55); } return; }
   if (tool === "infect") { const a = agentAt(e, a => a.state === "alive" && a.role !== "zombie" && !a.bitten); if (a) { a.bitten = true; a.incT = settings.inc * rnd(.7, 1.3); bites++; logE("Заражён ещё один человек", "bad"); } return; }
   if (tool === "zombie") { if (!blocked(x, y)) { const a = newAgent("zombie", x, y); turn(a); a.riseT = 0; } return; }
-  if (tool === "police") { spawnService("police", x, y, special.police); logE(special.police && special.police.b && special.police.b.state === "ok" ? "Патруль выехал из участка" : "Патруль выехал с окраины", "good"); sfx.siren(); return; }
+  if (tool === "police") { spawnService("police", x, y, special.police); logE(baseOk(special.police) ? "Патруль выехал из участка" : "Участка нет: патруль едет из соседнего района", "good"); sfx.siren(); return; }
   if (tool === "army") {
-    // ближайший свободный отряд идёт к точке; если такого нет — колонна выезжает с окраины
+    // ближайший свободный отряд идёт к точке; если такого нет — колонна выезжает из военной части (без неё — с окраины)
     let best = null, bd = 320;
     for (const s of squads.values()) { if (s.state !== "hold") continue; const L = agentById(s.leader); if (!L || L.state !== "alive") continue; const d = Math.hypot(L.x - x, L.y - y); if (d < bd) { bd = d; best = s; } }
     if (best) { best.holdAt = { x, y }; best.holdT = 150; logE("Ближайший отряд направлен к точке", "good"); }
-    else { spawnService("army", x, y, null); logE("Отряд военных выехал с окраины", "good"); }
+    else { spawnService("army", x, y, null); logE(baseOk(special.base) ? "Отряд военных выехал из части" : "Отряд военных выехал с окраины", "good"); }
     sfx.radio(); return;
   }
   if (tool === "medic") { for (let i = 0; i < 3; i++) { const [ax, ay] = freeNear(x, y, 14); newAgent("medic", ax, ay); } logE("Прибыли медики", "good"); return; }
@@ -192,7 +192,7 @@ function useTool(e, x, y) {
   }
   if (tool === "lab") { scientists += 3; logE(`В лабораторию прибыли учёные, всего ${scientists}`, "good"); return; }
   if (tool === "vaccinate") { if (!vaccineReady) { warn(`<b>Вакцина ещё не готова:</b> ${Math.floor(research * 100)}%. Ускорь её учёными.`); return; } addTent(x, y); return; }
-  if (tool === "tank") { const [ex, ey] = edgePointNear(x, y); const t = addTank(ex, ey); t.goal = { x, y }; logE("Танк входит в город с окраины", "good"); sfx.radio(); }
+  if (tool === "tank") { const [ex, ey] = armyEntry(x, y); const t = addTank(ex, ey); t.goal = { x, y }; logE(baseOk(special.base) ? "Танк выходит из военной части" : "Танк входит в город с окраины", "good"); sfx.radio(); }
   if (tool === "depot") { if (blocked(x, y)) { warn("<b>Здесь нельзя:</b> выбери свободное место на улице или площади."); return; } addDepot(x, y); sfx.radio(); }
   if (tool === "boom") { boom(x, y, 48, false); logT("boom", "Взрыв", "bad", 5); }
   if (tool === "meteor") callMeteor(x, y);

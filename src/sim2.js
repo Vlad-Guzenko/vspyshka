@@ -394,6 +394,12 @@ function thinkHuman(a, dt) {
   const w = wander(a, dt);
   return [w[0], w[1], (a.panic > .3 ? 13 : 5.5) * hurt * w[2]];
 }
+// машина в точке шага человека; та, в кузов которой его уже затолкало (наехала на стоящего), не держит: он из неё выходит
+let inCarA = null;
+function carAt(a, x, y) {
+  const o = vehicleAt(x, y, inCarA); if (!o || a.role === "zombie" || !insideCar(o, a.x, a.y)) return o;
+  inCarA = o; return vehicleAt(x, y, inCarA);
+}
 function move(a, mx, my, sp, dt) {
   // выносливость: спринт выдыхается через полминуты, зомби не устают
   if (a.role !== "zombie") {
@@ -417,14 +423,14 @@ function move(a, mx, my, sp, dt) {
   if (hasHills) slow *= slopeK(a.x, a.y, a.x + a.vx * dt, a.y + a.vy * dt); // в гору медленнее
   const nx = a.x + a.vx * dt * slow, ny = a.y + a.vy * dt * slow;
   const noRub = a.role !== "zombie" && cellAt(a.x, a.y) !== 8;
-  let car = null;
-  if (!blocked(nx, a.y) && !(car = vehicleAt(nx, a.y)) && cellAt(nx, a.y) !== 9 && !(noRub && cellAt(nx, a.y) === 8)) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
-  if (!blocked(a.x, ny) && !(car = car || vehicleAt(a.x, ny)) && cellAt(a.x, ny) !== 9 && !(noRub && cellAt(a.x, ny) === 8)) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
+  let car = null; inCarA = null;
+  if (!blocked(nx, a.y) && !(car = carAt(a, nx, a.y)) && cellAt(nx, a.y) !== 9 && !(noRub && cellAt(nx, a.y) === 8)) a.x = nx; else { a.vx *= -.2; a.wanderT = 0; }
+  if (!blocked(a.x, ny) && !(car = car || carAt(a, a.x, ny)) && cellAt(a.x, ny) !== 9 && !(noRub && cellAt(a.x, ny) === 8)) a.y = ny; else { a.vy *= -.2; a.wanderT = 0; }
   // упёрся в стоящую машину (нос на зебре) — обходит её вдоль кузова к ближнему концу, а не стоит перед ней
   if (car && a.role !== "zombie" && car.v < 4) {
     const cx = Math.cos(car.ang), cy = Math.sin(car.ang), al = (a.x - car.x) * cx + (a.y - car.y) * cy, sg = al >= 0 ? 1 : -1;
     a.vx = cx * sg * 5; a.vy = cy * sg * 5; const sx = a.x + a.vx * dt, sy = a.y + a.vy * dt;
-    if (!blocked(sx, sy) && !vehicleAt(sx, sy)) { a.x = sx; a.y = sy; }
+    if (!blocked(sx, sy) && !vehicleAt(sx, sy, inCarA)) { a.x = sx; a.y = sy; }
   }
   a.speed = Math.hypot(a.vx, a.vy);
   a.stuck = sp > 2 && a.speed < 1.5 ? (a.stuck || 0) + dt : 0;
