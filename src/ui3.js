@@ -48,7 +48,7 @@ function startGame() {
   $("fast").checked = wiz.fast; $("inc").value = wiz.inc; $("incO").textContent = wiz.inc + " с"; $("arm").value = wiz.armed; $("armO").textContent = wiz.armed + "%"; $("services").checked = wiz.services; $("threats").checked = wiz.threats;
   $("pop").value = wiz.pop; $("popO").textContent = wiz.pop;
   $("layout").value = SCENARIOS[wiz.scen].layout || wiz.layout;
-  mapSize = wiz.map; relief = wiz.relief;
+  mapSize = wiz.map; relief = wiz.relief; cityNextSeed = parseInt(($("wSeed").value || "").replace(/\D/g, "")) || 0; $("wSeed").value = ""; // номер — на один город, в следующий раз снова новый
   world.weather = wiz.weather; $("weather").value = wiz.weather; world.season = wiz.season; $("season").value = wiz.season; world.cycle = false; world.rate = 0; $("cycle").checked = false;
   world.hour = world.target = wiz.time; syncDayButton();
   newCity(wiz.scen);

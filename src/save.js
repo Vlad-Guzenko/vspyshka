@@ -21,7 +21,7 @@ function serializeGame() {
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
   });
   return {
-    v: 3, date: Date.now(), layoutKey, mapSize, relief, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
+    v: 3, date: Date.now(), layoutKey, citySeed, mapSize, relief, scen: scenKey, scenT, uses, simT, bites, deaths, zkills, saved, cured, nextId, wave, waveT, pz: patientZero ? patientZero.id : null,
     wallJobs: wallJobs.map(j => ({ ...j, cp: cps.indexOf(j.cp) })), zones: b64(zoneOf.subarray(0, GW * GH)), zoneSeq,
     grid: b64(grid.subarray(0, GW * GH)), snow: snowD && snowCells.size ? [...snowCells].map(i => [i, +snowD[i].toFixed(2), snowUnder[i]]) : null, bhp16: b64(Uint16Array.from(bhp.subarray(0, GW * GH), v => clamp(Math.round(v), 0, 65535))), wall: b64(wallMask.subarray(0, GW * GH)),
     buildings: buildings.map(b => Object.fromEntries(B_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]))),
@@ -38,10 +38,12 @@ function serializeGame() {
     terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
+// название планировки и номер города в панели; подсказка — как получить тот же город
+function showLayoutName() { const o = $("layoutName"); o.textContent = ((LAYOUTS[layoutKey] || {}).n || "") + (citySeed ? " · № " + citySeed : ""); o.title = citySeed ? `Номер города ${citySeed}: введи его в «Новой игре» с той же планировкой, размером карты и рельефом — получится тот же город` : ""; }
 function loadGame(S) {
   if (!S.roads) { warn("<b>Сохранение старой версии</b> — карта с прежними улицами больше не загружается."); return false; }
   if (fps.on) stopFps();
-  layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid;
+  layoutKey = S.layoutKey; L = LAYOUTS[layoutKey] || LAYOUTS.grid; citySeed = S.citySeed || 0;
   relief = S.relief || "plain"; mapSize = S.mapSize || "normal"; setMapSize(mapSize);
   grid.fill(2); bhp.fill(0); wallMask.fill(0); roadMask.fill(0); regionOf.fill(-1); patchOf.fill(-1);
   grid.set(unb64(S.grid, Uint8Array)); snowD = null; if (S.snow) { snowInit(); for (const [i, d, u] of S.snow) { snowD[i] = d; snowUnder[i] = u; snowCells.add(i); } snowDirty = true; snowBox = [0, 0, W, H]; snowCity = "load"; } bhp.set(S.bhp16 ? unb64(S.bhp16, Uint16Array) : unb64(S.bhp, Uint8Array)); wallMask.set(unb64(S.wall, Uint8Array));
@@ -90,14 +92,14 @@ function loadGame(S) {
   logE("Партия загружена", "good");
   clearDecals(); clearDebris(); for (const [t, o] of tankObjs) { scene.remove(o); tankObjs.delete(t); }
   buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
-  $("layoutName").textContent = (LAYOUTS[layoutKey] || {}).n || ""; renderTools(); record();
+  showLayoutName(); renderTools(); record();
 }
 function slotKey(i) { return "vspyshka-save-" + i; }
 function renderSaves() {
   const rows = [];
   for (let i = 1; i <= SAVE_SLOTS; i++) {
     let meta = null; try { const m = localStorage.getItem(slotKey(i) + "-meta"); if (m) meta = JSON.parse(m); else { const raw = localStorage.getItem(slotKey(i)); if (raw && raw[0] === "{") meta = JSON.parse(raw); } } catch (e) {}
-    const desc = meta ? `${(SCENARIOS[meta.scen] || {}).n || "Свободная игра"} · ${(LAYOUTS[meta.layoutKey] || {}).n || ""}${meta.mapSize === "big" ? " · большая карта" : ""} · ${mmss(meta.simT)} игры · ${new Date(meta.date).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Пусто";
+    const desc = meta ? `${(SCENARIOS[meta.scen] || {}).n || "Свободная игра"} · ${(LAYOUTS[meta.layoutKey] || {}).n || ""}${meta.citySeed ? " № " + meta.citySeed : ""}${meta.mapSize === "big" ? " · большая карта" : ""} · ${mmss(meta.simT)} игры · ${new Date(meta.date).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Пусто";
     rows.push(`<li><div><b>Слот ${i}</b><small>${desc}</small></div><div class="slotbtns"><button class="btn" data-save="${i}">Сохранить</button><button class="btn" data-load="${i}"${meta ? "" : " disabled"}>Загрузить</button><button class="btn" data-del="${i}"${meta ? "" : " disabled"}>Удалить</button></div></li>`);
   }
   $("saveList").innerHTML = rows.join("");
@@ -123,7 +125,7 @@ $("saveList").addEventListener("click", async e => {
     if (b.dataset.save) {
       const S = serializeGame(), data = await packSave(JSON.stringify(S, (k, v) => typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 100) / 100 : v));
       localStorage.removeItem(slotKey(i)); localStorage.removeItem(slotKey(i) + "-meta");
-      localStorage.setItem(slotKey(i), data); localStorage.setItem(slotKey(i) + "-meta", JSON.stringify({ scen: S.scen, layoutKey: S.layoutKey, mapSize: S.mapSize, simT: S.simT, date: S.date }));
+      localStorage.setItem(slotKey(i), data); localStorage.setItem(slotKey(i) + "-meta", JSON.stringify({ scen: S.scen, layoutKey: S.layoutKey, citySeed: S.citySeed, mapSize: S.mapSize, simT: S.simT, date: S.date }));
       $("saveNote").textContent = `Сохранено в слот ${i}.`;
     }
     if (b.dataset.load) { const S = JSON.parse(await unpackSave(localStorage.getItem(slotKey(i)))); loadGame(S); $("saves").hidden = true; setPaused(false); }

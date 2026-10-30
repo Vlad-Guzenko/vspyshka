@@ -46,7 +46,9 @@ const LAYOUTS = {
   valley: { n: "Долина", d: [.28, .82], river: true, hills: true, ridges: "long", hidden: true, gen: "winding" },
 };
 let L = LAYOUTS.grid, layoutKey = "grid", waters = [], bridges = [], walls = [];
-function districtOf(x, y) { const r = Math.hypot((x - W / 2) / (CITY_W / 2), (y - H / 2) / (CITY_H / 2)); return r < L.d[0] ? 0 : r < L.d[1] ? 1 : 2; }
+// середина города — центр его пятна: с горами карта шире и город сдвинут от середины карты
+const cityCX = () => cityBlob ? cityBlob.x : W / 2, cityCY = () => cityBlob ? cityBlob.y : H / 2;
+function districtOf(x, y) { const r = Math.hypot((x - cityCX()) / (CITY_W / 2), (y - cityCY()) / (CITY_H / 2)); return r < L.d[0] ? 0 : r < L.d[1] ? 1 : 2; }
 // высота этажа: у домов частного сектора, дач, усадеб и ферм ниже, у гаражей совсем низкие боксы
 const LOW_KINDS = new Set(["house", "cottage", "dacha", "farmhouse", "manor"]);
 function floorH(kind) { return kind === "garages" ? 9 : LOW_KINDS.has(kind) ? 11 : 12; }
@@ -60,16 +62,28 @@ function addBuilding(bb) {
 }
 // дорога за городом — без тротуаров
 function markRural() { for (const e of RE) { let n = 0, out = 0; for (let t = 0; t <= e.len; t += 20) { const p = edgePos(e, t); n++; if (cityK(p.x, p.y) < .42) out++; } e.rural = out / n > .55; } }
-function genCity(layout = "random") {
+// номер города (сид): вся генерация города идёт от него — тот же номер с той же планировкой, размером карты и рельефом даёт тот же город.
+// Math.random подменяется только на время genCity, дальше игра идёт на обычном случайном
+let citySeed = 0;
+function seededRandom(s) { s = s >>> 0; return () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function newCitySeed() { return 1 + Math.floor(Math.random() * 999999); }
+// «Случайная» планировка выбирается отдельным потоком от номера: город № N на случайной планировке совпадает с № N на той, что выпала
+function genCity(layout = "random", seed = 0) {
+  citySeed = seed >= 1 ? Math.floor(seed) : newCitySeed();
+  if (layout === "random" || !LAYOUTS[layout]) { const ks = Object.keys(LAYOUTS).filter(k => !LAYOUTS[k].hidden); layout = ks[Math.floor(seededRandom(citySeed ^ 0x5bd1e995)() * ks.length)]; }
+  const rand0 = Math.random; Math.random = seededRandom(citySeed);
+  try { genCityBody(layout); } finally { Math.random = rand0; }
+}
+function genCityBody(layout) {
   setMapSize(mapSize);
-  layoutKey = layout === "random" || !LAYOUTS[layout] ? pick(Object.keys(LAYOUTS).filter(k => !LAYOUTS[k].hidden)) : layout; L = LAYOUTS[layoutKey];
+  layoutKey = layout; L = LAYOUTS[layoutKey];
   WIDE_SEED = Math.random() * 1000; // какие улицы будут широкими — в каждом городе по-своему
   for (let attempt = 0; attempt < 4; attempt++) {
     grid.fill(2); bhp.fill(0); TH.fill(0); underRubble.fill(0);
     buildings = []; trees = []; cars = []; lamps = []; fountains = []; fences = []; special = {}; blocks = []; props = []; waters = []; bridges = []; walls = []; hydrants = [];
     RN = []; RE = []; RL = []; rounds = []; presets = []; zoneAt = () => null; oldTown = null; bigPark = null; ponds = []; routeCache.clear(); exitRoute = null;
     prepareWater();
-    LAYOUT_GEN[L.gen || layoutKey]();
+    LAYOUT_GEN[L.gen || layoutKey](); tidyRoads(); // приборка: тупики, острые углы, тесные перекрёстки (layout.js)
     placeLakes(); // озёра за городом — после дорог, в стороне от них
     buildMountainRoads(); // трассы к горным сторонам — серпантином до перевала (mountain.js)
     dropValleyLakeOnRoads(); // горная дорога прошла через долину — озера там не будет (terrain.js)

@@ -18,6 +18,8 @@ function road(pts, kind, opt) {
 // замкнутая дорога из нескольких дуг: концы дуг сходятся в общих узлах
 function loopRoad(pts, kind, opt) {
   const n = pts.length, parts = Math.max(4, Math.round(n / 10));
+  // ширина у всего кольца одна: куски разной ширины не сливаются, и на кольце остаются лишние узлы у самых перекрёстков
+  if (kind === "st" && !(opt && opt.hw)) opt = { ...opt, hw: wideStreet([pts[0], pts[Math.floor(n / 2)]]) ? 23 : RHW.st };
   for (let k = 0; k < parts; k++) { const i0 = Math.floor(k * n / parts), i1 = Math.floor((k + 1) * n / parts), seg = []; for (let i = i0; i <= i1; i++) seg.push(pts[i % n]); road(seg, kind, opt); }
 }
 function circlePts(cx, cy, r, step = 16, wob = 0, ph = 0, dir = 1, ry) {
@@ -206,7 +208,7 @@ function culDeSacs(o) {
       const len = Math.min(ch[1] - 70, 220); if (len < 60) continue;
       const pts = spline([[sx - dx * 3, sy - dy * 3], [sx + dx * len * .5 - dy * rnd(-20, 20), sy + dy * len * .5 + dx * rnd(-20, 20)], [sx + dx * len, sy + dy * len]], 10);
       if (!cutAngleOk(pts)) continue;
-      const r = road(pts, o.kind, { noSnap: true }); if (r && r.nodes.length) r.nodes[r.nodes.length - 1].cul = true;
+      const r = road(pts, o.kind, { noSnap: true }); if (r && r.nodes.length) { const n = r.nodes[r.nodes.length - 1]; n.cul = true; n.culDS = true; } // culDS — задуманный тупик-разъезд (cul ставят всем тупикам при разметке, tests/roadnet.js их различает)
     }
   }
 }
@@ -227,6 +229,58 @@ function cityEdgeLoop(cx, cy, k = .55, kind = "av", inset = 10) {
 }
 // тип прорезанной улицы по её длине: длинные — проспекты, короткие — переулки
 function cutKind(L) { return L > 520 ? "av" : L < 100 ? "ln" : "st"; }
+/* ---------- приборка сети после планировки (качество сети меряет tests/roadnet.js) ---------- */
+// тупик дотягивается до улицы впереди, а нет её — огрызок и хвост на краю города убираются; улица, сходящаяся с другой «ножницами»
+// (острее 30°), убирается, если без неё можно объехать; два перекрёстка ближе 32 ед. сводятся в один посередине.
+// Проспекты, кольца, бульвары, горные трассы и тупики-разъезды пригорода не трогаются
+const KIND_RANK = { ln: 0, st: 1, av: 2, hw: 3, ring: 9 };
+function tidyRoads() {
+  const other = (e, n) => e.a === n ? e.b : e.a, atBorder = n => n.x < 3 || n.y < 3 || n.x > W - 3 || n.y > H - 3;
+  const cityE = e => { const p = edgePos(e, e.len / 2); return !e.mountain && e.kind !== "ring" && cityK(p.x, p.y) > .42; };
+  const dirAt = (e, n) => { const k = Math.min(24, e.len / 2), p = n === e.a ? edgePos(e, k) : edgePos(e, e.len - k), l = Math.hypot(p.x - n.x, p.y - n.y) || 1; return [(p.x - n.x) / l, (p.y - n.y) / l]; };
+  // улица от узла n по ребру e до ближайшего перекрёстка или тупика: куски через узлы-изгибы степени 2
+  const chain = (e, n) => { const es = [e]; let m = other(e, n); while (m.ed.length === 2 && !m.keep && es.length < 40) { const f = m.ed[0] === es[es.length - 1] ? m.ed[1] : m.ed[0]; if (es.includes(f)) break; es.push(f); m = other(f, m); } return { es, end: m }; };
+  // можно ли проехать от a до b в обход рёбер skip (поиск в ширину; до слияния изгибов в сети тысячи узлов)
+  const bypass = (a, b, skip) => { const seen = new Set([a]), q = [a]; for (let i = 0; i < q.length && i < 6000; i++) for (const f of q[i].ed) { if (skip.includes(f) || f.dead) continue; const o = other(f, q[i]); if (o === b) return true; if (!seen.has(o)) { seen.add(o); q.push(o); } } return false; };
+  // тупики
+  for (let pass = 0; pass < 2; pass++) for (const n of RN.slice()) {
+    if (n.dead || n.ed.length !== 1 || n.culDS || n.keep || atBorder(n)) continue;
+    const e = n.ed[0]; if (e.dead || !cityE(e) || e.kind === "av" || e.kind === "hw" || e.boulevard) continue;
+    const v = dirAt(e, n), fx = -v[0], fy = -v[1], h = firstHit(n.x + fx * 2, n.y + fy * 2, n.x + fx * 170, n.y + fy * 170);
+    const wet = h && lakes.length && [.25, .5, .75].some(k => lakeD(n.x + (h.x - n.x) * k, n.y + (h.y - n.y) * k) < 24);
+    if (h && h.e !== e && Math.abs(fx * h.ty - fy * h.tx) > .6 && !wet && addRoad([[n.x, n.y], [h.x + fx * 2, h.y + fy * 2]], e.hw, e.kind, { extra: { sw: e.sw } })) continue;
+    const c = chain(e, n), len = c.es.reduce((s, f) => s + f.len, 0);
+    if (c.end !== n && (len < 120 || (len < 260 && cityK(n.x, n.y) < .55))) for (const f of c.es) reKill(f);
+  }
+  // тесные перекрёстки: оба узла сводятся в середину ребра, у примыкающих улиц убираются точки возле нового узла
+  for (const e of RE) {
+    const A = e.a, B = e.b;
+    if (e.dead || e.kind === "ring" || e.mountain || e.len >= 32 || A === B || A.round || B.round || A.keep || B.keep || atBorder(A) || atBorder(B) || A.ed.length < 3 || B.ed.length < 3) continue;
+    reKill(e); A.x = (A.x + B.x) / 2; A.y = (A.y + B.y) / 2;
+    for (const f of B.ed.slice()) { if (f.a === B) f.a = A; if (f.b === B) f.b = A; if (f.a === f.b) { f.dead = true; const i = A.ed.indexOf(f); if (i >= 0) A.ed.splice(i, 1); continue; } A.ed.push(f); }
+    B.ed = []; B.dead = true;
+    for (const f of A.ed) {
+      if (f.a === A) { f.pts[0] = [A.x, A.y]; while (f.pts.length > 2 && Math.hypot(f.pts[1][0] - A.x, f.pts[1][1] - A.y) < 10) f.pts.splice(1, 1); }
+      if (f.b === A) { f.pts[f.pts.length - 1] = [A.x, A.y]; while (f.pts.length > 2 && Math.hypot(f.pts[f.pts.length - 2][0] - A.x, f.pts[f.pts.length - 2][1] - A.y) < 10) f.pts.splice(f.pts.length - 2, 1); }
+      reCum(f);
+    }
+  }
+  // острые углы: убираем младшую из двух улиц (переулок раньше улицы, короткую раньше длинной), если обе её стороны — перекрёстки
+  for (let pass = 0; pass < 3; pass++) {
+    let cut = 0;
+    for (const n of RN) {
+      if (n.dead || n.round || n.ed.length < 3) continue;
+      const d = n.ed.map(e => { const v = dirAt(e, n); return { e, a: Math.atan2(v[1], v[0]) }; }).sort((p, q) => p.a - q.a);
+      for (let i = 0; i < d.length; i++) {
+        const p = d[i], q = d[(i + 1) % d.length]; let g = q.a - p.a; if (i === d.length - 1) g += TAU; if (g >= Math.PI / 6) continue;
+        const v = [p.e, q.e].filter(e => cityE(e) && !e.boulevard && e.kind !== "av" && e.kind !== "hw").map(e => chain(e, n)).filter(c => c.end !== n && c.end.ed.length >= 3 && c.es.every(f => !f.boulevard && f.kind === c.es[0].kind))
+          .sort((x, y) => (KIND_RANK[x.es[0].kind] - KIND_RANK[y.es[0].kind]) || x.es.reduce((s, f) => s + f.len, 0) - y.es.reduce((s, f) => s + f.len, 0)).find(c => bypass(n, c.end, c.es));
+        if (v) { for (const f of v.es) reKill(f); cut++; break; }
+      }
+    }
+    if (!cut) break;
+  }
+}
 const LAYOUT_GEN = {
   // прямоугольная сетка с проспектами; часть улиц обрывается Т-перекрёстками
   grid(big) {
@@ -278,7 +332,7 @@ const LAYOUT_GEN = {
   },
   // кольцевой город: паутина из колец и лучей вокруг развязки
   ring() {
-    const cx = W / 2 + rnd(-40, 40), cy = H / 2 + rnd(-30, 30), R0 = 54, off = rnd(0, Math.PI / 4);
+    const cx = cityCX() + rnd(-40, 40), cy = cityCY() + rnd(-30, 30), R0 = 54, off = rnd(0, Math.PI / 4);
     roundabout(cx, cy, R0);
     const rings = [[205, "st"], [335, "av"], [470, "st"], [610, "av"], [760, "st"]];
     for (const [r, k] of rings) { const pts = circlePts(cx, cy, r, 16, 0, 0, 1, r * .86); const ins = (x, y) => urbanAt(x, y, .36) && x > 30 && y > 30 && x < W - 30 && y < H - 30; if (pts.every(p => ins(p[0], p[1]))) loopRoad(pts, k, { extra: k === "av" ? { boulevard: true } : undefined }); else for (const part of clipBy(pts.concat([pts[0]]), ins)) road(part, k); }
@@ -288,7 +342,7 @@ const LAYOUT_GEN = {
   },
   // город звёзд: несколько площадей-развязок, прямые бульвары между ними и к краям, кварталы растут вдоль бульваров
   radial() {
-    const fx = f => W / 2 + CITY_W * (f - .5), fy = f => H / 2 + CITY_H * (f - .5), stars = [[fx(rnd(.3, .38)), fy(rnd(.38, .5))], [fx(rnd(.62, .7)), fy(rnd(.3, .42))], [fx(rnd(.5, .6)), fy(rnd(.66, .74))]], R0 = 44;
+    const fx = f => cityCX() + CITY_W * (f - .5), fy = f => cityCY() + CITY_H * (f - .5), stars = [[fx(rnd(.3, .38)), fy(rnd(.38, .5))], [fx(rnd(.62, .7)), fy(rnd(.3, .42))], [fx(rnd(.5, .6)), fy(rnd(.66, .74))]], R0 = 44;
     for (const [x, y] of stars) roundabout(x, y, R0);
     const rays = new Map(stars.map(s => [s, []]));
     // бульвары между звёздами
@@ -303,19 +357,24 @@ const LAYOUT_GEN = {
       for (let k = 0; k < 40 && have.length < want; k++) {
         const a = rnd(0, TAU); if (have.some(b => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) < .6)) continue;
         const x0 = s[0] + Math.cos(a) * R0, y0 = s[1] + Math.sin(a) * R0, L = toEdgeR(s[0], s[1], a);
-        let x1 = s[0] + Math.cos(a) * L, y1 = s[1] + Math.sin(a) * L;
-        const h = firstHit(x0 + Math.cos(a) * 4, y0 + Math.sin(a) * 4, x1, y1);
-        if (h && Math.abs(Math.cos(a) * h.ty - Math.sin(a) * h.tx) < .55) { if (h.d < 180) continue; x1 = h.x; y1 = h.y; }
+        let x1 = s[0] + Math.cos(a) * L, y1 = s[1] + Math.sin(a) * L, from = 4, skip = false;
+        // идём по пересечениям: луч кончается на первом остром (не только на ближайшем — иначе он режет соседний луч «ножницами»)
+        for (let k = 0; k < 40; k++) {
+          const h = firstHit(x0 + Math.cos(a) * from, y0 + Math.sin(a) * from, x1, y1); if (!h) break;
+          const d = from + h.d; if (Math.abs(Math.cos(a) * h.ty - Math.sin(a) * h.tx) < .55) { if (d < 180) skip = true; else { x1 = h.x; y1 = h.y; } break; }
+          from = d + 4;
+        }
+        if (skip) continue;
         for (const p of clipMap([[x0, y0], [x1, y1]])) road(p, "av");
         have.push(a);
       }
     }
-    const inCity = cityEdgeLoop(W / 2, H / 2);
+    const inCity = cityEdgeLoop(cityCX(), cityCY());
     subdivide({ inside: inCity, area: (x, y) => [36000, 34000, 44000][districtOf(x, y)], minW: 118, jit: .08, curve: .02, kind: cutKind });
   },
   // сетка-«эшампле» с двумя диагональными проспектами через площадь-развязку
   diag() {
-    const cx = W / 2 + rnd(-60, 60), cy = H / 2 + rnd(-40, 40), R0 = 58, step = rnd(150, 165);
+    const cx = cityCX() + rnd(-60, 60), cy = cityCY() + rnd(-40, 40), R0 = 58, step = rnd(150, 165);
     roundabout(cx, cy, R0);
     const xs = [], ys = []; for (let x = cx - step * 9; x < W; x += step) if (x > 40) xs.push(x); for (let y = cy - step * 6; y < H; y += step) if (y > 40) ys.push(y);
     const avX = new Set(xs.map((x, i) => i).filter(i => i % 4 === 1)), avY = new Set(ys.map((y, i) => i).filter(i => i % 4 === 2));
@@ -335,7 +394,7 @@ const LAYOUT_GEN = {
     for (let y = Math.max(110, cityBlob.y - cityBlob.ry * .92) + rnd(0, 50), i = 0; y < Math.min(H - 90, cityBlob.y + cityBlob.ry * .92); y += rnd(160, 190), i++) rows.push({ y, A: rnd(50, 80), i });
     const yAt = (r, x) => r.y + r.A * (Math.sin(x / k1 + ph + r.i * .25) * .75 + Math.sin(x / k2 + ph2) * .25);
     for (const r of rows) {
-      const ctrl = []; for (let x = -10; x <= W + 10; x += 60) ctrl.push([x, yAt(r, x)]);
+      const ctrl = []; for (let x = -10; x < W + 70; x += 60) ctrl.push([x, yAt(r, x)]); // до правого края с запасом: иначе проспект кончается в 10 ед. от края и не становится выездом
       const pts = spline(ctrl, 14), kind = r.i % 2 ? "st" : "av";
       for (const p of kind === "av" ? clipMap(pts) : clipBy(pts, (x, y) => urbanAt(x, y, .42))) road(p, kind);
     }
@@ -348,8 +407,8 @@ const LAYOUT_GEN = {
         road(spline([[x, y1 - 6], [mx, my], [x2, y2 + 6]], 12), "st");
       }
     }
-    // серпантин через весь город сверху вниз
-    const cx = cityBlob.x, ctrl = []; for (let y = -10, s = 1; y <= H + 10; y += 150, s = -s) ctrl.push([cx + s * rnd(60, 110), y]);
+    // серпантин через весь город сверху вниз; размах невелик — иначе он режет горизонтали «ножницами» и нарезает клинья-кварталы
+    const cx = cityBlob.x, ctrl = []; for (let y = -10, s = 1; y <= H + 10; y += 150, s = -s) ctrl.push([cx + s * rnd(35, 70), y]);
     for (const p of clipMap(spline(ctrl, 14))) road(p, "av");
   },
   // пригород: шоссе, собирающие улицы и петли с тупиками-разворотами
@@ -363,7 +422,7 @@ const LAYOUT_GEN = {
   },
   // исторический центр: собор на площади, кривые переулки внутри стены, бульварное кольцо и сетка новых кварталов снаружи
   old() {
-    const cx = W / 2 + rnd(-40, 40), cy = H / 2 + rnd(-30, 30), RW = 300, RB = RW + 52, RS = 78;
+    const cx = cityCX() + rnd(-40, 40), cy = cityCY() + rnd(-30, 30), RW = 300, RB = RW + 52, RS = 78;
     oldTown = { x: cx, y: cy, R: RW, RS, RB };
     loopRoad(circlePts(cx, cy, RS, 12, .05, rnd(0, TAU)), "ln", { extra: { sw: 5 } });
     loopRoad(circlePts(cx, cy, RB, 16), "av", { extra: { boulevard: true } });
@@ -400,7 +459,7 @@ const LAYOUT_GEN = {
     bigPark = { x0: cx - rx, x1: cx + rx, y0: cy - ry, y1: cy + ry, cx, cy, rx, ry };
     zoneAt = (x, y) => Math.hypot((x - cx) / (rx + 8), (y - cy) / (ry + 8)) < 1 ? "bigpark" : null;
   },
-  industry() { LAYOUT_GEN.grid(true); const side = Math.random() < .5; zoneAt = (x, y) => (side ? x > W / 2 + CITY_W * .06 : x < W / 2 - CITY_W * .06) && cityK(x, y) > .45 ? "industry" : null; },
+  industry() { LAYOUT_GEN.grid(true); const side = Math.random() < .5; zoneAt = (x, y) => (side ? x > cityCX() + CITY_W * .06 : x < cityCX() - CITY_W * .06) && cityK(x, y) > .45 ? "industry" : null; },
 };
 
 /* ---------- застройка ---------- */
@@ -435,7 +494,7 @@ function kindAt(x, y) { const b = blockAt(x, y); if (!b || b.rural) return b ? "
 const SPEC = {
   towers: () => ({ w: rnd(30, 50), d: [30, 52], set: rnd(6, 14), gap: rnd(14, 28), kind: "tower", floors: Math.round(rnd(12, 34)), style: 8 + Math.floor(Math.random() * 3) }),
   mid: () => ({ w: rnd(26, 46), d: [18, 26], set: rnd(2, 6), gap: rnd(6, 12), kind: "apt", floors: Math.round(rnd(6, 14)), style: Math.floor(Math.random() * 5) }),
-  apt: (x, y) => { const r = Math.hypot((x - W / 2) / (CITY_W / 2), (y - H / 2) / (CITY_H / 2)); return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(3, 12) * (1.25 - r * .7)), 3, 12), style: Math.floor(Math.random() * 5) }; },
+  apt: (x, y) => { const r = Math.hypot((x - cityCX()) / (CITY_W / 2), (y - cityCY()) / (CITY_H / 2)); return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(3, 12) * (1.25 - r * .7)), 3, 12), style: Math.floor(Math.random() * 5) }; },
   suburb: () => ({ lot: rnd(34, 46), w: rnd(16, 23), d: [14, 20], set: rnd(9, 14), kind: "house", floors: Math.random() < .55 ? 1 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x" }),
   old: () => ({ w: rnd(13, 24), d: [13, 30], set: 0, gap: rnd(0, .8), kind: "oldhouse", floors: 3 + Math.floor(Math.random() * 3), style: 22 + Math.floor(Math.random() * 4), ridge: "x" }),
   industry: () => ({ w: rnd(40, 70), d: [28, 50], set: rnd(10, 18), gap: rnd(18, 30), kind: "warehouse", floors: Math.random() < .5 ? 2 : 3, style: 15 }),

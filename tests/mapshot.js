@@ -1,4 +1,4 @@
-// снимок карты сверху в PNG: node tests/mapshot.js <планировка> [файл]
+// снимок карты сверху в PNG: node tests/mapshot.js <планировка> [файл]; SEED=<номер города> — тот же город, что в игре с этим номером
 // клетки сетки красятся по типу, поверх — здания (повёрнутые тоже), полосы движения и машины
 const fs = require('fs'), path = require('path'), zlib = require('zlib');
 const files = ['sim1.js', 'roads.js', 'layout.js', 'layout2.js', 'traffic.js', 'terrain.js', 'mountain.js', 'sim2.js', 'sim3.js', 'sim4.js', 'sim5.js', 'sim6.js', 'sim7.js', 'sim8.js', 'sim9.js', 'sim10.js', 'sim11.js', 'sim12.js', 'sim13.js', 'sim14.js', 'sim15.js', 'sim16.js', 'sim17.js','sim18.js', 'sim19.js', 'sim20.js'];
@@ -16,8 +16,8 @@ function png(w, h, rgb) {
 }
 const layout = process.argv[2] || 'grid', out = process.argv[3] || path.join(process.env.TEMP || '.', 'map_' + layout + '.png');
 const body = `
-settings.fast = true; if (process.env.MAP) mapSize = process.env.MAP; const _g = genCity; genCity = () => _g(${JSON.stringify(layout)}); newCitySim(900); genCity = _g;
-return { grid, GW, GH, CS, buildings, RE, RN, cars, layoutKey, blocks, trees, edgePos, regionOf, lakes, props, W, H };`;
+settings.fast = true; if (process.env.MAP) mapSize = process.env.MAP; const _g = genCity; genCity = () => _g(${JSON.stringify(layout)}, +process.env.SEED || 0); newCitySim(900); genCity = _g;
+return { grid, GW, GH, CS, buildings, RE, RN, cars, layoutKey, citySeed, cityBlob, segX, waterD, cellAt, blocks, trees, edgePos, regionOf, lakes, props, W, H };`;
 const R = new Function(stub + src + body)();
 const S = +(process.env.S || 2), w = R.GW * S, h = R.GH * S, img = Buffer.alloc(w * h * 3);
 const COL = { 0: [58, 60, 62], 1: [150, 150, 146], 2: [92, 130, 70], 3: [170, 150, 120], 4: [44, 92, 40], 5: [200, 60, 60], 6: [220, 200, 60], 7: [190, 180, 160], 8: [120, 100, 80], 9: [40, 80, 120], 10: [120, 116, 110] };
@@ -34,8 +34,15 @@ for (const b of R.buildings) {
 // осевые линии дорог и узлы
 for (const e of R.RE) for (let t = 0; t <= e.len; t += 2) { const p = R.edgePos(e, t); put(p.x, p.y, e.rural ? [200, 170, 90] : e.kind === 'av' ? [250, 230, 90] : e.kind === 'ring' ? [90, 220, 250] : [235, 235, 200]); }
 for (const n of R.RN) for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx * dx + dy * dy <= 9) put(n.x + dx, n.y + dy, n.sig ? [240, 60, 60] : n.exit ? [60, 240, 60] : n.ed.length === 1 ? [240, 120, 240] : [40, 40, 40]);
+// MARK=1 — места бед по метрике tests/roadnet.js: острый угол — красный, близкие узлы — оранжевый, тупик — голубой, огрызок — синий,
+// пересечение без узла — белый, впритык — фиолетовая точка
+if (process.env.MARK) { const at = []; require('./roadnet.js').measure(R, R, at); const MC = { sharp: [255, 0, 0], close: [255, 150, 0], dead: [0, 220, 255], stub: [0, 60, 255], cross: [255, 255, 255], tight: [200, 0, 220] };
+  for (const [x, y, k] of at) { const r = k === 'tight' ? 4 : 12; for (let a = 0; a < 6.3; a += k === 'tight' ? .8 : .1) for (const rr of k === 'tight' ? [1, 2, 3] : [r, r + 1, r + 2]) put(x + Math.cos(a) * rr, y + Math.sin(a) * rr, MC[k]); } }
 for (const c of R.cars) for (let k = -6; k <= 6; k++) put(c.x + Math.cos(c.ang) * k, c.y + Math.sin(c.ang) * k, c.moving ? [80, 160, 255] : [255, 255, 255]);
-fs.writeFileSync(out, png(w, h, img));
+// CITY=1 — только город (рамка пятна города с полями в 80 ед.); CITY=u0,v0,u1,v1 — часть этой рамки в долях (0,0,.5,.5 — левая верхняя четверть)
+if (process.env.CITY) { const b = R.cityBlob, f = process.env.CITY.split(',').map(Number), [u0, v0, u1, v1] = f.length === 4 ? f : [0, 0, 1, 1], bx0 = b.x - b.rx - 80, by0 = b.y - b.ry - 80, bw = 2 * b.rx + 160, bh = 2 * b.ry + 160;
+  const x0 = Math.max(0, Math.floor((bx0 + bw * u0) / R.CS * S)), y0 = Math.max(0, Math.floor((by0 + bh * v0) / R.CS * S)), x1 = Math.min(w, Math.ceil((bx0 + bw * u1) / R.CS * S)), y1 = Math.min(h, Math.ceil((by0 + bh * v1) / R.CS * S)), cw = x1 - x0, crop = Buffer.alloc(cw * (y1 - y0) * 3); for (let y = y0; y < y1; y++) img.copy(crop, (y - y0) * cw * 3, (y * w + x0) * 3, (y * w + x1) * 3); fs.writeFileSync(out, png(cw, y1 - y0, crop)); }
+else fs.writeFileSync(out, png(w, h, img));
 const kinds = {}; for (const b of R.buildings) kinds[b.kind] = (kinds[b.kind] || 0) + 1; const chs = {}; for (const b of R.blocks) if (!b.rural) chs[b.ch] = (chs[b.ch] || 0) + 1;
-console.log(R.layoutKey, R.W + 'x' + R.H, 'nodes', R.RN.length, 'edges', R.RE.length, 'buildings', R.buildings.length, 'blocks', R.blocks.length, 'trees', R.trees.length, 'cars', R.cars.length, 'lakes', R.lakes.length, 'props', R.props.length, '->', out);
+console.log(R.layoutKey, '№ ' + R.citySeed, R.W + 'x' + R.H, 'nodes', R.RN.length, 'edges', R.RE.length, 'buildings', R.buildings.length, 'blocks', R.blocks.length, 'trees', R.trees.length, 'cars', R.cars.length, 'lakes', R.lakes.length, 'props', R.props.length, '->', out);
 console.log('kinds', JSON.stringify(kinds)); console.log('districts', JSON.stringify(chs));
