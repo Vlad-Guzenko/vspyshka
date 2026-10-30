@@ -385,10 +385,12 @@ function togglePause() { setPaused(!paused); }
 function followPatientZero() { followA = patientZero; camS.dist = 130; camS.pitch = .5; }
 // список планировок — из таблицы LAYOUTS, скрытые не показываем
 $("layout").innerHTML = '<option value="random">Случайная</option>' + Object.entries(LAYOUTS).filter(([k, v]) => !v.hidden).map(([k, v]) => `<option value="${k}">${v.n}</option>`).join("");
+// номер следующего города из мастера (0 — новый); номер текущего — рядом с названием планировки (showLayoutName в save.js)
+let cityNextSeed = 0;
 function newCity(scenarioKey = "sandbox") {
-  const _g = genCity; genCity = () => _g($("layout").value); patientZero = newCitySim(+$("pop").value); genCity = _g;
+  const seed = cityNextSeed, _g = genCity; cityNextSeed = 0; genCity = () => _g($("layout").value, seed); patientZero = newCitySim(+$("pop").value); genCity = _g;
   setupScenario(typeof scenarioKey === "string" ? scenarioKey : "sandbox", patientZero); renderTools();
-  $("layoutName").textContent = LAYOUTS[layoutKey].n;
+  showLayoutName();
   clearDecals(); clearDebris(); grassAt = null; gridDirtyMini = true; clearHighlight(); interests = [];
   buildCity(); barrDirty = true; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
   $("banner").hidden = true;

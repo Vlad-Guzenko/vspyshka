@@ -9,7 +9,7 @@ function blockHash(b, k = 0) { return Math.abs(Math.sin(b.id * 12.9898 + k * 7.3
 function assignDistricts() {
   for (const b of blocks) {
     if (b.rural) { b.ch = "farm"; continue; }
-    const k = b.kind, r = Math.hypot((b.cx - W / 2) / (CITY_W / 2), (b.cy - H / 2) / (CITY_H / 2)) + (blockHash(b) - .5) * .16;
+    const k = b.kind, r = Math.hypot((b.cx - cityCX()) / (CITY_W / 2), (b.cy - cityCY()) / (CITY_H / 2)) + (blockHash(b) - .5) * .16;
     b.ch = k === "old" || k === "square" || k === "glacis" ? "old" : k === "industry" ? "industry" : k === "towers" ? "center"
       : k === "apt" ? (r < L.d[0] + (L.d[1] - L.d[0]) * .45 ? "mid" : "sleep")
         : k === "suburb" ? (r < L.d[1] + .14 && blockHash(b, 1) < .55 ? "cottage" : "private") : k;
@@ -30,7 +30,7 @@ SPEC.suburb = (x, y) => {
 };
 // многоэтажки: в спальном районе длинные панельные пяти- и девятиэтажки с широкими дворами, ближе к центру — дома средней этажности
 SPEC.apt = (x, y) => {
-  const b = blockAt(x, y), ch = b ? b.ch : "mid", r = Math.hypot((x - W / 2) / (CITY_W / 2), (y - H / 2) / (CITY_H / 2));
+  const b = blockAt(x, y), ch = b ? b.ch : "mid", r = Math.hypot((x - cityCX()) / (CITY_W / 2), (y - cityCY()) / (CITY_H / 2));
   if (ch === "sleep") return { w: rnd(40, 76), d: [12, 16], set: rnd(3, 7), gap: rnd(12, 24), kind: "apt", floors: pick([5, 5, 9, 9, 12]), style: 29 + Math.floor(Math.random() * 2) };
   return { w: rnd(24, 52), d: [12, 22], set: rnd(1, 4), gap: rnd(4, 10), kind: "apt", floors: clamp(Math.round(rnd(5, 12) * (1.25 - r * .7)), 4, 12), style: Math.floor(Math.random() * 5) };
 };

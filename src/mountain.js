@@ -170,6 +170,8 @@ function mrFoot(n, side) {
     if (!next) break;
     chain.push({ e, from }); from = far; e = next;
   }
+  // горы подходят к самому городу: режем у окраины — иначе трасса идёт через всю горную страну, сквозь городки на полках
+  if (tFoot < 0) { e = n.ed[0]; from = n; chain.length = 0; const fromA = e.a === from; for (let t = 24; t < e.len - 24; t += 8) { const p = edgePos(e, fromA ? t : e.len - t); if (cityK(p.x, p.y) < .45) tFoot = fromA ? t : e.len - t; else if (tFoot >= 0) break; } }
   if (tFoot < 0 || !e) return null;
   const foot = gSplit(e, tFoot); if (!foot || foot === from) return null;
   const tail = foot.ed.find(f => (f.a === from || f.b === from) && !f.dead); if (!tail) return null;
@@ -232,11 +234,17 @@ function mrContour(sx, sy, ex, ey, side) {
   return { pts, wid: pts.map(() => 0), hairpins: 0 };
 }
 // горная дорога между двумя точками: зигзаг, где нужно набирать высоту, иначе по горизонталям; через воду — старый трассировщик
-function mrRoad(sx, sy, ex, ey, side, hw) {
+function mrRoute(sx, sy, ex, ey, side) {
   let R = mrZigzag(sx, sy, ex, ey, side) || mrContour(sx, sy, ex, ey, side);
   if (R.pts.slice(1, -1).some(p => waterD(p[0], p[1]) < 20 || p[0] < 0 || p[1] < 0 || p[0] > W || p[1] > H)) R = mrTrace(sx, sy, ex, ey, side);
   if (!R || R.pts.length < 6) return null;
   const last = R.pts[R.pts.length - 1]; if (Math.hypot(last[0] - ex, last[1] - ey) > 6) R.pts.push([ex, ey]);
+  return R;
+}
+// трасса пересекает сама себя (петля серпантина) — addRoad не ставит на таком пересечении узла
+function mrSelfCross(pts) { for (let i = 2; i < pts.length; i++) for (let j = 1; j < i - 1; j++) if (segX(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], pts[j - 1][0], pts[j - 1][1], pts[j][0], pts[j][1])) return true; return false; }
+function mrRoad(sx, sy, ex, ey, side, hw, R = mrRoute(sx, sy, ex, ey, side)) {
+  if (!R) return null;
   const made = addRoad(R.pts, hw, "st", { extra: { rural: true, mountain: true, sw: 3 } });
   if (made) { for (const f of made.edges) f.mountain = true; mountainRoads.push({ side, hairpins: R.hairpins, pts: R.pts }); }
   return made;
@@ -260,8 +268,11 @@ function buildMassifRoads() {
   if (!feet.length) { // ни одна трасса не идёт к горам: от ближайшего узла загородной сети тянем просёлок к подножию
     const tgt = massifPoint(-60, a0); let best = null, bd = 1e9;
     for (const n of RN) { if (n.dead || n.exit || !n.ed.length || cityK(n.x, n.y) > .6) continue; const d = Math.hypot(n.x - tgt[0], n.y - tgt[1]); if (d < bd) { bd = d; best = n; } }
-    if (best) { const foot = massifPoint(24, a0 + rnd(-80, 80)), mid = [(best.x + foot[0]) / 2 + rnd(-60, 60), (best.y + foot[1]) / 2 + rnd(-60, 60)];
-      const made = addRoad([[best.x, best.y], mid, foot], 14, "st", { extra: { rural: true, sw: 3 } }); const fn = made && gNodeNear(foot[0], foot[1], 30); if (fn) feet.push(fn); }
+    // просёлок не идёт через озеро: пробуем несколько изгибов и подножий, пока не найдётся сухой
+    const dry = pts => { for (let i = 1; i < pts.length; i++) for (let k = 0; k <= 20; k++) { const x = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * k / 20, y = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k / 20; if (waterD(x, y) < 16) return false; } return true; };
+    for (let k = 0; best && k < 8; k++) { const foot = massifPoint(24, a0 + rnd(-80, 80) * (1 + k * .5)), mid = [(best.x + foot[0]) / 2 + rnd(-60, 60) * (1 + k * .5), (best.y + foot[1]) / 2 + rnd(-60, 60) * (1 + k * .5)];
+      if (k < 7 && !dry([[best.x, best.y], mid, foot])) continue;
+      const made = addRoad([[best.x, best.y], mid, foot], 14, "st", { extra: { rural: true, sw: 3 } }); const fn = made && gNodeNear(foot[0], foot[1], 30); if (fn) feet.push(fn); break; }
   }
   for (const t of T) buildTerraceRing(t);
   // канатная дорога: нижняя станция у кольца нижнего городка со стороны вершины, верхняя — на площадке вершины
@@ -288,6 +299,25 @@ function buildMassifRoads() {
   let prev = T[0];
   for (let i = 1; i < T.length; i++) { const S0 = towards(prev, T[i].x, T[i].y), E = towards(T[i], prev.x, prev.y); mrRoad(S0[0], S0[1], E[0], E[1], side, 12); prev = T[i]; }
   const pass = mrPass(side, prev.a); if (pass) { const S0 = towards(prev, pass[0], pass[1]); mrRoad(S0[0], S0[1], pass[0], pass[1], side, 12); }
+  // конец трассы, повисший у кольца городка: ringPoint между вершинами кольца отходит от его ломаной на 15 ед. и больше, дальше
+  // притяжения addRoad (SNAP) — такой конец пришиваем к кольцу
+  for (const n of RN) {
+    if (n.dead || n.ed.length !== 1 || !n.ed[0].mountain || n.x < 3 || n.y < 3 || n.x > W - 3 || n.y > H - 3) continue;
+    const e = n.ed[0], q = gEdgeNear(n.x, n.y, 24, f => f === e); if (!q) continue;
+    const m = gSplit(q.e, q.t); if (m === n || m === e.a || m === e.b) continue;
+    if (e.a === n) { e.a = m; e.pts[0] = [m.x, m.y]; } else { e.b = m; e.pts[e.pts.length - 1] = [m.x, m.y]; }
+    reCum(e); m.ed.push(e); n.ed = []; n.dead = true;
+  }
+  // городок, до которого из города не дошла ни одна дорога (подъём не проложился) — тянем к нему трассу от ближайшего связанного
+  // с городом подножия или городка; иначе он висит на перевале отдельно от города (tests/roadnet.js, «разрыв»)
+  const reached = () => { const c = RN.find(n => !n.dead && n.ed.length && cityK(n.x, n.y) > .8), seen = new Set(c ? [c] : []), q = c ? [c] : []; for (let i = 0; i < q.length; i++) for (const e of q[i].ed) { const o = e.a === q[i] ? e.b : e.a; if (!seen.has(o)) { seen.add(o); q.push(o); } } return seen; };
+  for (let k = 0; k < T.length; k++) {
+    const seen = reached(), on = t => { const p = ringPoint(t, 0), q = gEdgeNear(p[0], p[1], 14); return !!q && seen.has(q.e.a); };
+    const lost = T.find(t => !on(t)); if (!lost) break;
+    // откуда: подножия, связанные городки и узлы горных трасс, до которых доезжают из города
+    const from = feet.filter(f => seen.has(f)).map(f => [f.x, f.y]).concat(T.filter(on).map(t => towards(t, lost.x, lost.y)), RN.filter(n => seen.has(n) && n.ed.some(e => e.mountain)).map(n => [n.x, n.y])).sort((p, q) => Math.hypot(p[0] - lost.x, p[1] - lost.y) - Math.hypot(q[0] - lost.x, q[1] - lost.y));
+    if (!from.slice(0, 8).some(p => { const E = towards(lost, p[0], p[1]), R = mrRoute(p[0], p[1], E[0], E[1], side); return R && !mrSelfCross(R.pts) && mrRoad(p[0], p[1], E[0], E[1], side, 12, R); })) break;
+  }
 }
 // курортные городки на полках, по смыслу: у воды гостиницы, ресторан и церковь, по внешней стороне кольца шале с участками,
 // внутри кольца парк у озера. Ни киосков, ни заправок, ни дач — это не окраина города

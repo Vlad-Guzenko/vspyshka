@@ -194,9 +194,11 @@ function finishGraph() {
   for (let pass = 0; pass < 3; pass++) {
     for (const e of RE) {
       if (e.dead || e.a === e.b || e.kind === "ring") continue;
-      // короткое ребро схлопывается; между двумя перекрёстками — и до 24: иначе между ними не помещается машина, и оба запираются
-      if (e.len >= (e.a.ed.length >= 3 && e.b.ed.length >= 3 && !e.a.round && !e.b.round ? 24 : 9)) continue;
-      const keep = e.a.exit || e.a.round ? e.a : e.b, gone = keep === e.a ? e.b : e.a;
+      // короткое ребро схлопывается; между двумя перекрёстками — и до 24: иначе между ними не помещается машина, и оба запираются.
+      // Так же до 24 — изгиб (узел степени 2) у самого перекрёстка: там меняется ширина улицы или ломаная, и узел торчит рядом с перекрёстком
+      const jn = n => n.ed.length >= 3 && !n.round, bend = n => n.ed.length === 2 && !n.round && !n.exit && !n.keep;
+      if (e.len >= (jn(e.a) && jn(e.b) || jn(e.a) && bend(e.b) || bend(e.a) && jn(e.b) ? 24 : 9)) continue;
+      const keep = e.a.exit || e.a.round ? e.a : e.b.exit || e.b.round ? e.b : e.a.ed.length > e.b.ed.length ? e.a : e.b, gone = keep === e.a ? e.b : e.a;
       if (gone.exit || gone.round) continue;
       reKill(e);
       for (const f of gone.ed.slice()) {
