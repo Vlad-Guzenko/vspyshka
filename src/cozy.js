@@ -48,7 +48,7 @@ function cozyMat(m, kind = 0) {
         float czS = czSnow * smoothstep(.4, .85, czUp.y) * smoothstep(.2, .5, czn + czSnow * .6 - .3);
         if (czKind > .5 && czKind < 1.5) { vec3 dc = diffuseColor.rgb; float sat = max(max(dc.r, dc.g), dc.b) - min(min(dc.r, dc.g), dc.b); czS *= mix(.35, 1., smoothstep(.01, .035, sat)); }
         if (czKind > 1.5) czS *= .8;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.74, .77, .82), czS); // лежалый, слежавшийся: свежие кучи (render20.js) на нём заметно ярче
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.4, .42, .46), czS); // лежалый, слежавшийся: свежие кучи (render20.js) на нём заметно ярче
         roughnessFactor = mix(roughnessFactor, .72, czS); metalnessFactor *= 1. - czS;
       }`);
   };
@@ -92,7 +92,7 @@ updateLighting = function (dt, simDt) {
     const k = Math.min(1, cozy.fall), g = _czc.setHex(0x9aa2aa).multiplyScalar(.3 + (1 - nightK) * .7);
     skyU.top.value.lerp(g, k * .6); skyU.bot.value.lerp(g, k * .6); scene.fog.color.lerp(g, k * .5); sun.intensity *= 1 - k * .4;
   }
-  hemi.intensity *= 1 + cozy.cover * .2;
+  hemi.intensity *= 1 + cozy.cover * .06;
   COZY.winOn.value = windowsOn(world.hour); COZY.winT.value = performance.now() / 1000;
 };
 

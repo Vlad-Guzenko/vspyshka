@@ -3,7 +3,7 @@
 // снег — сплошной покров, натянутый по рельефу участками 128 × 128 с шагом 4: высота — сглаженная глубина из клеток,
 // край рваный (шум в шейдере), где снег тонкий — серая каша; так сугроб читается валом и наносом, а не клетками
 const SNOW_TILE = 128, SNOW_RES = 4, snowTiles = new Map();
-const snowMat = new THREE.MeshStandardMaterial({ color: 0xf2f6fa, roughness: .74, envMapIntensity: .6 });
+const snowMat = new THREE.MeshStandardMaterial({ color: 0x8f9aa8, roughness: .9, envMapIntensity: .35 }); // приглушённый голубовато-серый: не сливается ни с зимней землёй, ни с небом
 snowMat.onBeforeCompile = sh => {
   sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute float depth; varying float vDepth; varying vec2 vSW; varying float vUp;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvDepth = depth; vSW = position.xz; vUp = normal.y;");
   sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
