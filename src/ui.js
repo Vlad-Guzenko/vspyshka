@@ -390,7 +390,7 @@ function newCity(scenarioKey = "sandbox") {
   setupScenario(typeof scenarioKey === "string" ? scenarioKey : "sandbox", patientZero); renderTools();
   showLayoutName();
   clearDecals(); clearDebris(); grassAt = null; gridDirtyMini = true; clearHighlight(); interests = [];
-  buildCity(); barrDirty = true; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
+  buildCity(); barrDirty = true; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0; fxReset();
   $("banner").hidden = true;
 }
 $("newCity").addEventListener("click", openWizard);
@@ -421,7 +421,7 @@ function resize() {
   R3.setPixelRatio(pr); R3.setSize(Math.max(300, r.width), Math.max(200, r.height), false);
   camera.aspect = Math.max(300, r.width) / Math.max(200, r.height); camera.updateProjectionMatrix();
   const sc = Math.max(200, r.height) * pr / (2 * Math.tan(camera.fov * Math.PI / 360));
-  PS_ADD.mat.uniforms.scale.value = PS_SMOKE.mat.uniforms.scale.value = sc;
+  PS_ADD.mat.uniforms.scale.value = PS_SMOKE.mat.uniforms.scale.value = PS_FLAME.mat.uniforms.scale.value = sc;
   resizePost();
 }
 window.addEventListener("resize", resize);
@@ -449,7 +449,7 @@ function frameBody(now) {
   const fxDt = paused ? 0 : Math.min(dt * speed * slowK, dt * 2);
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
   updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateFunicular(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
-  stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
+  stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt); stepFx(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); updateCozy(fxDt, dt); updateWreck(fxDt); updateSnowRoads(dt); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();

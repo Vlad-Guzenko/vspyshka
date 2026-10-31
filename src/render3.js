@@ -2,25 +2,50 @@
 const smokeTex = canvasTex(128, 128, (g) => {
   for (let i = 0; i < 30; i++) { const x = 64 + rnd(-22, 22), y = 64 + rnd(-22, 22), r = rnd(16, 34), gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, "rgba(255,255,255,.22)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
 }, false);
-function particleSystem(cap, additive, tex) {
+// языки пламени: атлас 2×2 из четырёх разных языков, белые с прозрачностью; цвет и мерцание даёт шейдер
+const flameTex = canvasTex(256, 256, (g) => {
+  g.globalCompositeOperation = "lighter";
+  for (let q = 0; q < 4; q++) {
+    const ox = (q % 2) * 128, oy = Math.floor(q / 2) * 128, lean = rnd(-6, 6);
+    for (let i = 0; i < 26; i++) {
+      const t = i / 25, w = 30 * (1 - t) ** .8 + 3, cx = ox + 64 + lean * t * t + Math.sin(t * 7 + q) * 5 * t, cy = oy + 116 - t * 104;
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, w); gr.addColorStop(0, `rgba(255,255,255,${.22 * (1 - t * .7)})`); gr.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = gr; g.fillRect(ox, oy, 128, 128);
+    }
+    // отдельный язычок сбоку
+    for (let i = 0; i < 8; i++) { const t = i / 7, cx = ox + 64 + (q % 2 ? 1 : -1) * (14 + t * 10), cy = oy + 92 - t * 46, w = 11 * (1 - t) + 2, gr = g.createRadialGradient(cx, cy, 0, cx, cy, w); gr.addColorStop(0, "rgba(255,255,255,.16)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(ox, oy, 128, 128); }
+  }
+}, false);
+// flame: у частицы есть зерно — им выбирается язык из атласа, фаза мерцания и колыхания
+function particleSystem(cap, additive, tex, flame) {
   const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(cap * 3), col = new Float32Array(cap * 4), size = new Float32Array(cap);
+  const pos = new Float32Array(cap * 3), col = new Float32Array(cap * 4), size = new Float32Array(cap), seed = flame ? new Float32Array(cap) : null;
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute("color", new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute("size", new THREE.BufferAttribute(size, 1).setUsage(THREE.DynamicDrawUsage));
+  if (flame) geo.setAttribute("seed", new THREE.BufferAttribute(seed, 1).setUsage(THREE.DynamicDrawUsage));
   const mat = new THREE.ShaderMaterial({
-    uniforms: { map: { value: tex }, scale: { value: 600 }, fogColor: { value: new THREE.Color() }, fogNear: { value: 0 }, fogFar: { value: 1 } },
-    vertexShader: `attribute float size; attribute vec4 color; varying vec4 vC; varying float vD; uniform float scale;
+    uniforms: { map: { value: tex }, scale: { value: 600 }, time: { value: 0 }, fogColor: { value: new THREE.Color() }, fogNear: { value: 0 }, fogFar: { value: 1 } },
+    vertexShader: flame ? `attribute float size; attribute vec4 color; attribute float seed; varying vec4 vC; varying vec2 vO; uniform float scale, time;
+      void main(){ vC = color; vC.rgb *= .78 + .22 * sin(time * 23. + seed * 61.) + .1 * sin(time * 41. + seed * 17.);
+        vO = vec2(mod(floor(seed * 4.), 2.), floor(mod(seed * 4., 4.) / 2.)) * .5;
+        vec3 p = position; p.x += sin(time * 7. + seed * 40.) * size * .06; p.z += cos(time * 6. + seed * 23.) * size * .05;
+        vec4 mv = modelViewMatrix * vec4(p,1.); gl_PointSize = size * scale / -mv.z; gl_Position = projectionMatrix * mv; }`
+      : `attribute float size; attribute vec4 color; varying vec4 vC; varying float vD; uniform float scale;
       void main(){ vC = color; vec4 mv = modelViewMatrix * vec4(position,1.); vD = -mv.z; gl_PointSize = size * scale / -mv.z; gl_Position = projectionMatrix * mv; }`,
-    fragmentShader: `uniform sampler2D map; varying vec4 vC; varying float vD;
+    fragmentShader: flame ? `uniform sampler2D map; varying vec4 vC; varying vec2 vO;
+      void main(){ vec2 uv = vec2(gl_PointCoord.x, 1. - gl_PointCoord.y) * .5 + vO; float a = texture2D(map, uv).a;
+        gl_FragColor = vec4(vC.rgb * (.5 + a * .9), vC.a * a); }`
+      : `uniform sampler2D map; varying vec4 vC; varying float vD;
       void main(){ vec4 t = texture2D(map, gl_PointCoord); gl_FragColor = vec4(vC.rgb, vC.a * t.a); }`,
     transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
   });
   const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = additive ? 6 : 5; scene.add(pts);
-  return { cap, pos, col, size, geo, mat, list: [], pts };
+  return { cap, pos, col, size, seed, geo, mat, list: [], pts };
 }
-const PS_ADD = particleSystem(5000, true, glowTex), PS_SMOKE = particleSystem(5000, false, smokeTex);
-// p: x,y,z, vx,vy,vz, l (жизнь), m (макс), s0,s1 (размер), c (цвет [r,g,b]), c1 (конечный цвет), a (непрозрачность), g (гравитация), dr (сопротивление)
+const PS_ADD = particleSystem(5000, true, glowTex), PS_SMOKE = particleSystem(5000, false, smokeTex), PS_FLAME = particleSystem(3000, true, flameTex, true);
+// p: x,y,z, vx,vy,vz, l (жизнь), m (макс), s0,s1 (размер), c (цвет [r,g,b]), c1 (конечный цвет), a (непрозрачность), g (гравитация), dr (сопротивление),
+// dl (задержка: частица ещё не видна и стоит), wb (угли: блуждают в стороны), sd (зерно языка пламени)
 let fxK = 1;
 function emit(ps, p) { if (fxK < 1 && Math.random() > fxK) return; if (ps.list.length >= ps.cap) ps.list.shift(); p.m = p.l; ps.list.push(p); }
 const lerpC = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -28,25 +53,40 @@ function stepParticles(ps, dt) {
   let n = 0;
   const L = ps.list;
   for (let i = L.length - 1; i >= 0; i--) {
-    const p = L[i]; p.l -= dt;
+    const p = L[i];
+    if (p.dl > 0) { p.dl -= dt; continue; }
+    p.l -= dt;
     if (p.l <= 0) { L[i] = L[L.length - 1]; L.pop(); continue; }
     p.vy -= (p.g || 0) * dt; const dr = 1 - Math.min(1, (p.dr || 0) * dt); p.vx *= dr; p.vy *= dr; p.vz *= dr;
+    if (p.wb) { p.vx += (Math.random() - .5) * p.wb * dt; p.vz += (Math.random() - .5) * p.wb * dt; }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     if (p.y < .2 && p.g > 0) { p.y = .2; p.vy *= -.2; p.vx *= .5; p.vz *= .5; }
   }
   for (const p of L) {
+    if (p.dl > 0) continue;
     const t = 1 - p.l / p.m, c = p.c1 ? lerpC(p.c, p.c1, t) : p.c;
     ps.pos[n * 3] = p.x; ps.pos[n * 3 + 1] = p.y; ps.pos[n * 3 + 2] = p.z;
     ps.col[n * 4] = c[0]; ps.col[n * 4 + 1] = c[1]; ps.col[n * 4 + 2] = c[2];
     ps.col[n * 4 + 3] = p.a * (p.fadeIn ? Math.min(1, t * 6) : 1) * (1 - t) ** (p.fp || 1);
-    ps.size[n] = p.s0 + (p.s1 - p.s0) * t; n++;
+    ps.size[n] = p.s0 + (p.s1 - p.s0) * t;
+    if (ps.seed) ps.seed[n] = p.sd || 0;
+    n++;
   }
   ps.geo.setDrawRange(0, n);
   for (const k of ["position", "color", "size"]) ps.geo.attributes[k].needsUpdate = true;
+  if (ps.seed) { ps.geo.attributes.seed.needsUpdate = true; ps.mat.uniforms.time.value = (ps.mat.uniforms.time.value + dt) % 1000; }
 }
 const FIRE = [1.6, 1.0, .35], FIRE2 = [.8, .15, .02], SMK = [.05, .045, .04], SMK2 = [.22, .21, .2];
+const FL0 = [1.15, .62, .18], FL1 = [.7, .14, .02], EMB = [1.6, .6, .12], EMB2 = [.5, .08, 0];
+// язык пламени: рождается у основания широким и жёлтым, вытягивается вверх, сужается и краснеет; изредка — уголёк или искра
 function fireParticle(x, y, z, k = 1) {
-  emit(PS_ADD, { x: x + rnd(-2, 2) * k, y, z: z + rnd(-2, 2) * k, vx: rnd(-2, 2), vy: rnd(8, 18) * k, vz: rnd(-2, 2), l: rnd(.4, .9), s0: rnd(4, 8) * k, s1: 1, c: FIRE, c1: FIRE2, a: .9 });
+  emit(PS_FLAME, { x: x + rnd(-2, 2) * k, y: y + rnd(0, 2) * k, z: z + rnd(-2, 2) * k, vx: rnd(-1.5, 1.5), vy: rnd(6, 13) * Math.sqrt(k), vz: rnd(-1.5, 1.5), l: rnd(.4, .9), s0: rnd(8, 16) * k, s1: rnd(2, 5) * k, c: FL0, c1: FL1, a: .6, fp: .8, sd: Math.random() });
+  if (Math.random() < .25) emit(PS_ADD, { x: x + rnd(-2, 2) * k, y: y + 2 * k, z: z + rnd(-2, 2) * k, vx: 0, vy: rnd(2, 5) * k, vz: 0, l: rnd(.3, .5), s0: 13 * k, s1: 6 * k, c: [1, .42, .08], a: .22 }); // жар у основания
+  if (Math.random() < .06) emberParticle(x, y + 3 * k, z, k);
+}
+// уголёк: тлеет, медленно поднимается с горячим воздухом и блуждает
+function emberParticle(x, y, z, k = 1) {
+  emit(PS_ADD, { x: x + rnd(-3, 3) * k, y, z: z + rnd(-3, 3) * k, vx: rnd(-2, 2), vy: rnd(6, 16) * Math.sqrt(k), vz: rnd(-2, 2), l: rnd(1.5, 3.5), s0: rnd(.7, 1.4), s1: .3, c: EMB, c1: EMB2, a: 1, dr: .6, wb: 30, fp: .5 });
 }
 function smokeParticle(x, y, z, k = 1, dark = true) {
   const wind = 4 + k * 2;
@@ -104,26 +144,66 @@ function stepTracers(dt) {
 }
 
 /* ---------- взрывы ---------- */
-const shockMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffd6a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-let shocks = [], shake = 0;
-function fxBoom(x, y, R) {
-  const cx = X(x), cz = Z(y), k = R / 70, gy = gY(x, y);
-  if (R >= 60) slowMo(1.4);
-  flashLight(cx, gy + 20, cz, 6 * k, .9, 0xffa040);
-  shake = Math.max(shake, 7 * k * clamp(1.4 - camDist() / 1400, .2, 1));
-  for (let i = 0; i < 70 * k; i++) { const a = rnd(0, TAU), v = rnd(5, 40) * k; emit(PS_ADD, { x: cx, y: gy + rnd(2, 10), z: cz, vx: Math.cos(a) * v, vy: rnd(10, 45) * k, vz: Math.sin(a) * v, l: rnd(.5, 1.3), s0: rnd(14, 26) * k, s1: 4, c: [2, 1.3, .5], c1: [.9, .2, .02], a: .95, dr: 1.6 }); }
-  for (let i = 0; i < 90 * k; i++) { const a = rnd(0, TAU), v = rnd(4, 26) * k; emit(PS_SMOKE, { x: cx + Math.cos(a) * rnd(0, R * .3), y: gy + rnd(3, 20), z: cz + Math.sin(a) * rnd(0, R * .3), vx: Math.cos(a) * v, vy: rnd(6, 26) * k, vz: Math.sin(a) * v, l: rnd(5, 11), s0: 10 * k, s1: rnd(40, 70) * k, c: [.07, .065, .06], c1: [.28, .26, .24], a: .75, fadeIn: true, dr: .7 }); }
-  for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 70) * k; emit(PS_SMOKE, { x: cx, y: gy + 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 60), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(1, 2.5), s1: 1, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
-  for (let i = 0; i < 40 * k; i++) { const a = rnd(0, TAU), v = rnd(30, 90); emit(PS_ADD, { x: cx, y: gy + 4, z: cz, vx: Math.cos(a) * v, vy: rnd(10, 50), vz: Math.sin(a) * v, l: rnd(.6, 1.4), s0: 1.3, s1: .4, c: [2, 1.4, .6], a: 1, g: 50 }); }
-  const ring = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), shockMat.clone());
-  ring.position.set(cx, gy + 1.5, cz); scene.add(ring); shocks.push({ m: ring, t: 0, R: R * 2.2 });
+// ударная волна по земле: кольцо из постоянного пула (материалы созданы один раз, свободные кольца не рисуются)
+const shockTex = canvasTex(128, 128, (g) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(.55, "rgba(255,255,255,.06)"); gr.addColorStop(.84, "rgba(255,255,255,.85)"); gr.addColorStop(.92, "rgba(255,255,255,.3)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }, false);
+const shockGeo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+const shocks = Array.from({ length: 10 }, () => { const m = new THREE.Mesh(shockGeo, new THREE.MeshBasicMaterial({ map: shockTex, color: 0xffd6a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })); m.visible = false; m.renderOrder = 4; m.frustumCulled = false; scene.add(m); return { m, t: 0, life: 1, R: 1, op: 1 }; });
+let shake = 0;
+function addShock(x, y, z, R, life, color, op) {
+  let s = shocks[0]; for (const q of shocks) { if (!q.m.visible) { s = q; break; } if (q.t / q.life > s.t / s.life) s = q; }
+  s.m.position.set(x, y, z); s.m.material.color.setHex(color); s.m.visible = true; s.t = 0; s.life = life; s.R = R; s.op = op; s.m.scale.setScalar(.01);
 }
 function stepShocks(dt) {
-  shocks = shocks.filter(s => {
-    s.t += dt; const k = s.t / .55;
-    if (k >= 1) { scene.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); return false; }
-    s.m.scale.setScalar(s.R * Math.sqrt(k)); s.m.material.opacity = (1 - k) * .9; return true;
-  });
+  for (const s of shocks) {
+    if (!s.m.visible) continue;
+    s.t += dt; const k = s.t / s.life;
+    if (k >= 1) { s.m.visible = false; continue; }
+    s.m.scale.setScalar(s.R * (1 - (1 - k) ** 3)); s.m.material.opacity = (1 - k) ** 1.6 * s.op;
+  }
+}
+// сила взрыва: растяжка, мина, снаряд, машина — граната — бензовоз и заправка — авиабомба — метеорит
+// fb: огненный шар, sm: дым (dark — чёрный от горючего), dust: пыль по земле, sp: искры, ch: глыбы земли и асфальта, fl: вспышка экспозиции
+const BOOM = {
+  small: { fb: .8, sm: .6, dust: .6, sp: 26, ch: 0, fl: 0, life: .8, smk: [.16, .15, .14] },
+  car: { fb: 1.1, sm: 1, dust: .7, sp: 50, ch: 4, fl: 0, life: 1, dark: true, smk: [.06, .055, .05] },
+  grenade: { fb: 1, sm: .9, dust: 1, sp: 60, ch: 6, fl: .05, life: .9, smk: [.2, .19, .17] },
+  fuel: { fb: 1.9, sm: 1.4, dust: .7, sp: 70, ch: 6, fl: .22, life: 1.8, dark: true, rise: 1.6, smk: [.05, .045, .04] },
+  bomb: { fb: 1, sm: 1.1, dust: 1.5, sp: 110, ch: 34, fl: .3, life: 1, rise: 1, smk: [.27, .24, .2] },
+  meteor: { fb: 1.2, sm: 1.2, dust: 1.6, sp: 160, ch: 60, fl: .5, life: 1.3, rise: 1.3, smk: [.25, .22, .19] },
+};
+function boomKind(R, big) { return R >= 100 ? "meteor" : big && R >= 70 ? "bomb" : big ? "fuel" : R >= 40 ? "grenade" : R >= 30 ? "car" : "small"; }
+const DIRT = ["#4a4038", "#3b3530", "#5a5047", "#2e2c2a", "#6a5e50"];
+function fxBoom(x, y, R, big) {
+  const cx = X(x), cz = Z(y), k = R / 70, gy = gY(x, y), P = BOOM[boomKind(R, big)], sk = Math.sqrt(k), rise = P.rise || 0;
+  if (R >= 60) slowMo(1.4);
+  // вспышка: короткий белый свет, потом оранжевый отсвет; у больших — засветка кадра
+  flashLight(cx, gy + 8 + R * .15, cz, 9 * k, .16, 0xfff0d8);
+  flashLight(cx, gy + 14 + R * .25, cz, 4.5 * k * P.fb, .6 + P.life * .6, 0xff8a30);
+  if (P.fl) world.flash = Math.max(world.flash, P.fl);
+  shake = Math.max(shake, 7 * k * clamp(1.4 - camDist() / 1400, .2, 1));
+  emit(PS_ADD, { x: cx, y: gy + 3 + R * .08, z: cz, vx: 0, vy: 0, vz: 0, l: .1, s0: R * .75, s1: R * 1.1, c: [2.2, 1.9, 1.5], a: 1 });
+  // огненный шар: клубы рвутся наружу, вязнут в воздухе и всплывают, остывая от бело-жёлтого к тёмно-красному
+  const nb = Math.max(8, 42 * k * P.fb);
+  for (let i = 0; i < nb; i++) {
+    const a = rnd(0, TAU), u = rnd(-.2, 1), r = Math.sqrt(1 - u * u), v = rnd(.5, 1.2) * R * 1.1, hot = Math.random() < .3;
+    emit(PS_ADD, { x: cx + Math.cos(a) * r * R * .08, y: gy + 2 + u * R * .1, z: cz + Math.sin(a) * r * R * .08, vx: Math.cos(a) * r * v, vy: u * v * .7 + R * .15 * (1 + rise), vz: Math.sin(a) * r * v, l: rnd(.8, 1.5) * P.life, s0: R * rnd(.24, .34), s1: R * rnd(.42, .6), c: hot ? [1.7, 1.05, .38] : [1.5, .55, .1], c1: [.4, .06, .01], a: .42, dr: 3.4, g: -R * .3 * (1 + rise), fp: 1.2 });
+  }
+  // огонь темнеет в дым: клубы появляются там же с задержкой, сначала бурые от жара, потом серые или чёрные
+  const ns = 60 * k * P.sm;
+  for (let i = 0; i < ns; i++) {
+    const a = rnd(0, TAU), r = rnd(0, R * .3), dl = rnd(.12, .55) * P.life, up = rnd(.12, .35) * R * (1 + rise * .6);
+    emit(PS_SMOKE, { x: cx + Math.cos(a) * r, y: gy + rnd(.05, .3) * R * (1 + rise * .5), z: cz + Math.sin(a) * r, vx: Math.cos(a) * rnd(2, 10) * k, vy: up, vz: Math.sin(a) * rnd(2, 10) * k, dl, l: rnd(5, 10) * (P.dark ? 1.3 : 1), s0: R * .25, s1: R * rnd(.8, 1.2) * (1 + rise * .3), c: [.3, .14, .06], c1: P.smk, a: P.dark ? .9 : .78, fadeIn: true, dr: .45 });
+  }
+  // гриб: у больших столб дыма поднимается и расползается шапкой
+  if (rise) for (let i = 0; i < 14 * k; i++) { const a = rnd(0, TAU), t = i / (14 * k); emit(PS_SMOKE, { x: cx + Math.cos(a) * R * .1, y: gy + R * .3, z: cz + Math.sin(a) * R * .1, vx: Math.cos(a) * R * .12 * t, vy: R * (.45 + .4 * (1 - t)) * rise, vz: Math.sin(a) * R * .12 * t, dl: .3 + t * .5, l: rnd(7, 12), s0: R * .3, s1: R * (.8 + t * .5), c: [.35, .17, .07], c1: P.smk, a: .75, fadeIn: true, dr: .8 }); }
+  // пыль по земле: кольцо катится наружу и оседает
+  const nd = 34 * k * P.dust;
+  for (let i = 0; i < nd; i++) { const a = rnd(0, TAU), v = R * rnd(1.2, 2.2); emit(PS_SMOKE, { x: cx + Math.cos(a) * R * .15, y: gy + rnd(1, 3), z: cz + Math.sin(a) * R * .15, vx: Math.cos(a) * v, vy: rnd(1, 6), vz: Math.sin(a) * v, l: rnd(1.8, 3.6), s0: R * .12, s1: R * rnd(.35, .55), c: [.46, .42, .36], c1: [.55, .52, .47], a: .5, fadeIn: true, dr: 2.4 }); }
+  // мелкий сор: падает по дугам
+  for (let i = 0; i < 26 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 60) * k; emit(PS_SMOKE, { x: cx, y: gy + 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 55), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(.8, 2), s1: .8, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
+  addShock(cx, gy + 1.2, cz, R * 2.3, .5, 0xffd6a0, .95);
+  if (R >= 45) addShock(cx, gy + .8, cz, R * 3.2, 1.1, 0xb8a890, .35); // вслед — пылевой вал
+  fxBoomMore(x, y, cx, gy, cz, R, k, P); // искры, глыбы, подпалина, стёкла — render22.js
 }
 function stepFires(dt) {
   // пожары на земле, горящие машины и дома дают огонь, дым и отсвет
@@ -136,20 +216,23 @@ function stepFires(dt) {
     if (Math.random() < dt * 6) emit(PS_SMOKE, { x: tx + rnd(-4, 4), y: ty, z: tz + rnd(-4, 4), vx: rnd(-2, 2), vy: rnd(6, 12), vz: rnd(-2, 2), l: rnd(2, 4), s0: 6, s1: 22, c: [.85, .86, .88], a: .35, fadeIn: true }); // пар
   }
   for (const a of agents) if (a.onFire > 0 && a.state !== "saved") { const h = gY(a.x, a.y) + (a.state === "dead" ? 1 : rnd(2, 7)); for (let i = 0; i < dt * 30; i++) fireParticle(X(a.x) + rnd(-1, 1), h, Z(a.y) + rnd(-1, 1), .35); if (Math.random() < dt * 3) smokeParticle(X(a.x), h + 3, Z(a.y), .3); }
-  for (const f of fires) { const n = f.r / 6, fy = hasHills ? gY(f.x, f.y) : 0; for (let i = 0; i < n * dt * 30; i++) { const a = rnd(0, TAU), r = rnd(0, f.r); fireParticle(X(f.x + Math.cos(a) * r), fy + .5, Z(f.y + Math.sin(a) * r), 1); } if (Math.random() < dt * 8) smokeParticle(X(f.x + rnd(-f.r, f.r) * .5), fy + 4, Z(f.y + rnd(-f.r, f.r) * .5), 1.2); lit.push([X(f.x), fy + 8, Z(f.y), 2.5]); }
-  for (const c of cars) if (c.burnT > 0) { const cy = gY(c.x, c.y); if (Math.random() < dt * 30) fireParticle(X(c.x) + rnd(-6, 6), cy + 5, Z(c.y) + rnd(-3, 3), .7); if (Math.random() < dt * 5) smokeParticle(X(c.x), cy + 8, Z(c.y), 1); lit.push([X(c.x), cy + 8, Z(c.y), 1.2]); }
+  for (const f of fires) { const n = f.r / 6, fy = hasHills ? gY(f.x, f.y) : 0; for (let i = 0; i < n * dt * 30; i++) { const a = rnd(0, TAU), r = rnd(0, f.r); fireParticle(X(f.x + Math.cos(a) * r), fy + .5, Z(f.y + Math.sin(a) * r), 1); } if (Math.random() < dt * 8) smokeParticle(X(f.x + rnd(-f.r, f.r) * .5), fy + 4, Z(f.y + rnd(-f.r, f.r) * .5), 1.2); if (Math.random() < dt * 5 * n) fxCoals(X(f.x), fy, Z(f.y), f.r * .8, 1); lit.push([X(f.x), fy + 8, Z(f.y), 2.5]); }
+  for (const c of cars) if (c.burnT > 0) { const cy = gY(c.x, c.y); if (Math.random() < dt * 30) fireParticle(X(c.x) + rnd(-6, 6), cy + 5, Z(c.y) + rnd(-3, 3), .7); if (Math.random() < dt * 5) smokeParticle(X(c.x), cy + 8, Z(c.y), 1); if (Math.random() < dt * .4) sparkBurst(X(c.x), cy + 5, Z(c.y), 10, 28, .9, .9, cy); lit.push([X(c.x), cy + 8, Z(c.y), 1.2]); }
   for (const b of buildings) if (b.fire > 0) {
     const w = b.x1 - b.x0, d = b.y1 - b.y0, top = b.h + (b.baseY || 0), by = b.baseY || 0;
     for (let i = 0; i < dt * 50; i++) fireParticle(X(rnd(b.x0 + 3, b.x1 - 3)), top + 1, Z(rnd(b.y0 + 3, b.y1 - 3)), 1.6);
     // языки пламени из окон
     for (let i = 0; i < dt * 14; i++) { const side = Math.floor(rnd(0, 4)), fl = by + Math.floor(rnd(0, b.floors)) * FLOOR + 6; const px = side < 2 ? rnd(b.x0, b.x1) : side === 2 ? b.x0 - 1 : b.x1 + 1, pz = side >= 2 ? rnd(b.y0, b.y1) : side === 0 ? b.y0 - 1 : b.y1 + 1; fireParticle(X(px), fl, Z(pz), .9); }
     for (let i = 0; i < dt * 14; i++) smokeParticle(X(rnd(b.x0, b.x1)), top + 4, Z(rnd(b.y0, b.y1)), 2.4);
+    for (let i = 0; i < dt * 8; i++) emberParticle(X(rnd(b.x0, b.x1)), top + 3, Z(rnd(b.y0, b.y1)), 1.6);
     lit.push([X((b.x0 + b.x1) / 2), top + 10, Z((b.y0 + b.y1) / 2), 4]);
     applyScorch(b);
   }
   for (const b of buildings) { if (b.state !== "ok" || !(b.scorch > .2)) continue; applyScorch(b); if (b.gutted && b.gutT > 0 && dt && Math.random() < dt * 3) smokeParticle(X(rnd(b.x0, b.x1)), (b.baseY || 0) + b.h + 2, Z(rnd(b.y0, b.y1)), 1.6); }
   lit.sort((a, b) => b[3] - a[3]);
-  for (let i = 0; i < Math.min(3, lit.length); i++) { const [x, y, z, k] = lit[i]; const p = lightPool[3 + i]; p.l.position.set(x, y, z); p.l.color.setHex(0xff7a2a); p.l.distance = 50 + k * 30; p.k = k * (.45 + Math.random() * .25); p.t = .2; p.m = .2; }
+  // свет пожара дышит: два медленных колебания и мелкая дрожь, а не случайный скачок каждый кадр
+  const ft = performance.now() / 1000;
+  for (let i = 0; i < Math.min(3, lit.length); i++) { const [x, y, z, k] = lit[i]; const p = lightPool[3 + i]; p.l.position.set(x, y, z); p.l.color.setHex(0xff7a2a); p.l.distance = 50 + k * 30; p.k = k * (.56 + .1 * Math.sin(ft * 9.3 + i * 2.1) + .07 * Math.sin(ft * 23.1 + i) + Math.random() * .05); p.t = .2; p.m = .2; }
 }
 
 /* ---------- вертолёт эвакуации ---------- */

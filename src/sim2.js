@@ -445,6 +445,7 @@ function stepBody(a, dt) {
     a.vz -= 39 * dt; a.z += a.vz * dt; a.roll += a.spin * dt;
     if (a.z <= 0) { a.z = 0; if (a.vz < -8) { a.vz *= -.25; a.spin *= .5; addDecal(a.x, a.y, rnd(1, 2), a.burnt ? 1 : 0); } else a.vz = 0; a.vx *= 1 - Math.min(1, dt * 4); a.vy *= 1 - Math.min(1, dt * 4); a.spin *= 1 - Math.min(1, dt * 3); }
     const nx = a.x + a.vx * dt, ny = a.y + a.vy * dt;
+    if (bodyHits(a, nx, ny)) return; // отскочило от машины (sim16.js)
     if (!blocked(nx, a.y) || a.z > 14) a.x = clamp(nx, 2, W - 2); else a.vx *= -.3;
     if (!blocked(a.x, ny) || a.z > 14) a.y = clamp(ny, 2, H - 2); else a.vy *= -.3;
   }
@@ -555,7 +556,7 @@ function step(dt) {
 function boom(x, y, R, big) {
   interest(x, y, big ? 9 : 5); cityNoise(big ? R / 2 : R / 6);
   if (R >= 30) addDanger(x, y, R * 2.2, big ? 240 : 120);
-  fxBoom(x, y, R); sfx.boom(x, y, big);
+  fxBoom(x, y, R, big); sfx.boom(x, y, big);
   for (const a of agents) {
     if (a.state === "saved" || (a.hidden && !a.onRoof) || a.post) continue;
     const d = Math.hypot(a.x - x, a.y - y);
@@ -577,7 +578,7 @@ function boom(x, y, R, big) {
   }
   blastWorld(x, y, R, big); trapBlast(x, y, R);
   for (const t of tanks) if (Math.hypot(t.x - x, t.y - y) < R * .6) { t.hp -= big ? 120 : 15; if (t.hp <= 0) { logE("Танк уничтожен", "bad"); t.dead = true; } }
-  addDecal(x, y, R * .65, 1);
+  // большую подпалину рисует fxBoom (render22.js), здесь — только пятна копоти вокруг
   for (let i = 0; i < 18; i++) addDecal(x + rnd(-R, R) * .9, y + rnd(-R, R) * .9, rnd(2, 7), 1);
   fires.push({ x, y, r: R * .5, l: big ? 14 : 8 });
   fieldT = 0;

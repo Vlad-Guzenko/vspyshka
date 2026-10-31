@@ -4518,6 +4518,7 @@ function stepBody(a, dt) {
     a.vz -= 39 * dt; a.z += a.vz * dt; a.roll += a.spin * dt;
     if (a.z <= 0) { a.z = 0; if (a.vz < -8) { a.vz *= -.25; a.spin *= .5; addDecal(a.x, a.y, rnd(1, 2), a.burnt ? 1 : 0); } else a.vz = 0; a.vx *= 1 - Math.min(1, dt * 4); a.vy *= 1 - Math.min(1, dt * 4); a.spin *= 1 - Math.min(1, dt * 3); }
     const nx = a.x + a.vx * dt, ny = a.y + a.vy * dt;
+    if (bodyHits(a, nx, ny)) return; // отскочило от машины (sim16.js)
     if (!blocked(nx, a.y) || a.z > 14) a.x = clamp(nx, 2, W - 2); else a.vx *= -.3;
     if (!blocked(a.x, ny) || a.z > 14) a.y = clamp(ny, 2, H - 2); else a.vy *= -.3;
   }
@@ -4628,7 +4629,7 @@ function step(dt) {
 function boom(x, y, R, big) {
   interest(x, y, big ? 9 : 5); cityNoise(big ? R / 2 : R / 6);
   if (R >= 30) addDanger(x, y, R * 2.2, big ? 240 : 120);
-  fxBoom(x, y, R); sfx.boom(x, y, big);
+  fxBoom(x, y, R, big); sfx.boom(x, y, big);
   for (const a of agents) {
     if (a.state === "saved" || (a.hidden && !a.onRoof) || a.post) continue;
     const d = Math.hypot(a.x - x, a.y - y);
@@ -4650,7 +4651,7 @@ function boom(x, y, R, big) {
   }
   blastWorld(x, y, R, big); trapBlast(x, y, R);
   for (const t of tanks) if (Math.hypot(t.x - x, t.y - y) < R * .6) { t.hp -= big ? 120 : 15; if (t.hp <= 0) { logE("Танк уничтожен", "bad"); t.dead = true; } }
-  addDecal(x, y, R * .65, 1);
+  // большую подпалину рисует fxBoom (render22.js), здесь — только пятна копоти вокруг
   for (let i = 0; i < 18; i++) addDecal(x + rnd(-R, R) * .9, y + rnd(-R, R) * .9, rnd(2, 7), 1);
   fires.push({ x, y, r: R * .5, l: big ? 14 : 8 });
   fieldT = 0;
@@ -4737,6 +4738,8 @@ function vehicleAt(x, y, skip) {
   nearCars(x, y, 24, c => { if (!hit && c !== skip && (c.moving || c.tank) && insideCar(c, x, y)) hit = c; });
   return hit;
 }
+// стоящая на земле машина в точке (брошенная, разбитая, припаркованная)
+function vehicleAtRest(x, y) { let hit = null; nearCars(x, y, 24, c => { if (!hit && !c.gone && !(c.z > 0) && insideCar(c, x, y)) hit = c; }); return hit; }
 function insideCar(c, x, y) {
   const ca = Math.cos(c.ang), sa = Math.sin(c.ang), dx = x - c.x, dy = y - c.y;
   return Math.abs(dx * ca + dy * sa) < (c.tank ? 13 : 10 * (c.len || 1)) && Math.abs(-dx * sa + dy * ca) < (c.tank ? 7 : 4.5);
@@ -4775,12 +4778,12 @@ function stepTraffic(dt) {
     if (c.alarm > 0) c.alarm -= dt;
     // машина в полёте после взрыва
     if (c.z > 0 || c.vz) {
-      c.vz -= 39 * dt; c.z += c.vz * dt; c.x = clamp(c.x + c.vx * dt, 4, W - 4); c.y = clamp(c.y + c.vy * dt, 4, H - 4);
-      c.roll += c.sr * dt; c.ang += c.sy * dt;
+      flyCar(c, dt); // дуга, кувырок, удары о людей, машины и стены (sim16.js)
       if (c.z <= 0) {
-        c.z = 0; c.vz = 0; c.sr = 0; c.sy = 0;
+        const fall = -c.vz; c.z = 0; c.vz = 0; c.sr = 0; c.sy = 0;
         c.roll = Math.round(c.roll / (Math.PI / 2)) * (Math.PI / 2); // ложится на бок или на крышу
         if (c.turn) { const i = c.turn.n.occ.indexOf(c); if (i >= 0) c.turn.n.occ.splice(i, 1); c.turn = null; }
+        landCar(c, fall);
         c.moving = false; c.stopped = true; c.stopT = simT; markCarCells(c); evictRect(c.x - 12, c.y - 12, c.x + 12, c.y + 12);
         fxDebris(c.x, c.y); sfx.crash(c);
       }
@@ -5087,7 +5090,13 @@ function wreckBlast(x, y, R, big) {
     const k = 1 - d / R, ang = Math.atan2(p.y - y, p.x - x);
     p.glass = true; wreckDirty = true;
     if (WRECK.small.has(p.k) && k > .45) { p.gone = true; fxDebris(p.x, p.y); continue; }
-    if (!WRECK.heavy.has(p.k) && k > .2) { p.tip = Math.min(1.55, Math.max(p.tip || 0, k * 2.4)); p.tipA = ang; const push = R * .22 * k; p.dx = (p.dx || 0) + Math.cos(ang) * push; p.dy = (p.dy || 0) + Math.sin(ang) * push; }
+    if (!WRECK.heavy.has(p.k) && k > .2) {
+      p.tip = Math.min(1.55, Math.max(p.tip || 0, k * 2.4)); p.tipA = ang;
+      // отброшенное упирается в стену дома или в стоящую машину, а не уезжает сквозь них
+      const bx = p.x + (p.dx || 0), by = p.y + (p.dy || 0), solid = (x, y) => cellAt(x, y) === 3 || !!vehicleAtRest(x, y);
+      let push = R * .22 * k; while (push > .5 && solid(bx + Math.cos(ang) * push, by + Math.sin(ang) * push)) push *= .5;
+      if (push > .5) { p.dx = (p.dx || 0) + Math.cos(ang) * push; p.dy = (p.dy || 0) + Math.sin(ang) * push; }
+    }
     if (k > .55) igniteProp(p, rnd(12, 25));
   }
   for (const h of hydrants) if (!h.broken && Math.hypot(h.x - x, h.y - y) < R * .8) { h.broken = true; h.spray = rnd(90, 150); h.tipA = Math.atan2(h.y - y, h.x - x); wreckDirty = true; }
@@ -7863,6 +7872,92 @@ function obbOverlap(a, b) {
   }
   return best;
 }
+/* ---------- полёт: машину подбросило взрывом или ударом. Простая физика твёрдого ящика: соседей берём из сетки машин и людей ---------- */
+// летящая машина бьёт людей и машины на пути, от стены дома отскакивает; ниже 7 м кузов задевает всё, что на земле
+function flyCar(c, dt) {
+  c.vz -= 39 * dt; c.z += c.vz * dt; c.roll += c.sr * dt; c.ang += c.sy * dt;
+  const nx = clamp(c.x + c.vx * dt, 4, W - 4), ny = clamp(c.y + c.vy * dt, 4, H - 4), low = c.z < 24;
+  let wall = false;
+  if (low && cellAt(nx, c.y) === 3) { c.vx *= -.35; wall = true; } else c.x = nx;
+  if (low && cellAt(c.x, ny) === 3) { c.vy *= -.35; wall = true; } else c.y = ny;
+  if (wall) { c.sy = (c.sy || 0) * -.5 + rnd(-1.5, 1.5); c.sr = (c.sr || 0) * .6; c.dent = Math.max(c.dent || 0, .5); if (simT - (c.hitT || 0) > .3) { c.hitT = simT; fxDebris(c.x, c.y); sfx.crash(c); } }
+  const sp = Math.hypot(c.vx, c.vy);
+  if (c.z > 8 || sp < 4) return;
+  const ca = Math.cos(c.ang), sa = Math.sin(c.ang), [hl, hw] = carHalf(c);
+  if (sp > 8) near(c.x, c.y, hl + 3, a => {
+    if (a.hidden || a.post || a.state === "saved" || (a.z || 0) > c.z + 6 || a.carHitT > simT) return;
+    const dx = a.x - c.x, dy = a.y - c.y; if (Math.abs(dx * ca + dy * sa) > hl + .6 || Math.abs(-dx * sa + dy * ca) > hw + .6) return;
+    a.carHitT = simT + .6; const k = sp / 40;
+    if (a.state === "alive") {
+      if (a.role === "zombie") { a.zhp -= 1.5 * k + .5; a.riseT = 1.2; if (a.zhp <= 0) destroyZombie(a, false); }
+      else { a.hp -= 50 * k + 15; if (a.hp <= 0) kill(a, false, "car"); else a.grabT = 1; }
+    }
+    a.vx = c.vx * .8 + rnd(-3, 3); a.vy = c.vy * .8 + rnd(-3, 3); a.vz = Math.max(a.vz || 0, 4 + sp * .2); a.z = Math.max(a.z || 0, .1); a.spin = rnd(-8, 8);
+    c.vx *= .9; c.vy *= .9; fxBlood(a.x, a.y, 3, 6); sfx.thud(c);
+  });
+  nearCars(c.x, c.y, 26, o => {
+    if (o === c || o.gone || o.towedBy || o.player || Math.abs((o.z || 0) - c.z) > 6) return;
+    const h = obbOverlap(c, o); if (!h) return;
+    c.x += h.nx * Math.min(h.depth, 3); c.y += h.ny * Math.min(h.depth, 3); // нормаль смотрит от o к c
+    const rv = (c.vx - (o.vx || 0) * (o.z > 0 ? 1 : 0)) * h.nx + (c.vy - (o.vy || 0) * (o.z > 0 ? 1 : 0)) * h.ny;
+    if (rv >= 0) return;
+    if (o.tank) { c.vx -= 1.4 * rv * h.nx; c.vy -= 1.4 * rv * h.ny; }
+    else {
+      // упругий удар двух ящиков: автобус и грузовик втрое тяжелее легковой
+      const m1 = c.len > 1.4 || c.bus ? 3 : 1, m2 = o.len > 1.4 || o.bus ? 3 : 1, j = -1.3 * rv / (1 / m1 + 1 / m2);
+      c.vx += j / m1 * h.nx; c.vy += j / m1 * h.ny;
+      knockCar(o, -j / m2 * h.nx, -j / m2 * h.ny);
+    }
+    c.sy = (c.sy || 0) + rnd(-2, 2);
+    if (simT - (c.hitT || 0) > .3) { c.hitT = simT; fxDebris(o.x, o.y); sfx.crash(c); }
+  });
+}
+// машину толкнули: подпрыгивает и отлетает; сильно — она разбита (водитель её бросает)
+function knockCar(o, vx, vy) {
+  const imp = Math.hypot(vx, vy); if (imp < 3) return;
+  o.vx = (o.z > 0 ? o.vx || 0 : 0) + vx; o.vy = (o.z > 0 ? o.vy || 0 : 0) + vy; o.vz = Math.max(o.vz || 0, 2 + imp * .22); o.z = Math.max(o.z || 0, .1);
+  o.sr = (o.sr || 0) + rnd(-1, 1) * imp * .06; o.sy = rnd(-1.5, 1.5); o.roll = o.roll || 0; o.v = 0;
+  o.wreck = true; if (o.moving) abandonCar(o, "crash"); // из автобуса выходят раненые (abandonCar в sim3.js)
+  o.dent = Math.max(o.dent || 0, Math.min(1, imp / 40)); o.glass = o.glass || imp > 15;
+  clearCarCells(o);
+}
+// приземлилась: не внутри соседней машины и не в стене; кого накрыло кузовом — раздавлен
+function landCar(c, fall) {
+  c.vx = 0; c.vy = 0;
+  for (let k = 0; k < 3; k++) {
+    let moved = false;
+    nearCars(c.x, c.y, 26, o => { if (o === c || o.gone || o.towedBy || o.z > 0) return; const h = obbOverlap(c, o); if (h) { c.x = clamp(c.x + h.nx * (h.depth + .2), 4, W - 4); c.y = clamp(c.y + h.ny * (h.depth + .2), 4, H - 4); moved = true; } });
+    if (!moved) break;
+  }
+  if (cellAt(c.x, c.y) === 3) { const [x, y] = freeNear(c.x, c.y, 24); c.x = x; c.y = y; }
+  if (fall < 12) return;
+  const ca = Math.cos(c.ang), sa = Math.sin(c.ang), [hl, hw] = carHalf(c);
+  near(c.x, c.y, hl + 2, a => {
+    if (a.state !== "alive" || a.hidden || a.post || a.z > 2) return;
+    const dx = a.x - c.x, dy = a.y - c.y; if (Math.abs(dx * ca + dy * sa) > hl || Math.abs(-dx * sa + dy * ca) > hw) return;
+    if (a.role === "zombie") destroyZombie(a, false); else { kill(a, false, "car"); a.reanimate = false; } a.crushed = true; fxBlood(a.x, a.y, 1, 8);
+  });
+}
+// тело летит: не проходит сквозь кузов (ниже крыши отскакивает от борта), сбивает с ног тех, в кого врезалось
+function bodyHits(a, nx, ny) {
+  const sp = Math.abs(a.vx) + Math.abs(a.vy); if (a.z > 6 || sp < 2) return false;
+  let hit = null;
+  nearCars(nx, ny, 16, c => { if (!hit && !c.gone && !(c.z > 3) && insideCar(c, nx, ny)) hit = c; });
+  if (hit) {
+    const ca = Math.cos(hit.ang), sa = Math.sin(hit.ang), dx = a.x - hit.x, dy = a.y - hit.y, al = dx * ca + dy * sa, lt = -dx * sa + dy * ca, [hl, hw] = carHalf(hit);
+    const ex = (hl - Math.abs(al)) < (hw - Math.abs(lt)), n0 = ex ? ca * Math.sign(al || 1) : -sa * Math.sign(lt || 1), n1 = ex ? sa * Math.sign(al || 1) : ca * Math.sign(lt || 1), vn = a.vx * n0 + a.vy * n1;
+    if (vn < 0) { a.vx -= 1.3 * vn * n0; a.vy -= 1.3 * vn * n1; a.spin = (a.spin || 0) * -.5; }
+    a.vx *= .7; a.vy *= .7; if (sp > 20) sfx.thud(hit);
+    return true;
+  }
+  if (sp > 18 && a.z < 4) near(nx, ny, 2.4, b => {
+    if (b === a || b.state !== "alive" || b.hidden || b.post || b.z > 1 || b.carHitT > simT) return;
+    b.carHitT = simT + .5; b.vx += a.vx * .5; b.vy += a.vy * .5;
+    if (b.role === "zombie") b.riseT = 1; else { b.hp -= sp * .4; if (b.hp <= 0) kill(b, false, "blast"); }
+    a.vx *= .6; a.vy *= .6;
+  });
+  return false;
+}
 // отодвигаем только вдоль собственного курса, чтобы машина не сползала с полосы
 function nudgeBack(c, nx, ny, amount) {
   if (c.tank) return;
@@ -10533,25 +10628,50 @@ function updateMarks() {
 const smokeTex = canvasTex(128, 128, (g) => {
   for (let i = 0; i < 30; i++) { const x = 64 + rnd(-22, 22), y = 64 + rnd(-22, 22), r = rnd(16, 34), gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, "rgba(255,255,255,.22)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
 }, false);
-function particleSystem(cap, additive, tex) {
+// языки пламени: атлас 2×2 из четырёх разных языков, белые с прозрачностью; цвет и мерцание даёт шейдер
+const flameTex = canvasTex(256, 256, (g) => {
+  g.globalCompositeOperation = "lighter";
+  for (let q = 0; q < 4; q++) {
+    const ox = (q % 2) * 128, oy = Math.floor(q / 2) * 128, lean = rnd(-6, 6);
+    for (let i = 0; i < 26; i++) {
+      const t = i / 25, w = 30 * (1 - t) ** .8 + 3, cx = ox + 64 + lean * t * t + Math.sin(t * 7 + q) * 5 * t, cy = oy + 116 - t * 104;
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, w); gr.addColorStop(0, `rgba(255,255,255,${.22 * (1 - t * .7)})`); gr.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = gr; g.fillRect(ox, oy, 128, 128);
+    }
+    // отдельный язычок сбоку
+    for (let i = 0; i < 8; i++) { const t = i / 7, cx = ox + 64 + (q % 2 ? 1 : -1) * (14 + t * 10), cy = oy + 92 - t * 46, w = 11 * (1 - t) + 2, gr = g.createRadialGradient(cx, cy, 0, cx, cy, w); gr.addColorStop(0, "rgba(255,255,255,.16)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(ox, oy, 128, 128); }
+  }
+}, false);
+// flame: у частицы есть зерно — им выбирается язык из атласа, фаза мерцания и колыхания
+function particleSystem(cap, additive, tex, flame) {
   const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(cap * 3), col = new Float32Array(cap * 4), size = new Float32Array(cap);
+  const pos = new Float32Array(cap * 3), col = new Float32Array(cap * 4), size = new Float32Array(cap), seed = flame ? new Float32Array(cap) : null;
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute("color", new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute("size", new THREE.BufferAttribute(size, 1).setUsage(THREE.DynamicDrawUsage));
+  if (flame) geo.setAttribute("seed", new THREE.BufferAttribute(seed, 1).setUsage(THREE.DynamicDrawUsage));
   const mat = new THREE.ShaderMaterial({
-    uniforms: { map: { value: tex }, scale: { value: 600 }, fogColor: { value: new THREE.Color() }, fogNear: { value: 0 }, fogFar: { value: 1 } },
-    vertexShader: `attribute float size; attribute vec4 color; varying vec4 vC; varying float vD; uniform float scale;
+    uniforms: { map: { value: tex }, scale: { value: 600 }, time: { value: 0 }, fogColor: { value: new THREE.Color() }, fogNear: { value: 0 }, fogFar: { value: 1 } },
+    vertexShader: flame ? `attribute float size; attribute vec4 color; attribute float seed; varying vec4 vC; varying vec2 vO; uniform float scale, time;
+      void main(){ vC = color; vC.rgb *= .78 + .22 * sin(time * 23. + seed * 61.) + .1 * sin(time * 41. + seed * 17.);
+        vO = vec2(mod(floor(seed * 4.), 2.), floor(mod(seed * 4., 4.) / 2.)) * .5;
+        vec3 p = position; p.x += sin(time * 7. + seed * 40.) * size * .06; p.z += cos(time * 6. + seed * 23.) * size * .05;
+        vec4 mv = modelViewMatrix * vec4(p,1.); gl_PointSize = size * scale / -mv.z; gl_Position = projectionMatrix * mv; }`
+      : `attribute float size; attribute vec4 color; varying vec4 vC; varying float vD; uniform float scale;
       void main(){ vC = color; vec4 mv = modelViewMatrix * vec4(position,1.); vD = -mv.z; gl_PointSize = size * scale / -mv.z; gl_Position = projectionMatrix * mv; }`,
-    fragmentShader: `uniform sampler2D map; varying vec4 vC; varying float vD;
+    fragmentShader: flame ? `uniform sampler2D map; varying vec4 vC; varying vec2 vO;
+      void main(){ vec2 uv = vec2(gl_PointCoord.x, 1. - gl_PointCoord.y) * .5 + vO; float a = texture2D(map, uv).a;
+        gl_FragColor = vec4(vC.rgb * (.5 + a * .9), vC.a * a); }`
+      : `uniform sampler2D map; varying vec4 vC; varying float vD;
       void main(){ vec4 t = texture2D(map, gl_PointCoord); gl_FragColor = vec4(vC.rgb, vC.a * t.a); }`,
     transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
   });
   const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = additive ? 6 : 5; scene.add(pts);
-  return { cap, pos, col, size, geo, mat, list: [], pts };
+  return { cap, pos, col, size, seed, geo, mat, list: [], pts };
 }
-const PS_ADD = particleSystem(5000, true, glowTex), PS_SMOKE = particleSystem(5000, false, smokeTex);
-// p: x,y,z, vx,vy,vz, l (жизнь), m (макс), s0,s1 (размер), c (цвет [r,g,b]), c1 (конечный цвет), a (непрозрачность), g (гравитация), dr (сопротивление)
+const PS_ADD = particleSystem(5000, true, glowTex), PS_SMOKE = particleSystem(5000, false, smokeTex), PS_FLAME = particleSystem(3000, true, flameTex, true);
+// p: x,y,z, vx,vy,vz, l (жизнь), m (макс), s0,s1 (размер), c (цвет [r,g,b]), c1 (конечный цвет), a (непрозрачность), g (гравитация), dr (сопротивление),
+// dl (задержка: частица ещё не видна и стоит), wb (угли: блуждают в стороны), sd (зерно языка пламени)
 let fxK = 1;
 function emit(ps, p) { if (fxK < 1 && Math.random() > fxK) return; if (ps.list.length >= ps.cap) ps.list.shift(); p.m = p.l; ps.list.push(p); }
 const lerpC = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -10559,25 +10679,40 @@ function stepParticles(ps, dt) {
   let n = 0;
   const L = ps.list;
   for (let i = L.length - 1; i >= 0; i--) {
-    const p = L[i]; p.l -= dt;
+    const p = L[i];
+    if (p.dl > 0) { p.dl -= dt; continue; }
+    p.l -= dt;
     if (p.l <= 0) { L[i] = L[L.length - 1]; L.pop(); continue; }
     p.vy -= (p.g || 0) * dt; const dr = 1 - Math.min(1, (p.dr || 0) * dt); p.vx *= dr; p.vy *= dr; p.vz *= dr;
+    if (p.wb) { p.vx += (Math.random() - .5) * p.wb * dt; p.vz += (Math.random() - .5) * p.wb * dt; }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     if (p.y < .2 && p.g > 0) { p.y = .2; p.vy *= -.2; p.vx *= .5; p.vz *= .5; }
   }
   for (const p of L) {
+    if (p.dl > 0) continue;
     const t = 1 - p.l / p.m, c = p.c1 ? lerpC(p.c, p.c1, t) : p.c;
     ps.pos[n * 3] = p.x; ps.pos[n * 3 + 1] = p.y; ps.pos[n * 3 + 2] = p.z;
     ps.col[n * 4] = c[0]; ps.col[n * 4 + 1] = c[1]; ps.col[n * 4 + 2] = c[2];
     ps.col[n * 4 + 3] = p.a * (p.fadeIn ? Math.min(1, t * 6) : 1) * (1 - t) ** (p.fp || 1);
-    ps.size[n] = p.s0 + (p.s1 - p.s0) * t; n++;
+    ps.size[n] = p.s0 + (p.s1 - p.s0) * t;
+    if (ps.seed) ps.seed[n] = p.sd || 0;
+    n++;
   }
   ps.geo.setDrawRange(0, n);
   for (const k of ["position", "color", "size"]) ps.geo.attributes[k].needsUpdate = true;
+  if (ps.seed) { ps.geo.attributes.seed.needsUpdate = true; ps.mat.uniforms.time.value = (ps.mat.uniforms.time.value + dt) % 1000; }
 }
 const FIRE = [1.6, 1.0, .35], FIRE2 = [.8, .15, .02], SMK = [.05, .045, .04], SMK2 = [.22, .21, .2];
+const FL0 = [1.15, .62, .18], FL1 = [.7, .14, .02], EMB = [1.6, .6, .12], EMB2 = [.5, .08, 0];
+// язык пламени: рождается у основания широким и жёлтым, вытягивается вверх, сужается и краснеет; изредка — уголёк или искра
 function fireParticle(x, y, z, k = 1) {
-  emit(PS_ADD, { x: x + rnd(-2, 2) * k, y, z: z + rnd(-2, 2) * k, vx: rnd(-2, 2), vy: rnd(8, 18) * k, vz: rnd(-2, 2), l: rnd(.4, .9), s0: rnd(4, 8) * k, s1: 1, c: FIRE, c1: FIRE2, a: .9 });
+  emit(PS_FLAME, { x: x + rnd(-2, 2) * k, y: y + rnd(0, 2) * k, z: z + rnd(-2, 2) * k, vx: rnd(-1.5, 1.5), vy: rnd(6, 13) * Math.sqrt(k), vz: rnd(-1.5, 1.5), l: rnd(.4, .9), s0: rnd(8, 16) * k, s1: rnd(2, 5) * k, c: FL0, c1: FL1, a: .6, fp: .8, sd: Math.random() });
+  if (Math.random() < .25) emit(PS_ADD, { x: x + rnd(-2, 2) * k, y: y + 2 * k, z: z + rnd(-2, 2) * k, vx: 0, vy: rnd(2, 5) * k, vz: 0, l: rnd(.3, .5), s0: 13 * k, s1: 6 * k, c: [1, .42, .08], a: .22 }); // жар у основания
+  if (Math.random() < .06) emberParticle(x, y + 3 * k, z, k);
+}
+// уголёк: тлеет, медленно поднимается с горячим воздухом и блуждает
+function emberParticle(x, y, z, k = 1) {
+  emit(PS_ADD, { x: x + rnd(-3, 3) * k, y, z: z + rnd(-3, 3) * k, vx: rnd(-2, 2), vy: rnd(6, 16) * Math.sqrt(k), vz: rnd(-2, 2), l: rnd(1.5, 3.5), s0: rnd(.7, 1.4), s1: .3, c: EMB, c1: EMB2, a: 1, dr: .6, wb: 30, fp: .5 });
 }
 function smokeParticle(x, y, z, k = 1, dark = true) {
   const wind = 4 + k * 2;
@@ -10635,26 +10770,66 @@ function stepTracers(dt) {
 }
 
 /* ---------- взрывы ---------- */
-const shockMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffd6a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-let shocks = [], shake = 0;
-function fxBoom(x, y, R) {
-  const cx = X(x), cz = Z(y), k = R / 70, gy = gY(x, y);
-  if (R >= 60) slowMo(1.4);
-  flashLight(cx, gy + 20, cz, 6 * k, .9, 0xffa040);
-  shake = Math.max(shake, 7 * k * clamp(1.4 - camDist() / 1400, .2, 1));
-  for (let i = 0; i < 70 * k; i++) { const a = rnd(0, TAU), v = rnd(5, 40) * k; emit(PS_ADD, { x: cx, y: gy + rnd(2, 10), z: cz, vx: Math.cos(a) * v, vy: rnd(10, 45) * k, vz: Math.sin(a) * v, l: rnd(.5, 1.3), s0: rnd(14, 26) * k, s1: 4, c: [2, 1.3, .5], c1: [.9, .2, .02], a: .95, dr: 1.6 }); }
-  for (let i = 0; i < 90 * k; i++) { const a = rnd(0, TAU), v = rnd(4, 26) * k; emit(PS_SMOKE, { x: cx + Math.cos(a) * rnd(0, R * .3), y: gy + rnd(3, 20), z: cz + Math.sin(a) * rnd(0, R * .3), vx: Math.cos(a) * v, vy: rnd(6, 26) * k, vz: Math.sin(a) * v, l: rnd(5, 11), s0: 10 * k, s1: rnd(40, 70) * k, c: [.07, .065, .06], c1: [.28, .26, .24], a: .75, fadeIn: true, dr: .7 }); }
-  for (let i = 0; i < 60 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 70) * k; emit(PS_SMOKE, { x: cx, y: gy + 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 60), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(1, 2.5), s1: 1, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
-  for (let i = 0; i < 40 * k; i++) { const a = rnd(0, TAU), v = rnd(30, 90); emit(PS_ADD, { x: cx, y: gy + 4, z: cz, vx: Math.cos(a) * v, vy: rnd(10, 50), vz: Math.sin(a) * v, l: rnd(.6, 1.4), s0: 1.3, s1: .4, c: [2, 1.4, .6], a: 1, g: 50 }); }
-  const ring = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), shockMat.clone());
-  ring.position.set(cx, gy + 1.5, cz); scene.add(ring); shocks.push({ m: ring, t: 0, R: R * 2.2 });
+// ударная волна по земле: кольцо из постоянного пула (материалы созданы один раз, свободные кольца не рисуются)
+const shockTex = canvasTex(128, 128, (g) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(.55, "rgba(255,255,255,.06)"); gr.addColorStop(.84, "rgba(255,255,255,.85)"); gr.addColorStop(.92, "rgba(255,255,255,.3)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }, false);
+const shockGeo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+const shocks = Array.from({ length: 10 }, () => { const m = new THREE.Mesh(shockGeo, new THREE.MeshBasicMaterial({ map: shockTex, color: 0xffd6a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })); m.visible = false; m.renderOrder = 4; m.frustumCulled = false; scene.add(m); return { m, t: 0, life: 1, R: 1, op: 1 }; });
+let shake = 0;
+function addShock(x, y, z, R, life, color, op) {
+  let s = shocks[0]; for (const q of shocks) { if (!q.m.visible) { s = q; break; } if (q.t / q.life > s.t / s.life) s = q; }
+  s.m.position.set(x, y, z); s.m.material.color.setHex(color); s.m.visible = true; s.t = 0; s.life = life; s.R = R; s.op = op; s.m.scale.setScalar(.01);
 }
 function stepShocks(dt) {
-  shocks = shocks.filter(s => {
-    s.t += dt; const k = s.t / .55;
-    if (k >= 1) { scene.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); return false; }
-    s.m.scale.setScalar(s.R * Math.sqrt(k)); s.m.material.opacity = (1 - k) * .9; return true;
-  });
+  for (const s of shocks) {
+    if (!s.m.visible) continue;
+    s.t += dt; const k = s.t / s.life;
+    if (k >= 1) { s.m.visible = false; continue; }
+    s.m.scale.setScalar(s.R * (1 - (1 - k) ** 3)); s.m.material.opacity = (1 - k) ** 1.6 * s.op;
+  }
+}
+// сила взрыва: растяжка, мина, снаряд, машина — граната — бензовоз и заправка — авиабомба — метеорит
+// fb: огненный шар, sm: дым (dark — чёрный от горючего), dust: пыль по земле, sp: искры, ch: глыбы земли и асфальта, fl: вспышка экспозиции
+const BOOM = {
+  small: { fb: .8, sm: .6, dust: .6, sp: 26, ch: 0, fl: 0, life: .8, smk: [.16, .15, .14] },
+  car: { fb: 1.1, sm: 1, dust: .7, sp: 50, ch: 4, fl: 0, life: 1, dark: true, smk: [.06, .055, .05] },
+  grenade: { fb: 1, sm: .9, dust: 1, sp: 60, ch: 6, fl: .05, life: .9, smk: [.2, .19, .17] },
+  fuel: { fb: 1.9, sm: 1.4, dust: .7, sp: 70, ch: 6, fl: .22, life: 1.8, dark: true, rise: 1.6, smk: [.05, .045, .04] },
+  bomb: { fb: 1, sm: 1.1, dust: 1.5, sp: 110, ch: 34, fl: .3, life: 1, rise: 1, smk: [.27, .24, .2] },
+  meteor: { fb: 1.2, sm: 1.2, dust: 1.6, sp: 160, ch: 60, fl: .5, life: 1.3, rise: 1.3, smk: [.25, .22, .19] },
+};
+function boomKind(R, big) { return R >= 100 ? "meteor" : big && R >= 70 ? "bomb" : big ? "fuel" : R >= 40 ? "grenade" : R >= 30 ? "car" : "small"; }
+const DIRT = ["#4a4038", "#3b3530", "#5a5047", "#2e2c2a", "#6a5e50"];
+function fxBoom(x, y, R, big) {
+  const cx = X(x), cz = Z(y), k = R / 70, gy = gY(x, y), P = BOOM[boomKind(R, big)], sk = Math.sqrt(k), rise = P.rise || 0;
+  if (R >= 60) slowMo(1.4);
+  // вспышка: короткий белый свет, потом оранжевый отсвет; у больших — засветка кадра
+  flashLight(cx, gy + 8 + R * .15, cz, 9 * k, .16, 0xfff0d8);
+  flashLight(cx, gy + 14 + R * .25, cz, 4.5 * k * P.fb, .6 + P.life * .6, 0xff8a30);
+  if (P.fl) world.flash = Math.max(world.flash, P.fl);
+  shake = Math.max(shake, 7 * k * clamp(1.4 - camDist() / 1400, .2, 1));
+  emit(PS_ADD, { x: cx, y: gy + 3 + R * .08, z: cz, vx: 0, vy: 0, vz: 0, l: .1, s0: R * .75, s1: R * 1.1, c: [2.2, 1.9, 1.5], a: 1 });
+  // огненный шар: клубы рвутся наружу, вязнут в воздухе и всплывают, остывая от бело-жёлтого к тёмно-красному
+  const nb = Math.max(8, 42 * k * P.fb);
+  for (let i = 0; i < nb; i++) {
+    const a = rnd(0, TAU), u = rnd(-.2, 1), r = Math.sqrt(1 - u * u), v = rnd(.5, 1.2) * R * 1.1, hot = Math.random() < .3;
+    emit(PS_ADD, { x: cx + Math.cos(a) * r * R * .08, y: gy + 2 + u * R * .1, z: cz + Math.sin(a) * r * R * .08, vx: Math.cos(a) * r * v, vy: u * v * .7 + R * .15 * (1 + rise), vz: Math.sin(a) * r * v, l: rnd(.8, 1.5) * P.life, s0: R * rnd(.24, .34), s1: R * rnd(.42, .6), c: hot ? [1.7, 1.05, .38] : [1.5, .55, .1], c1: [.4, .06, .01], a: .42, dr: 3.4, g: -R * .3 * (1 + rise), fp: 1.2 });
+  }
+  // огонь темнеет в дым: клубы появляются там же с задержкой, сначала бурые от жара, потом серые или чёрные
+  const ns = 60 * k * P.sm;
+  for (let i = 0; i < ns; i++) {
+    const a = rnd(0, TAU), r = rnd(0, R * .3), dl = rnd(.12, .55) * P.life, up = rnd(.12, .35) * R * (1 + rise * .6);
+    emit(PS_SMOKE, { x: cx + Math.cos(a) * r, y: gy + rnd(.05, .3) * R * (1 + rise * .5), z: cz + Math.sin(a) * r, vx: Math.cos(a) * rnd(2, 10) * k, vy: up, vz: Math.sin(a) * rnd(2, 10) * k, dl, l: rnd(5, 10) * (P.dark ? 1.3 : 1), s0: R * .25, s1: R * rnd(.8, 1.2) * (1 + rise * .3), c: [.3, .14, .06], c1: P.smk, a: P.dark ? .9 : .78, fadeIn: true, dr: .45 });
+  }
+  // гриб: у больших столб дыма поднимается и расползается шапкой
+  if (rise) for (let i = 0; i < 14 * k; i++) { const a = rnd(0, TAU), t = i / (14 * k); emit(PS_SMOKE, { x: cx + Math.cos(a) * R * .1, y: gy + R * .3, z: cz + Math.sin(a) * R * .1, vx: Math.cos(a) * R * .12 * t, vy: R * (.45 + .4 * (1 - t)) * rise, vz: Math.sin(a) * R * .12 * t, dl: .3 + t * .5, l: rnd(7, 12), s0: R * .3, s1: R * (.8 + t * .5), c: [.35, .17, .07], c1: P.smk, a: .75, fadeIn: true, dr: .8 }); }
+  // пыль по земле: кольцо катится наружу и оседает
+  const nd = 34 * k * P.dust;
+  for (let i = 0; i < nd; i++) { const a = rnd(0, TAU), v = R * rnd(1.2, 2.2); emit(PS_SMOKE, { x: cx + Math.cos(a) * R * .15, y: gy + rnd(1, 3), z: cz + Math.sin(a) * R * .15, vx: Math.cos(a) * v, vy: rnd(1, 6), vz: Math.sin(a) * v, l: rnd(1.8, 3.6), s0: R * .12, s1: R * rnd(.35, .55), c: [.46, .42, .36], c1: [.55, .52, .47], a: .5, fadeIn: true, dr: 2.4 }); }
+  // мелкий сор: падает по дугам
+  for (let i = 0; i < 26 * k; i++) { const a = rnd(0, TAU), v = rnd(20, 60) * k; emit(PS_SMOKE, { x: cx, y: gy + 3, z: cz, vx: Math.cos(a) * v, vy: rnd(15, 55), vz: Math.sin(a) * v, l: rnd(1.5, 3), s0: rnd(.8, 2), s1: .8, c: [.12, .1, .08], a: 1, g: 45, fp: .1 }); }
+  addShock(cx, gy + 1.2, cz, R * 2.3, .5, 0xffd6a0, .95);
+  if (R >= 45) addShock(cx, gy + .8, cz, R * 3.2, 1.1, 0xb8a890, .35); // вслед — пылевой вал
+  fxBoomMore(x, y, cx, gy, cz, R, k, P); // искры, глыбы, подпалина, стёкла — render22.js
 }
 function stepFires(dt) {
   // пожары на земле, горящие машины и дома дают огонь, дым и отсвет
@@ -10667,20 +10842,23 @@ function stepFires(dt) {
     if (Math.random() < dt * 6) emit(PS_SMOKE, { x: tx + rnd(-4, 4), y: ty, z: tz + rnd(-4, 4), vx: rnd(-2, 2), vy: rnd(6, 12), vz: rnd(-2, 2), l: rnd(2, 4), s0: 6, s1: 22, c: [.85, .86, .88], a: .35, fadeIn: true }); // пар
   }
   for (const a of agents) if (a.onFire > 0 && a.state !== "saved") { const h = gY(a.x, a.y) + (a.state === "dead" ? 1 : rnd(2, 7)); for (let i = 0; i < dt * 30; i++) fireParticle(X(a.x) + rnd(-1, 1), h, Z(a.y) + rnd(-1, 1), .35); if (Math.random() < dt * 3) smokeParticle(X(a.x), h + 3, Z(a.y), .3); }
-  for (const f of fires) { const n = f.r / 6, fy = hasHills ? gY(f.x, f.y) : 0; for (let i = 0; i < n * dt * 30; i++) { const a = rnd(0, TAU), r = rnd(0, f.r); fireParticle(X(f.x + Math.cos(a) * r), fy + .5, Z(f.y + Math.sin(a) * r), 1); } if (Math.random() < dt * 8) smokeParticle(X(f.x + rnd(-f.r, f.r) * .5), fy + 4, Z(f.y + rnd(-f.r, f.r) * .5), 1.2); lit.push([X(f.x), fy + 8, Z(f.y), 2.5]); }
-  for (const c of cars) if (c.burnT > 0) { const cy = gY(c.x, c.y); if (Math.random() < dt * 30) fireParticle(X(c.x) + rnd(-6, 6), cy + 5, Z(c.y) + rnd(-3, 3), .7); if (Math.random() < dt * 5) smokeParticle(X(c.x), cy + 8, Z(c.y), 1); lit.push([X(c.x), cy + 8, Z(c.y), 1.2]); }
+  for (const f of fires) { const n = f.r / 6, fy = hasHills ? gY(f.x, f.y) : 0; for (let i = 0; i < n * dt * 30; i++) { const a = rnd(0, TAU), r = rnd(0, f.r); fireParticle(X(f.x + Math.cos(a) * r), fy + .5, Z(f.y + Math.sin(a) * r), 1); } if (Math.random() < dt * 8) smokeParticle(X(f.x + rnd(-f.r, f.r) * .5), fy + 4, Z(f.y + rnd(-f.r, f.r) * .5), 1.2); if (Math.random() < dt * 5 * n) fxCoals(X(f.x), fy, Z(f.y), f.r * .8, 1); lit.push([X(f.x), fy + 8, Z(f.y), 2.5]); }
+  for (const c of cars) if (c.burnT > 0) { const cy = gY(c.x, c.y); if (Math.random() < dt * 30) fireParticle(X(c.x) + rnd(-6, 6), cy + 5, Z(c.y) + rnd(-3, 3), .7); if (Math.random() < dt * 5) smokeParticle(X(c.x), cy + 8, Z(c.y), 1); if (Math.random() < dt * .4) sparkBurst(X(c.x), cy + 5, Z(c.y), 10, 28, .9, .9, cy); lit.push([X(c.x), cy + 8, Z(c.y), 1.2]); }
   for (const b of buildings) if (b.fire > 0) {
     const w = b.x1 - b.x0, d = b.y1 - b.y0, top = b.h + (b.baseY || 0), by = b.baseY || 0;
     for (let i = 0; i < dt * 50; i++) fireParticle(X(rnd(b.x0 + 3, b.x1 - 3)), top + 1, Z(rnd(b.y0 + 3, b.y1 - 3)), 1.6);
     // языки пламени из окон
     for (let i = 0; i < dt * 14; i++) { const side = Math.floor(rnd(0, 4)), fl = by + Math.floor(rnd(0, b.floors)) * FLOOR + 6; const px = side < 2 ? rnd(b.x0, b.x1) : side === 2 ? b.x0 - 1 : b.x1 + 1, pz = side >= 2 ? rnd(b.y0, b.y1) : side === 0 ? b.y0 - 1 : b.y1 + 1; fireParticle(X(px), fl, Z(pz), .9); }
     for (let i = 0; i < dt * 14; i++) smokeParticle(X(rnd(b.x0, b.x1)), top + 4, Z(rnd(b.y0, b.y1)), 2.4);
+    for (let i = 0; i < dt * 8; i++) emberParticle(X(rnd(b.x0, b.x1)), top + 3, Z(rnd(b.y0, b.y1)), 1.6);
     lit.push([X((b.x0 + b.x1) / 2), top + 10, Z((b.y0 + b.y1) / 2), 4]);
     applyScorch(b);
   }
   for (const b of buildings) { if (b.state !== "ok" || !(b.scorch > .2)) continue; applyScorch(b); if (b.gutted && b.gutT > 0 && dt && Math.random() < dt * 3) smokeParticle(X(rnd(b.x0, b.x1)), (b.baseY || 0) + b.h + 2, Z(rnd(b.y0, b.y1)), 1.6); }
   lit.sort((a, b) => b[3] - a[3]);
-  for (let i = 0; i < Math.min(3, lit.length); i++) { const [x, y, z, k] = lit[i]; const p = lightPool[3 + i]; p.l.position.set(x, y, z); p.l.color.setHex(0xff7a2a); p.l.distance = 50 + k * 30; p.k = k * (.45 + Math.random() * .25); p.t = .2; p.m = .2; }
+  // свет пожара дышит: два медленных колебания и мелкая дрожь, а не случайный скачок каждый кадр
+  const ft = performance.now() / 1000;
+  for (let i = 0; i < Math.min(3, lit.length); i++) { const [x, y, z, k] = lit[i]; const p = lightPool[3 + i]; p.l.position.set(x, y, z); p.l.color.setHex(0xff7a2a); p.l.distance = 50 + k * 30; p.k = k * (.56 + .1 * Math.sin(ft * 9.3 + i * 2.1) + .07 * Math.sin(ft * 23.1 + i) + Math.random() * .05); p.t = .2; p.m = .2; }
 }
 
 /* ---------- вертолёт эвакуации ---------- */
@@ -10905,39 +11083,124 @@ function applyScorch(b) {
   if (b.antenna) b.antenna.visible = want < .7; if (b.sign) b.sign.visible = want < .7;
 }
 
-/* ---------- обломки: летят, кувыркаются, остаются лежать ---------- */
-const DEB_MAX = 5000;
+/* ---------- обломки: летят, кувыркаются, отскакивают от земли, машин и стен, остаются лежать ----------
+   Три пула фиксированного размера, каждый — один InstancedMesh: блоки и плиты стен (лежат плашмя), неровные глыбы бетона, земли
+   и асфальта от взрывов, осколки стекла (блестят и через полминуты исчезают). Лежащие не пересчитываются */
+const DEB_MAX = 5000, ROCK_MAX = 2500, GLASS_MAX = 1500;
 const debMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: .9 }), DEB_MAX);
 debMesh.count = 0; debMesh.castShadow = true; debMesh.receiveShadow = true; debMesh.frustumCulled = false; debMesh.setColorAt(0, new THREE.Color());
 scene.add(debMesh);
 let debris = [], debN = 0, debDirty = false;
+function chunkPool(geo, mat, max, shadow) {
+  const mesh = new THREE.InstancedMesh(geo, mat, max); mesh.count = 0; mesh.castShadow = shadow; mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.setColorAt(0, new THREE.Color()); scene.add(mesh);
+  return { mesh, list: [], n: 0, dirty: false, max };
+}
+// глыба: икосаэдр с гранями, сплюснутый по-разному — то камень, то кусок плиты
+const ROCKS = chunkPool(new THREE.IcosahedronGeometry(.62, 0), new THREE.MeshStandardMaterial({ roughness: .95, flatShading: true }), ROCK_MAX, true);
+const _shardG = new THREE.BufferGeometry(); _shardG.setAttribute("position", new THREE.Float32BufferAttribute([-.5, 0, -.4, .55, 0, -.2, -.1, 0, .6], 3)); _shardG.setAttribute("normal", new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+const GLASS = chunkPool(_shardG, new THREE.MeshStandardMaterial({ color: 0xd2e6ee, metalness: .9, roughness: .06, transparent: true, opacity: .8, side: THREE.DoubleSide, depthWrite: false }), GLASS_MAX, false);
 const _dq = new THREE.Quaternion(), _de = new THREE.Euler(), _dm = new THREE.Matrix4(), _dv = new THREE.Vector3(), _ds = new THREE.Vector3();
 function addChunk(x, y, z, vx, vy, vz, size, col, life = 1e9) {
   const id = debN % DEB_MAX; debN++;
-  debris[id] = { x, y, z, vx, vy, vz, rx: rnd(0, 6), ry: rnd(0, 6), wr: rnd(-8, 8), sx: size * rnd(.6, 1.4), sy: size * rnd(.4, 1), sz: size * rnd(.6, 1.3), rest: false, life };
+  debris[id] = { x, y, z, vx, vy, vz, rx: rnd(0, 6), ry: rnd(0, 6), rz: 0, wr: rnd(-8, 8), sx: size * rnd(.6, 1.4), sy: size * rnd(.4, 1), sz: size * rnd(.6, 1.3), rest: false, life, flat: true, e: .32 };
   debMesh.setColorAt(id, _cc.set(col).multiplyScalar(rnd(.75, 1.15)));
   debMesh.count = Math.min(DEB_MAX, debN); debDirty = true;
 }
+// глыба (shape "rock") или осколок стекла ("glass")
+function addPiece(P, x, y, z, vx, vy, vz, size, col, life = 1e9) {
+  const id = P.n % P.max; P.n++;
+  const glass = P === GLASS, s = size;
+  P.list[id] = { x, y, z, vx, vy, vz, rx: rnd(0, 6), ry: rnd(0, 6), rz: rnd(0, 6), wr: rnd(-1, 1) * (glass ? 14 : 7), sx: s * rnd(.7, 1.4), sy: glass ? s : s * rnd(.45, 1), sz: s * rnd(.7, 1.3), rest: false, life, life0: life < 1e8 ? life : 0, flat: false, e: glass ? .15 : .38, dr: glass ? 1.1 : 0 };
+  P.mesh.setColorAt(id, _cc.set(col).multiplyScalar(glass ? rnd(.85, 1.15) : rnd(.75, 1.15)));
+  P.mesh.count = Math.min(P.max, P.n); P.dirty = true;
+}
+// куда упирается кусок: земля, крыша машины, стена дома. Машины и дома берём из симуляции (сетка соседей машин, клетки)
+function chunkPhysics(d, dt) {
+  d.vy -= 39 * dt; if (d.dr) { const k = 1 - Math.min(1, d.dr * dt); d.vx *= k; d.vz *= k; if (d.vy < -14) d.vy = -14; } // осколок стекла парусит
+  const ox = d.x, oz = d.z;
+  d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.rx += d.wr * dt; d.ry += d.wr * .7 * dt; if (!d.flat) d.rz += d.wr * .5 * dt;
+  const sx = d.x + W / 2, sy = d.z + H / 2; let gy = hasHills ? gY(clamp(sx, 0, W - .01), clamp(sy, 0, H - .01)) : 0; // на склоне обломки ложатся на землю, а не проваливаются сквозь гору
+  const half = d.flat ? (Math.abs(Math.cos(d.rx)) * d.sy + Math.abs(Math.sin(d.rx)) * d.sz) / 2 : d.sy * .45;
+  // дом: выше крыши кусок падает на крышу, ниже — в клетку дома снаружи не влетает, отскакивает по той оси, по которой вошёл
+  if (cellAt(sx, sy) === 3) {
+    const b = chunkBld(sx, sy, d), top = b ? (b.baseY || 0) + b.h : gy + 45;
+    if (d.y - half - d.vy * dt >= top - .6) gy = Math.max(gy, top);
+    else {
+      const inX = cellAt(ox + W / 2, sy) !== 3, inY = cellAt(sx, oz + H / 2) !== 3;
+      if (inX) { d.x = ox; d.vx *= -.35; d.wr += rnd(-3, 3); } if (inY) { d.z = oz; d.vz *= -.35; d.wr += rnd(-3, 3); }
+    }
+  }
+  // машина: сверху — отскок от крыши и сползание с неё, сбоку — отскок от борта
+  if (d.y - gy < 14) nearCars(sx, sy, 14, c => {
+    if (c.gone) return;
+    const ca = Math.cos(c.ang), sa = Math.sin(c.ang), dx = d.x + W / 2 - c.x, dy = d.z + H / 2 - c.y, al = dx * ca + dy * sa, lt = -dx * sa + dy * ca;
+    const hl = (c.tank ? 13 : 10 * (c.len || 1)) + .4, hw = (c.tank ? 7 : 4.6) + .4; if (Math.abs(al) > hl || Math.abs(lt) > hw) return;
+    const top = gy + (c.z || 0) + (c.tank ? 9 : c.bus || c.len > 1.4 ? 10 : 5.5);
+    if (d.y - half > top) return;
+    if (d.vy <= 0 && d.y - half - d.vy * dt >= top - .6) { // упал на крышу
+      d.y = top + half; if (d.vy < -4) { d.vy *= -d.e; d.wr += rnd(-4, 4); } else d.vy = 0;
+      const k = 1 - Math.min(1, dt * 3); d.vx *= k; d.vz *= k; const s = Math.sign(lt) || 1; d.vx += -sa * s * 10 * dt; d.vz += ca * s * 10 * dt; // скатывается к ближнему борту
+      return;
+    }
+    const pa = hl - Math.abs(al), pl = hw - Math.abs(lt), nx = pa < pl ? ca * Math.sign(al) : -sa * Math.sign(lt), nz = pa < pl ? sa * Math.sign(al) : ca * Math.sign(lt), pen = Math.min(pa, pl);
+    d.x += nx * pen; d.z += nz * pen; const vn = d.vx * nx + d.vz * nz; if (vn < 0) { d.vx -= (1 + d.e) * vn * nx; d.vz -= (1 + d.e) * vn * nz; d.wr += rnd(-5, 5); }
+  });
+  if (d.y < gy + half) {
+    d.y = gy + half;
+    if (d.vy < -5) { d.vy *= -d.e * rnd(.7, 1.2); d.vx *= .62; d.vz *= .62; d.wr = d.wr * .55 + rnd(-3, 3); }
+    else {
+      d.vy = 0; const k = 1 - Math.min(1, dt * 5); d.vx *= k; d.vz *= k; d.wr *= 1 - Math.min(1, dt * 6);
+      // блок ложится на грань, а не замирает на ребре
+      if (d.flat) { const q = Math.PI / 2, t = Math.round(d.rx / q) * q; d.rx += (t - d.rx) * Math.min(1, dt * 7); }
+      if (Math.hypot(d.vx, d.vz) < .8 && Math.abs(d.wr) < .6) { if (d.flat) d.rx = Math.round(d.rx / (Math.PI / 2)) * (Math.PI / 2); d.rest = true; }
+    }
+  }
+}
+// дом под куском (запоминаем, чтобы не перебирать все дома, пока кусок катится по крыше)
+function chunkBld(x, y, d) {
+  const inB = b => b && b.state === "ok" && x >= b.x0 - 1 && x <= b.x1 + 1 && y >= b.y0 - 1 && y <= b.y1 + 1;
+  if (inB(d.bld)) return d.bld;
+  for (const b of buildings) if (inB(b)) return d.bld = b;
+  return null;
+}
+function writeChunk(mesh, i, d) {
+  let s = 1;
+  if (d.life0 && d.life < 2) s = Math.max(0, d.life / 2); // осколки тают в последние две секунды
+  _de.set(d.rx, d.ry, d.rz || 0); _dq.setFromEuler(_de);
+  _dm.compose(_dv.set(d.x, d.y, d.z), _dq, _ds.set(d.sx * s, d.sy * s, d.sz * s)); mesh.setMatrixAt(i, _dm);
+}
+function stepPool(P, dt) {
+  const L = P.list, mesh = P.mesh; let any = false;
+  for (let i = 0; i < mesh.count; i++) {
+    const d = L[i]; if (!d) continue;
+    if (d.life0) { d.life -= dt; if (d.life <= 0) { if (d.sx) { d.sx = d.sy = d.sz = 0; d.rest = true; writeChunk(mesh, i, d); any = true; } continue; } }
+    if (d.rest && !(d.life0 && d.life < 2)) continue;
+    if (!d.rest) chunkPhysics(d, dt);
+    writeChunk(mesh, i, d); any = true;
+  }
+  if (any) mesh.instanceMatrix.needsUpdate = true;
+  if (P.dirty && mesh.instanceColor) { mesh.instanceColor.needsUpdate = true; P.dirty = false; }
+}
 function stepDebris(dt) {
   if (!dt) return;
+  let any = false;
   for (let i = 0; i < debMesh.count; i++) {
     const d = debris[i]; if (!d || (d.rest && !debDirty)) continue;
-    if (!d.rest) {
-      d.vy -= 39 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.rx += d.wr * dt; d.ry += d.wr * .7 * dt;
-      const floor = d.sy / 2 + (hasHills ? gY(d.x + W / 2, d.z + H / 2) : 0); // на склоне обломки ложатся на землю, а не проваливаются сквозь гору
-      if (d.y < floor) { d.y = floor; if (Math.abs(d.vy) > 6) { d.vy *= -.3; d.vx *= .6; d.vz *= .6; d.wr *= .5; } else { d.vy = 0; d.vx *= .8; d.vz *= .8; if (Math.hypot(d.vx, d.vz) < 1) d.rest = true; } }
-    }
-    _de.set(d.rx, d.ry, 0); _dq.setFromEuler(_de);
-    _dm.compose(_dv.set(d.x, d.y, d.z), _dq, _ds.set(d.sx, d.sy, d.sz)); debMesh.setMatrixAt(i, _dm);
+    if (!d.rest) { if (d.e === undefined) { d.e = .32; d.flat = true; } chunkPhysics(d, dt); } // плиты из addSlab — без этих полей
+    writeChunk(debMesh, i, d); any = true;
   }
-  debMesh.instanceMatrix.needsUpdate = true;
+  if (any) debMesh.instanceMatrix.needsUpdate = true;
   if (debDirty && debMesh.instanceColor) { debMesh.instanceColor.needsUpdate = true; debDirty = false; }
+  stepPool(ROCKS, dt); stepPool(GLASS, dt);
 }
-function clearDebris() { debris = []; debN = 0; debMesh.count = 0; }
+// глыбы и осколки в убранной области исчезают вместе с обломками
+function hidePieces(inside) { for (const P of [ROCKS, GLASS]) for (let i = 0; i < P.mesh.count; i++) { const d = P.list[i]; if (d && d.sx && d.rest && inside(d.x, d.z)) { d.sx = d.sy = d.sz = 0; writeChunk(P.mesh, i, d); P.mesh.instanceMatrix.needsUpdate = true; } } }
+function clearDebris() { debris = []; debN = 0; debMesh.count = 0; for (const P of [ROCKS, GLASS]) { P.list = []; P.n = 0; P.mesh.count = 0; } }
 // площадка вывезена: ни одного обломка вокруг, гребень упавшей башни и остов убраны
 function onSiteCleared(b) {
   const [x0, y0, x1, y1] = rubbleBounds(null, b), wx0 = X(x0 - 24), wx1 = X(x1 + 24), wz0 = Z(y0 - 24), wz1 = Z(y1 + 24);
   for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || d.sx === 0) continue; if (d.x >= wx0 && d.x <= wx1 && d.z >= wz0 && d.z <= wz1) { d.sx = d.sy = d.sz = 0; d.y = -50; d.rest = true; debDirty = true; } }
+  hidePieces((x, z) => x >= wx0 && x <= wx1 && z >= wz0 && z <= wz1);
   if (b.mound) { cityGroup.remove(b.mound); b.mound = null; }
   if (b.obj && b.state === "ruin") b.obj.visible = false;
   b.pieces = null; paintCells(x0, y0, x1, y1);
@@ -10955,6 +11218,7 @@ function ruinPieces(b) {
 function onRubbleCleared(x, y, b) {
   const cx = Math.floor(x / CS) * CS, cy = Math.floor(y / CS) * CS, wx = X(cx + CS / 2), wz = Z(cy + CS / 2);
   for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || !d.rest || d.sx === 0) continue; if (Math.abs(d.x - wx) <= CS * .75 && Math.abs(d.z - wz) <= CS * .75) { d.sx = d.sy = d.sz = 0; d.y = -50; debDirty = true; } }
+  hidePieces((x, z) => Math.abs(x - wx) <= CS * .75 && Math.abs(z - wz) <= CS * .75);
   paintCells(cx, cy, cx + CS, cy + CS);
   // куски убираем у всех руин, чей завал накрывает клетку: соседние площадки пересекаются, и чужой экскаватор тоже расчищает
   for (const o of buildings) {
@@ -10986,6 +11250,15 @@ function fxCollapse(b) {
     addChunk(cx + px, by + rnd(2, b.h * .9), cz + pz, px * rnd(.3, 1.2) + rnd(-10, 10), rnd(-5, 18), pz * rnd(.3, 1.2) + rnd(-10, 10), rnd(1.5, 5), Math.random() < .5 ? wall : pick(["#8f8c85", "#6e6b66", "#a19d94"]));
   }
   fxCollapseSlabs(b);
+  // вал пыли катится по улицам от основания, следом — вторая, более медленная волна
+  const q = fxLoK(), R0 = Math.max(w, d) * .5;
+  for (let i = 0; i < 110 * k; i++) {
+    const a = rnd(0, TAU), late = Math.random() < .4;
+    emit(PS_SMOKE, { x: cx + Math.cos(a) * R0, y: by + rnd(1, 7), z: cz + Math.sin(a) * R0, vx: Math.cos(a) * rnd(30, 75) * (late ? .6 : 1), vy: rnd(0, 5), vz: Math.sin(a) * rnd(30, 75) * (late ? .6 : 1), dl: late ? rnd(.4, 1.4) : 0, l: rnd(5, 10), s0: rnd(10, 16) * k, s1: rnd(40, 75) * k, c: [.5, .47, .42], c1: [.58, .56, .52], a: .55, fadeIn: true, dr: 1.1 });
+  }
+  // глыбы бетона и стёкла с фасадов
+  for (let i = 0; i < 45 * k * q; i++) { const a = rnd(0, TAU); addPiece(ROCKS, cx + Math.cos(a) * R0 * rnd(.6, 1), by + rnd(2, b.h * .7), cz + Math.sin(a) * R0 * rnd(.6, 1), Math.cos(a) * rnd(4, 20), rnd(-4, 10), Math.sin(a) * rnd(4, 20), rnd(1.2, 3.5), Math.random() < .5 ? wall : pick(["#8f8c85", "#6e6b66", "#a19d94"])); }
+  for (let i = 0; i < 60 * k * q; i++) { const side = Math.floor(rnd(0, 4)), px = side < 2 ? rnd(-w / 2, w / 2) : (side === 2 ? -w / 2 - 1 : w / 2 + 1), pz = side >= 2 ? rnd(-d / 2, d / 2) : (side === 0 ? -d / 2 - 1 : d / 2 + 1); addPiece(GLASS, cx + px, by + rnd(4, b.h * .9), cz + pz, px * rnd(.1, .5) + rnd(-4, 4), rnd(-2, 6), pz * rnd(.1, .5) + rnd(-4, 4), rnd(.5, 1.4), "#d2e6ee", rnd(18, 30)); }
   // постоянный завал на месте дома
   const n = Math.min(400, w * d / 30);
   for (let i = 0; i < n; i++) {
@@ -11455,6 +11728,7 @@ function fxToppleImpact(b) {
     const al = rnd(0, z.L), lat = rnd(-z.half, z.half), x = X(z.px + z.ca * al - z.sa * lat), zz = Z(z.py + z.sa * al + z.ca * lat);
     emit(PS_SMOKE, { x, y: gY(x + W / 2, zz + H / 2) + rnd(2, 20), z: zz, vx: rnd(-25, 25), vy: rnd(4, 18), vz: rnd(-25, 25), l: rnd(6, 13), s0: rnd(14, 22), s1: rnd(50, 90), c: [.42, .39, .34], c1: [.5, .48, .44], a: .6, fadeIn: true, dr: .6 });
   }
+  for (let i = 0; i < 50 * fxLoK(); i++) { const al = rnd(0, z.L); addPiece(ROCKS, X(z.px + z.ca * al) + rnd(-z.half, z.half), rnd(2, 10), Z(z.py + z.sa * al) + rnd(-z.half, z.half), rnd(-26, 26), rnd(8, 34), rnd(-26, 26), rnd(1.2, 3.2), Math.random() < .5 ? facadeColor(b) : "#7d7a73"); } // глыбы разлетаются от удара
   for (let i = 0; i < 160; i++) { const al = rnd(0, z.L); addChunk(X(z.px + z.ca * al) + rnd(-z.half, z.half), rnd(2, 14), Z(z.py + z.sa * al) + rnd(-z.half, z.half), rnd(-22, 22) + z.ca * rnd(0, 14), rnd(6, 30), rnd(-22, 22) + z.sa * rnd(0, 14), rnd(2, 7), Math.random() < .5 ? facadeColor(b) : "#7d7a73"); }
   flashLight(X(z.px + z.ca * z.L / 2), gY(z.px + z.ca * z.L / 2, z.py + z.sa * z.L / 2) + 20, Z(z.py + z.sa * z.L / 2), 1.2, .3, 0xffd0a0);
 }
@@ -13600,6 +13874,110 @@ function towerTop(b, obj, w, d, fm) {
     if (v === 2) { lmAdd(obj, new THREE.ConeGeometry(Math.min(cw, cd) * .3, 26, 4), steelPostMat, 0, b.h + 13, 0).rotation.y = Math.PI / 4; b.h += 6; return; } // шпиль
   }
   if (Math.random() < .6) { const ant = new THREE.Mesh(new THREE.CylinderGeometry(.4, .7, rnd(20, 45), 6), parapetMat); ant.position.y = b.h + ant.geometry.parameters.height / 2; obj.add(ant); b.antenna = ant; }
+}
+
+/* ---------- взрывы и огонь: искры, подпалины, глыбы, стёкла ----------
+   Всё — пулы фиксированного размера: искры — один LineSegments (штрих вдоль скорости), подпалины — один InstancedMesh,
+   глыбы и осколки — пулы обломков (render4.js). Свободные элементы не рисуются, новых материалов на лету нет */
+const SPARK_MAX = 1400, spS = new Float32Array(SPARK_MAX * 9); // x,y,z, vx,vy,vz, жизнь, макс. жизнь, высота земли
+const spPos = new Float32Array(SPARK_MAX * 6), spCol = new Float32Array(SPARK_MAX * 6), spGeo = new THREE.BufferGeometry();
+spGeo.setAttribute("position", new THREE.BufferAttribute(spPos, 3).setUsage(THREE.DynamicDrawUsage));
+spGeo.setAttribute("color", new THREE.BufferAttribute(spCol, 3).setUsage(THREE.DynamicDrawUsage));
+const sparkLines = new THREE.LineSegments(spGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+sparkLines.frustumCulled = false; sparkLines.renderOrder = 7; scene.add(sparkLines);
+let spN = 0;
+// на слабой графике искр меньше: доля от настройки частиц и качества
+const fxLoK = () => fxK * (prefs.quality === "low" ? .6 : 1);
+function spark(x, y, z, vx, vy, vz, l, gy) {
+  const i = spN < SPARK_MAX ? spN++ : Math.floor(Math.random() * SPARK_MAX), o = i * 9;
+  spS[o] = x; spS[o + 1] = y; spS[o + 2] = z; spS[o + 3] = vx; spS[o + 4] = vy; spS[o + 5] = vz; spS[o + 6] = l; spS[o + 7] = l; spS[o + 8] = gy;
+}
+// веер искр: летят по дугам, отскакивают от земли и гаснут от бело-жёлтого к красному
+function sparkBurst(x, y, z, n, speed, up, life, gy) {
+  n = Math.round(n * fxLoK());
+  for (let i = 0; i < n; i++) { const a = rnd(0, TAU), u = rnd(.05, 1) ** .7 * up, h = Math.sqrt(Math.max(0, 1 - u * u)), v = speed * rnd(.35, 1); spark(x, y, z, Math.cos(a) * h * v, u * v + rnd(0, 8), Math.sin(a) * h * v, life * rnd(.5, 1.2), gy); }
+}
+function stepSparks(dt) {
+  let i = 0;
+  while (i < spN) {
+    const o = i * 9;
+    spS[o + 6] -= dt;
+    if (spS[o + 6] <= 0) { spN--; if (i < spN) spS.copyWithin(o, spN * 9, spN * 9 + 9); continue; }
+    const dr = 1 - Math.min(1, dt * .7);
+    spS[o + 3] *= dr; spS[o + 5] *= dr; spS[o + 4] = spS[o + 4] * dr - 38 * dt;
+    spS[o] += spS[o + 3] * dt; spS[o + 1] += spS[o + 4] * dt; spS[o + 2] += spS[o + 5] * dt;
+    if (spS[o + 1] < spS[o + 8] + .15 && spS[o + 4] < 0) { spS[o + 1] = spS[o + 8] + .15; spS[o + 4] *= -.3; spS[o + 3] *= .55; spS[o + 5] *= .55; spS[o + 6] *= .75; }
+    // штрих: хвост тянется назад по скорости, не длиннее пяти единиц
+    const vx = spS[o + 3], vy = spS[o + 4], vz = spS[o + 5], sp = Math.hypot(vx, vy, vz) || 1, len = Math.min(5, sp * .035) / sp, t = spS[o + 6] / spS[o + 7], w = i * 6;
+    spPos[w] = spS[o]; spPos[w + 1] = spS[o + 1]; spPos[w + 2] = spS[o + 2]; spPos[w + 3] = spS[o] - vx * len; spPos[w + 4] = spS[o + 1] - vy * len; spPos[w + 5] = spS[o + 2] - vz * len;
+    const h = t * t; spCol[w] = 1.6 * t + .4; spCol[w + 1] = (1.3 * h + .15) * t; spCol[w + 2] = .7 * h * h; spCol[w + 3] = spCol[w] * .35; spCol[w + 4] = spCol[w + 1] * .2; spCol[w + 5] = 0;
+    i++;
+  }
+  spGeo.setDrawRange(0, spN * 2); sparkLines.visible = spN > 0;
+  if (spN) { spGeo.attributes.position.needsUpdate = true; spGeo.attributes.color.needsUpdate = true; }
+}
+
+/* ---------- подпалина: чёрное пятно с рваными лучами, свежая ещё тлеет ---------- */
+const SCORCH_MAX = 300;
+const scorchTex = canvasTex(256, 256, (g) => {
+  const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128); gr.addColorStop(0, "rgba(255,255,255,.95)"); gr.addColorStop(.35, "rgba(255,255,255,.8)"); gr.addColorStop(.7, "rgba(255,255,255,.25)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 256, 256); g.fillStyle = "rgba(255,255,255,.35)";
+  for (let i = 0; i < 46; i++) { const a = rnd(0, TAU), l = rnd(60, 126), w = rnd(.04, .12); g.beginPath(); g.moveTo(128, 128); g.lineTo(128 + Math.cos(a - w) * l * .55, 128 + Math.sin(a - w) * l * .55); g.lineTo(128 + Math.cos(a) * l, 128 + Math.sin(a) * l); g.lineTo(128 + Math.cos(a + w) * l * .55, 128 + Math.sin(a + w) * l * .55); g.fill(); }
+  for (let i = 0; i < 90; i++) { const a = rnd(0, TAU), d = rnd(70, 124); g.beginPath(); g.arc(128 + Math.cos(a) * d, 128 + Math.sin(a) * d, rnd(1, 4), 0, TAU); g.fill(); }
+}, false);
+const scorch = new THREE.InstancedMesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: scorchTex, color: 0x17120e, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }), SCORCH_MAX);
+scorch.count = 0; scorch.receiveShadow = true; scorch.frustumCulled = false; scorch.renderOrder = 1; scene.add(scorch);
+let scorchN = 0;
+function addScorch(x, y, r) {
+  const id = scorchN % SCORCH_MAX; scorchN++;
+  _p.makeRotationY(rnd(0, TAU)); _p.scale(new THREE.Vector3(r, 1, r)); _p.setPosition(X(x), .08 + (id % 5) * .004 + (hasHills ? gY(x, y) : 0), Z(y));
+  scorch.setMatrixAt(id, _p); scorch.count = Math.min(SCORCH_MAX, scorchN); scorch.instanceMatrix.needsUpdate = true;
+}
+
+/* ---------- стёкла: окна домов вокруг и стёкла машин осыпаются блестящими осколками ---------- */
+function shatterGlass(x, y, R) {
+  const q = fxLoK(), hit = [];
+  for (const b of buildings) {
+    if (b.state !== "ok") continue;
+    const px = clamp(x, b.x0, b.x1), py = clamp(y, b.y0, b.y1), d = Math.hypot(px - x, py - y);
+    if (d < R * 1.1) hit.push([d, b, px, py]);
+  }
+  hit.sort((a, b) => a[0] - b[0]);
+  for (const [d, b, px, py] of hit.slice(0, 5)) {
+    const k = 1 - d / (R * 1.1), n = Math.round((8 + 22 * k) * q), dx = px === x && py === y ? 0 : (x - px) / (d || 1), dy = px === x && py === y ? 0 : (y - py) / (d || 1);
+    const along = Math.abs(dx) > Math.abs(dy) ? [0, 1] : [1, 0], top = Math.min(b.h, 40) + (b.baseY || 0);
+    for (let i = 0; i < n; i++) {
+      const s = rnd(-14, 14), sx = clamp(px + along[0] * s, b.x0, b.x1), sy = clamp(py + along[1] * s, b.y0, b.y1);
+      addPiece(GLASS, X(sx + dx * .8), rnd((b.baseY || 0) + 3, top), Z(sy + dy * .8), dx * rnd(3, 12) + rnd(-3, 3), rnd(-1, 5), dy * rnd(3, 12) + rnd(-3, 3), rnd(.5, 1.3), "#d2e6ee", rnd(18, 30));
+    }
+  }
+  let nc = 0;
+  for (const c of cars) {
+    if (c.gone || nc >= 8 || Math.hypot(c.x - x, c.y - y) > R * .9) continue; nc++;
+    for (let i = 0; i < 4 * q; i++) addPiece(GLASS, X(c.x) + rnd(-3, 3), gY(c.x, c.y) + (c.z || 0) + 4.5, Z(c.y) + rnd(-3, 3), rnd(-8, 8), rnd(2, 8), rnd(-8, 8), rnd(.35, .8), "#c8dde6", rnd(15, 25));
+  }
+}
+
+/* ---------- взрыв: всё, что дополняет огненный шар и дым (fxBoom в render3.js) ---------- */
+function fxBoomMore(x, y, cx, gy, cz, R, k, P) {
+  // искры: у больших — дальше и дольше
+  sparkBurst(cx, gy + 2 + R * .05, cz, P.sp * Math.sqrt(k), 45 + R * .9, 1, .9 + k * .4, gy);
+  // глыбы земли, асфальта, железа летят высоко, падают и остаются лежать
+  const nc = Math.round(P.ch * k * fxLoK());
+  for (let i = 0; i < nc; i++) { const a = rnd(0, TAU), v = rnd(8, 34) * Math.sqrt(k), s = rnd(.5, 1.8) * Math.min(1.6, Math.sqrt(k)); addPiece(ROCKS, cx + Math.cos(a) * rnd(0, R * .15), gy + rnd(1, 4), cz + Math.sin(a) * rnd(0, R * .15), Math.cos(a) * v, rnd(18, 55) * Math.sqrt(k), Math.sin(a) * v, s, pick(DIRT)); }
+  // свежая подпалина и угли на ней
+  addScorch(x, y, R * (P.dark ? .55 : .62));
+  for (let i = 0; i < 18 * k * P.fb; i++) { const a = rnd(0, TAU), r = rnd(0, R * .35); emit(PS_ADD, { x: cx + Math.cos(a) * r, y: gy + .4, z: cz + Math.sin(a) * r, vx: 0, vy: rnd(0, .6), vz: 0, l: rnd(2.5, 7), s0: rnd(1, 2.4), s1: .4, c: EMB, c1: EMB2, a: .9, fp: .6 }); }
+  shatterGlass(x, y, R);
+}
+
+/* ---------- угли у огня, тлеющее после пожара ---------- */
+function fxCoals(x, y, z, r, n) { for (let i = 0; i < n; i++) { const a = rnd(0, TAU), d = rnd(0, r); emit(PS_ADD, { x: x + Math.cos(a) * d, y: y + .3, z: z + Math.sin(a) * d, vx: 0, vy: .2, vz: 0, l: rnd(1, 2.5), s0: rnd(1, 2), s1: .5, c: EMB, c1: EMB2, a: .8, fp: .5 }); } }
+
+function stepFx(dt) { stepParticles(PS_FLAME, dt); if (dt) stepSparks(dt); }
+function fxReset() {
+  PS_FLAME.list.length = 0; spN = 0; spGeo.setDrawRange(0, 0); scorch.count = 0; scorchN = 0;
+  for (const s of shocks) s.m.visible = false;
 }
 
 /* ---------- обработка картинки: свечение, затенение, цветокоррекция ---------- */
@@ -15960,7 +16338,7 @@ function loadGame(S) {
   patientZero = S.pz != null ? agentById(S.pz) || null : null;
   logE("Партия загружена", "good");
   clearDecals(); clearDebris(); for (const [t, o] of tankObjs) { scene.remove(o); tankObjs.delete(t); }
-  buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
+  buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0; if (typeof fxReset === "function") fxReset(); // в тестах кампании картинки нет
   showLayoutName(); renderTools(); record();
 }
 function slotKey(i) { return "vspyshka-save-" + i; }
@@ -17053,7 +17431,7 @@ function newCity(scenarioKey = "sandbox") {
   setupScenario(typeof scenarioKey === "string" ? scenarioKey : "sandbox", patientZero); renderTools();
   showLayoutName();
   clearDecals(); clearDebris(); grassAt = null; gridDirtyMini = true; clearHighlight(); interests = [];
-  buildCity(); barrDirty = true; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
+  buildCity(); barrDirty = true; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0; fxReset();
   $("banner").hidden = true;
 }
 $("newCity").addEventListener("click", openWizard);
@@ -17084,7 +17462,7 @@ function resize() {
   R3.setPixelRatio(pr); R3.setSize(Math.max(300, r.width), Math.max(200, r.height), false);
   camera.aspect = Math.max(300, r.width) / Math.max(200, r.height); camera.updateProjectionMatrix();
   const sc = Math.max(200, r.height) * pr / (2 * Math.tan(camera.fov * Math.PI / 360));
-  PS_ADD.mat.uniforms.scale.value = PS_SMOKE.mat.uniforms.scale.value = sc;
+  PS_ADD.mat.uniforms.scale.value = PS_SMOKE.mat.uniforms.scale.value = PS_FLAME.mat.uniforms.scale.value = sc;
   resizePost();
 }
 window.addEventListener("resize", resize);
@@ -17112,7 +17490,7 @@ function frameBody(now) {
   const fxDt = paused ? 0 : Math.min(dt * speed * slowK, dt * 2);
   if (fps.on) { fpsCamera(dt); fpsStep(dt); } else { panKeys(dt); updateCamera(dt); }
   updateCity(fxDt); updateLandmarks(fxDt); updateConstruction(); updateMachines(); updateTents(); updateTrafficLights(dt); updateNuke(fxDt); updateNukeMark(); updateCars(); updateTanks(); updateFunicular(); updateRealPeople(dt); updateSun(); stepDebris(fxDt); updateBarricades(); updatePeople(dt); updateDecals(simDt); updateMarks();
-  stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt);
+  stepFires(fxDt); stepParticles(PS_ADD, fxDt); stepParticles(PS_SMOKE, fxDt); stepTracers(fxDt); stepShocks(fxDt); stepFx(fxDt);
   updateHeli(fxDt); updateJets(fxDt); updateLighting(dt, simDt); updateWater(dt); updateGhost(); drawMini(dt); updateThreatMarks(fxDt); updateLeafLOD(); if (world.cycle) { $("hourO").textContent = hourLabel(); } updateAudio(dt); updateExtras(fxDt); pollAchievements(dt); tickRec(dt); updateBuild(fxDt); updateSelBox(); updateWorld2(fxDt);
   updateEnv(dt); updatePuddles(); updateGrass(); updateCozy(fxDt, dt); updateWreck(fxDt); updateSnowRoads(dt); autoQuality(dt); updateRoadSigns();
   const t2 = performance.now(); renderFrame(dt); const t3 = performance.now();

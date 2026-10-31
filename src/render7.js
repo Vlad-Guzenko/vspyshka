@@ -151,6 +151,7 @@ function fxToppleImpact(b) {
     const al = rnd(0, z.L), lat = rnd(-z.half, z.half), x = X(z.px + z.ca * al - z.sa * lat), zz = Z(z.py + z.sa * al + z.ca * lat);
     emit(PS_SMOKE, { x, y: gY(x + W / 2, zz + H / 2) + rnd(2, 20), z: zz, vx: rnd(-25, 25), vy: rnd(4, 18), vz: rnd(-25, 25), l: rnd(6, 13), s0: rnd(14, 22), s1: rnd(50, 90), c: [.42, .39, .34], c1: [.5, .48, .44], a: .6, fadeIn: true, dr: .6 });
   }
+  for (let i = 0; i < 50 * fxLoK(); i++) { const al = rnd(0, z.L); addPiece(ROCKS, X(z.px + z.ca * al) + rnd(-z.half, z.half), rnd(2, 10), Z(z.py + z.sa * al) + rnd(-z.half, z.half), rnd(-26, 26), rnd(8, 34), rnd(-26, 26), rnd(1.2, 3.2), Math.random() < .5 ? facadeColor(b) : "#7d7a73"); } // глыбы разлетаются от удара
   for (let i = 0; i < 160; i++) { const al = rnd(0, z.L); addChunk(X(z.px + z.ca * al) + rnd(-z.half, z.half), rnd(2, 14), Z(z.py + z.sa * al) + rnd(-z.half, z.half), rnd(-22, 22) + z.ca * rnd(0, 14), rnd(6, 30), rnd(-22, 22) + z.sa * rnd(0, 14), rnd(2, 7), Math.random() < .5 ? facadeColor(b) : "#7d7a73"); }
   flashLight(X(z.px + z.ca * z.L / 2), gY(z.px + z.ca * z.L / 2, z.py + z.sa * z.L / 2) + 20, Z(z.py + z.sa * z.L / 2), 1.2, .3, 0xffd0a0);
 }

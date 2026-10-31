@@ -1,36 +1,121 @@
-/* ---------- обломки: летят, кувыркаются, остаются лежать ---------- */
-const DEB_MAX = 5000;
+/* ---------- обломки: летят, кувыркаются, отскакивают от земли, машин и стен, остаются лежать ----------
+   Три пула фиксированного размера, каждый — один InstancedMesh: блоки и плиты стен (лежат плашмя), неровные глыбы бетона, земли
+   и асфальта от взрывов, осколки стекла (блестят и через полминуты исчезают). Лежащие не пересчитываются */
+const DEB_MAX = 5000, ROCK_MAX = 2500, GLASS_MAX = 1500;
 const debMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: .9 }), DEB_MAX);
 debMesh.count = 0; debMesh.castShadow = true; debMesh.receiveShadow = true; debMesh.frustumCulled = false; debMesh.setColorAt(0, new THREE.Color());
 scene.add(debMesh);
 let debris = [], debN = 0, debDirty = false;
+function chunkPool(geo, mat, max, shadow) {
+  const mesh = new THREE.InstancedMesh(geo, mat, max); mesh.count = 0; mesh.castShadow = shadow; mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.setColorAt(0, new THREE.Color()); scene.add(mesh);
+  return { mesh, list: [], n: 0, dirty: false, max };
+}
+// глыба: икосаэдр с гранями, сплюснутый по-разному — то камень, то кусок плиты
+const ROCKS = chunkPool(new THREE.IcosahedronGeometry(.62, 0), new THREE.MeshStandardMaterial({ roughness: .95, flatShading: true }), ROCK_MAX, true);
+const _shardG = new THREE.BufferGeometry(); _shardG.setAttribute("position", new THREE.Float32BufferAttribute([-.5, 0, -.4, .55, 0, -.2, -.1, 0, .6], 3)); _shardG.setAttribute("normal", new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+const GLASS = chunkPool(_shardG, new THREE.MeshStandardMaterial({ color: 0xd2e6ee, metalness: .9, roughness: .06, transparent: true, opacity: .8, side: THREE.DoubleSide, depthWrite: false }), GLASS_MAX, false);
 const _dq = new THREE.Quaternion(), _de = new THREE.Euler(), _dm = new THREE.Matrix4(), _dv = new THREE.Vector3(), _ds = new THREE.Vector3();
 function addChunk(x, y, z, vx, vy, vz, size, col, life = 1e9) {
   const id = debN % DEB_MAX; debN++;
-  debris[id] = { x, y, z, vx, vy, vz, rx: rnd(0, 6), ry: rnd(0, 6), wr: rnd(-8, 8), sx: size * rnd(.6, 1.4), sy: size * rnd(.4, 1), sz: size * rnd(.6, 1.3), rest: false, life };
+  debris[id] = { x, y, z, vx, vy, vz, rx: rnd(0, 6), ry: rnd(0, 6), rz: 0, wr: rnd(-8, 8), sx: size * rnd(.6, 1.4), sy: size * rnd(.4, 1), sz: size * rnd(.6, 1.3), rest: false, life, flat: true, e: .32 };
   debMesh.setColorAt(id, _cc.set(col).multiplyScalar(rnd(.75, 1.15)));
   debMesh.count = Math.min(DEB_MAX, debN); debDirty = true;
 }
+// глыба (shape "rock") или осколок стекла ("glass")
+function addPiece(P, x, y, z, vx, vy, vz, size, col, life = 1e9) {
+  const id = P.n % P.max; P.n++;
+  const glass = P === GLASS, s = size;
+  P.list[id] = { x, y, z, vx, vy, vz, rx: rnd(0, 6), ry: rnd(0, 6), rz: rnd(0, 6), wr: rnd(-1, 1) * (glass ? 14 : 7), sx: s * rnd(.7, 1.4), sy: glass ? s : s * rnd(.45, 1), sz: s * rnd(.7, 1.3), rest: false, life, life0: life < 1e8 ? life : 0, flat: false, e: glass ? .15 : .38, dr: glass ? 1.1 : 0 };
+  P.mesh.setColorAt(id, _cc.set(col).multiplyScalar(glass ? rnd(.85, 1.15) : rnd(.75, 1.15)));
+  P.mesh.count = Math.min(P.max, P.n); P.dirty = true;
+}
+// куда упирается кусок: земля, крыша машины, стена дома. Машины и дома берём из симуляции (сетка соседей машин, клетки)
+function chunkPhysics(d, dt) {
+  d.vy -= 39 * dt; if (d.dr) { const k = 1 - Math.min(1, d.dr * dt); d.vx *= k; d.vz *= k; if (d.vy < -14) d.vy = -14; } // осколок стекла парусит
+  const ox = d.x, oz = d.z;
+  d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.rx += d.wr * dt; d.ry += d.wr * .7 * dt; if (!d.flat) d.rz += d.wr * .5 * dt;
+  const sx = d.x + W / 2, sy = d.z + H / 2; let gy = hasHills ? gY(clamp(sx, 0, W - .01), clamp(sy, 0, H - .01)) : 0; // на склоне обломки ложатся на землю, а не проваливаются сквозь гору
+  const half = d.flat ? (Math.abs(Math.cos(d.rx)) * d.sy + Math.abs(Math.sin(d.rx)) * d.sz) / 2 : d.sy * .45;
+  // дом: выше крыши кусок падает на крышу, ниже — в клетку дома снаружи не влетает, отскакивает по той оси, по которой вошёл
+  if (cellAt(sx, sy) === 3) {
+    const b = chunkBld(sx, sy, d), top = b ? (b.baseY || 0) + b.h : gy + 45;
+    if (d.y - half - d.vy * dt >= top - .6) gy = Math.max(gy, top);
+    else {
+      const inX = cellAt(ox + W / 2, sy) !== 3, inY = cellAt(sx, oz + H / 2) !== 3;
+      if (inX) { d.x = ox; d.vx *= -.35; d.wr += rnd(-3, 3); } if (inY) { d.z = oz; d.vz *= -.35; d.wr += rnd(-3, 3); }
+    }
+  }
+  // машина: сверху — отскок от крыши и сползание с неё, сбоку — отскок от борта
+  if (d.y - gy < 14) nearCars(sx, sy, 14, c => {
+    if (c.gone) return;
+    const ca = Math.cos(c.ang), sa = Math.sin(c.ang), dx = d.x + W / 2 - c.x, dy = d.z + H / 2 - c.y, al = dx * ca + dy * sa, lt = -dx * sa + dy * ca;
+    const hl = (c.tank ? 13 : 10 * (c.len || 1)) + .4, hw = (c.tank ? 7 : 4.6) + .4; if (Math.abs(al) > hl || Math.abs(lt) > hw) return;
+    const top = gy + (c.z || 0) + (c.tank ? 9 : c.bus || c.len > 1.4 ? 10 : 5.5);
+    if (d.y - half > top) return;
+    if (d.vy <= 0 && d.y - half - d.vy * dt >= top - .6) { // упал на крышу
+      d.y = top + half; if (d.vy < -4) { d.vy *= -d.e; d.wr += rnd(-4, 4); } else d.vy = 0;
+      const k = 1 - Math.min(1, dt * 3); d.vx *= k; d.vz *= k; const s = Math.sign(lt) || 1; d.vx += -sa * s * 10 * dt; d.vz += ca * s * 10 * dt; // скатывается к ближнему борту
+      return;
+    }
+    const pa = hl - Math.abs(al), pl = hw - Math.abs(lt), nx = pa < pl ? ca * Math.sign(al) : -sa * Math.sign(lt), nz = pa < pl ? sa * Math.sign(al) : ca * Math.sign(lt), pen = Math.min(pa, pl);
+    d.x += nx * pen; d.z += nz * pen; const vn = d.vx * nx + d.vz * nz; if (vn < 0) { d.vx -= (1 + d.e) * vn * nx; d.vz -= (1 + d.e) * vn * nz; d.wr += rnd(-5, 5); }
+  });
+  if (d.y < gy + half) {
+    d.y = gy + half;
+    if (d.vy < -5) { d.vy *= -d.e * rnd(.7, 1.2); d.vx *= .62; d.vz *= .62; d.wr = d.wr * .55 + rnd(-3, 3); }
+    else {
+      d.vy = 0; const k = 1 - Math.min(1, dt * 5); d.vx *= k; d.vz *= k; d.wr *= 1 - Math.min(1, dt * 6);
+      // блок ложится на грань, а не замирает на ребре
+      if (d.flat) { const q = Math.PI / 2, t = Math.round(d.rx / q) * q; d.rx += (t - d.rx) * Math.min(1, dt * 7); }
+      if (Math.hypot(d.vx, d.vz) < .8 && Math.abs(d.wr) < .6) { if (d.flat) d.rx = Math.round(d.rx / (Math.PI / 2)) * (Math.PI / 2); d.rest = true; }
+    }
+  }
+}
+// дом под куском (запоминаем, чтобы не перебирать все дома, пока кусок катится по крыше)
+function chunkBld(x, y, d) {
+  const inB = b => b && b.state === "ok" && x >= b.x0 - 1 && x <= b.x1 + 1 && y >= b.y0 - 1 && y <= b.y1 + 1;
+  if (inB(d.bld)) return d.bld;
+  for (const b of buildings) if (inB(b)) return d.bld = b;
+  return null;
+}
+function writeChunk(mesh, i, d) {
+  let s = 1;
+  if (d.life0 && d.life < 2) s = Math.max(0, d.life / 2); // осколки тают в последние две секунды
+  _de.set(d.rx, d.ry, d.rz || 0); _dq.setFromEuler(_de);
+  _dm.compose(_dv.set(d.x, d.y, d.z), _dq, _ds.set(d.sx * s, d.sy * s, d.sz * s)); mesh.setMatrixAt(i, _dm);
+}
+function stepPool(P, dt) {
+  const L = P.list, mesh = P.mesh; let any = false;
+  for (let i = 0; i < mesh.count; i++) {
+    const d = L[i]; if (!d) continue;
+    if (d.life0) { d.life -= dt; if (d.life <= 0) { if (d.sx) { d.sx = d.sy = d.sz = 0; d.rest = true; writeChunk(mesh, i, d); any = true; } continue; } }
+    if (d.rest && !(d.life0 && d.life < 2)) continue;
+    if (!d.rest) chunkPhysics(d, dt);
+    writeChunk(mesh, i, d); any = true;
+  }
+  if (any) mesh.instanceMatrix.needsUpdate = true;
+  if (P.dirty && mesh.instanceColor) { mesh.instanceColor.needsUpdate = true; P.dirty = false; }
+}
 function stepDebris(dt) {
   if (!dt) return;
+  let any = false;
   for (let i = 0; i < debMesh.count; i++) {
     const d = debris[i]; if (!d || (d.rest && !debDirty)) continue;
-    if (!d.rest) {
-      d.vy -= 39 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.rx += d.wr * dt; d.ry += d.wr * .7 * dt;
-      const floor = d.sy / 2 + (hasHills ? gY(d.x + W / 2, d.z + H / 2) : 0); // на склоне обломки ложатся на землю, а не проваливаются сквозь гору
-      if (d.y < floor) { d.y = floor; if (Math.abs(d.vy) > 6) { d.vy *= -.3; d.vx *= .6; d.vz *= .6; d.wr *= .5; } else { d.vy = 0; d.vx *= .8; d.vz *= .8; if (Math.hypot(d.vx, d.vz) < 1) d.rest = true; } }
-    }
-    _de.set(d.rx, d.ry, 0); _dq.setFromEuler(_de);
-    _dm.compose(_dv.set(d.x, d.y, d.z), _dq, _ds.set(d.sx, d.sy, d.sz)); debMesh.setMatrixAt(i, _dm);
+    if (!d.rest) { if (d.e === undefined) { d.e = .32; d.flat = true; } chunkPhysics(d, dt); } // плиты из addSlab — без этих полей
+    writeChunk(debMesh, i, d); any = true;
   }
-  debMesh.instanceMatrix.needsUpdate = true;
+  if (any) debMesh.instanceMatrix.needsUpdate = true;
   if (debDirty && debMesh.instanceColor) { debMesh.instanceColor.needsUpdate = true; debDirty = false; }
+  stepPool(ROCKS, dt); stepPool(GLASS, dt);
 }
-function clearDebris() { debris = []; debN = 0; debMesh.count = 0; }
+// глыбы и осколки в убранной области исчезают вместе с обломками
+function hidePieces(inside) { for (const P of [ROCKS, GLASS]) for (let i = 0; i < P.mesh.count; i++) { const d = P.list[i]; if (d && d.sx && d.rest && inside(d.x, d.z)) { d.sx = d.sy = d.sz = 0; writeChunk(P.mesh, i, d); P.mesh.instanceMatrix.needsUpdate = true; } } }
+function clearDebris() { debris = []; debN = 0; debMesh.count = 0; for (const P of [ROCKS, GLASS]) { P.list = []; P.n = 0; P.mesh.count = 0; } }
 // площадка вывезена: ни одного обломка вокруг, гребень упавшей башни и остов убраны
 function onSiteCleared(b) {
   const [x0, y0, x1, y1] = rubbleBounds(null, b), wx0 = X(x0 - 24), wx1 = X(x1 + 24), wz0 = Z(y0 - 24), wz1 = Z(y1 + 24);
   for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || d.sx === 0) continue; if (d.x >= wx0 && d.x <= wx1 && d.z >= wz0 && d.z <= wz1) { d.sx = d.sy = d.sz = 0; d.y = -50; d.rest = true; debDirty = true; } }
+  hidePieces((x, z) => x >= wx0 && x <= wx1 && z >= wz0 && z <= wz1);
   if (b.mound) { cityGroup.remove(b.mound); b.mound = null; }
   if (b.obj && b.state === "ruin") b.obj.visible = false;
   b.pieces = null; paintCells(x0, y0, x1, y1);
@@ -48,6 +133,7 @@ function ruinPieces(b) {
 function onRubbleCleared(x, y, b) {
   const cx = Math.floor(x / CS) * CS, cy = Math.floor(y / CS) * CS, wx = X(cx + CS / 2), wz = Z(cy + CS / 2);
   for (let i = 0; i < debMesh.count; i++) { const d = debris[i]; if (!d || !d.rest || d.sx === 0) continue; if (Math.abs(d.x - wx) <= CS * .75 && Math.abs(d.z - wz) <= CS * .75) { d.sx = d.sy = d.sz = 0; d.y = -50; debDirty = true; } }
+  hidePieces((x, z) => Math.abs(x - wx) <= CS * .75 && Math.abs(z - wz) <= CS * .75);
   paintCells(cx, cy, cx + CS, cy + CS);
   // куски убираем у всех руин, чей завал накрывает клетку: соседние площадки пересекаются, и чужой экскаватор тоже расчищает
   for (const o of buildings) {
@@ -79,6 +165,15 @@ function fxCollapse(b) {
     addChunk(cx + px, by + rnd(2, b.h * .9), cz + pz, px * rnd(.3, 1.2) + rnd(-10, 10), rnd(-5, 18), pz * rnd(.3, 1.2) + rnd(-10, 10), rnd(1.5, 5), Math.random() < .5 ? wall : pick(["#8f8c85", "#6e6b66", "#a19d94"]));
   }
   fxCollapseSlabs(b);
+  // вал пыли катится по улицам от основания, следом — вторая, более медленная волна
+  const q = fxLoK(), R0 = Math.max(w, d) * .5;
+  for (let i = 0; i < 110 * k; i++) {
+    const a = rnd(0, TAU), late = Math.random() < .4;
+    emit(PS_SMOKE, { x: cx + Math.cos(a) * R0, y: by + rnd(1, 7), z: cz + Math.sin(a) * R0, vx: Math.cos(a) * rnd(30, 75) * (late ? .6 : 1), vy: rnd(0, 5), vz: Math.sin(a) * rnd(30, 75) * (late ? .6 : 1), dl: late ? rnd(.4, 1.4) : 0, l: rnd(5, 10), s0: rnd(10, 16) * k, s1: rnd(40, 75) * k, c: [.5, .47, .42], c1: [.58, .56, .52], a: .55, fadeIn: true, dr: 1.1 });
+  }
+  // глыбы бетона и стёкла с фасадов
+  for (let i = 0; i < 45 * k * q; i++) { const a = rnd(0, TAU); addPiece(ROCKS, cx + Math.cos(a) * R0 * rnd(.6, 1), by + rnd(2, b.h * .7), cz + Math.sin(a) * R0 * rnd(.6, 1), Math.cos(a) * rnd(4, 20), rnd(-4, 10), Math.sin(a) * rnd(4, 20), rnd(1.2, 3.5), Math.random() < .5 ? wall : pick(["#8f8c85", "#6e6b66", "#a19d94"])); }
+  for (let i = 0; i < 60 * k * q; i++) { const side = Math.floor(rnd(0, 4)), px = side < 2 ? rnd(-w / 2, w / 2) : (side === 2 ? -w / 2 - 1 : w / 2 + 1), pz = side >= 2 ? rnd(-d / 2, d / 2) : (side === 0 ? -d / 2 - 1 : d / 2 + 1); addPiece(GLASS, cx + px, by + rnd(4, b.h * .9), cz + pz, px * rnd(.1, .5) + rnd(-4, 4), rnd(-2, 6), pz * rnd(.1, .5) + rnd(-4, 4), rnd(.5, 1.4), "#d2e6ee", rnd(18, 30)); }
   // постоянный завал на месте дома
   const n = Math.min(400, w * d / 30);
   for (let i = 0; i < n; i++) {

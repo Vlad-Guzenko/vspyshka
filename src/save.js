@@ -91,7 +91,7 @@ function loadGame(S) {
   patientZero = S.pz != null ? agentById(S.pz) || null : null;
   logE("Партия загружена", "good");
   clearDecals(); clearDebris(); for (const [t, o] of tankObjs) { scene.remove(o); tankObjs.delete(t); }
-  buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0;
+  buildCity(); barrDirty = true; gridDirty = true; gridDirtyMini = true; fieldT = 0; followA = null; hoverA = null; PS_ADD.list.length = 0; PS_SMOKE.list.length = 0; if (typeof fxReset === "function") fxReset(); // в тестах кампании картинки нет
   showLayoutName(); renderTools(); record();
 }
 function slotKey(i) { return "vspyshka-save-" + i; }

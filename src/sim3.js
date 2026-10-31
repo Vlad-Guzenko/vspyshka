@@ -18,6 +18,8 @@ function vehicleAt(x, y, skip) {
   nearCars(x, y, 24, c => { if (!hit && c !== skip && (c.moving || c.tank) && insideCar(c, x, y)) hit = c; });
   return hit;
 }
+// стоящая на земле машина в точке (брошенная, разбитая, припаркованная)
+function vehicleAtRest(x, y) { let hit = null; nearCars(x, y, 24, c => { if (!hit && !c.gone && !(c.z > 0) && insideCar(c, x, y)) hit = c; }); return hit; }
 function insideCar(c, x, y) {
   const ca = Math.cos(c.ang), sa = Math.sin(c.ang), dx = x - c.x, dy = y - c.y;
   return Math.abs(dx * ca + dy * sa) < (c.tank ? 13 : 10 * (c.len || 1)) && Math.abs(-dx * sa + dy * ca) < (c.tank ? 7 : 4.5);
@@ -56,12 +58,12 @@ function stepTraffic(dt) {
     if (c.alarm > 0) c.alarm -= dt;
     // машина в полёте после взрыва
     if (c.z > 0 || c.vz) {
-      c.vz -= 39 * dt; c.z += c.vz * dt; c.x = clamp(c.x + c.vx * dt, 4, W - 4); c.y = clamp(c.y + c.vy * dt, 4, H - 4);
-      c.roll += c.sr * dt; c.ang += c.sy * dt;
+      flyCar(c, dt); // дуга, кувырок, удары о людей, машины и стены (sim16.js)
       if (c.z <= 0) {
-        c.z = 0; c.vz = 0; c.sr = 0; c.sy = 0;
+        const fall = -c.vz; c.z = 0; c.vz = 0; c.sr = 0; c.sy = 0;
         c.roll = Math.round(c.roll / (Math.PI / 2)) * (Math.PI / 2); // ложится на бок или на крышу
         if (c.turn) { const i = c.turn.n.occ.indexOf(c); if (i >= 0) c.turn.n.occ.splice(i, 1); c.turn = null; }
+        landCar(c, fall);
         c.moving = false; c.stopped = true; c.stopT = simT; markCarCells(c); evictRect(c.x - 12, c.y - 12, c.x + 12, c.y + 12);
         fxDebris(c.x, c.y); sfx.crash(c);
       }
@@ -368,7 +370,13 @@ function wreckBlast(x, y, R, big) {
     const k = 1 - d / R, ang = Math.atan2(p.y - y, p.x - x);
     p.glass = true; wreckDirty = true;
     if (WRECK.small.has(p.k) && k > .45) { p.gone = true; fxDebris(p.x, p.y); continue; }
-    if (!WRECK.heavy.has(p.k) && k > .2) { p.tip = Math.min(1.55, Math.max(p.tip || 0, k * 2.4)); p.tipA = ang; const push = R * .22 * k; p.dx = (p.dx || 0) + Math.cos(ang) * push; p.dy = (p.dy || 0) + Math.sin(ang) * push; }
+    if (!WRECK.heavy.has(p.k) && k > .2) {
+      p.tip = Math.min(1.55, Math.max(p.tip || 0, k * 2.4)); p.tipA = ang;
+      // отброшенное упирается в стену дома или в стоящую машину, а не уезжает сквозь них
+      const bx = p.x + (p.dx || 0), by = p.y + (p.dy || 0), solid = (x, y) => cellAt(x, y) === 3 || !!vehicleAtRest(x, y);
+      let push = R * .22 * k; while (push > .5 && solid(bx + Math.cos(ang) * push, by + Math.sin(ang) * push)) push *= .5;
+      if (push > .5) { p.dx = (p.dx || 0) + Math.cos(ang) * push; p.dy = (p.dy || 0) + Math.sin(ang) * push; }
+    }
     if (k > .55) igniteProp(p, rnd(12, 25));
   }
   for (const h of hydrants) if (!h.broken && Math.hypot(h.x - x, h.y - y) < R * .8) { h.broken = true; h.spray = rnd(90, 150); h.tipA = Math.atan2(h.y - y, h.x - x); wreckDirty = true; }

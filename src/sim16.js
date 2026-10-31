@@ -33,6 +33,92 @@ function obbOverlap(a, b) {
   }
   return best;
 }
+/* ---------- полёт: машину подбросило взрывом или ударом. Простая физика твёрдого ящика: соседей берём из сетки машин и людей ---------- */
+// летящая машина бьёт людей и машины на пути, от стены дома отскакивает; ниже 7 м кузов задевает всё, что на земле
+function flyCar(c, dt) {
+  c.vz -= 39 * dt; c.z += c.vz * dt; c.roll += c.sr * dt; c.ang += c.sy * dt;
+  const nx = clamp(c.x + c.vx * dt, 4, W - 4), ny = clamp(c.y + c.vy * dt, 4, H - 4), low = c.z < 24;
+  let wall = false;
+  if (low && cellAt(nx, c.y) === 3) { c.vx *= -.35; wall = true; } else c.x = nx;
+  if (low && cellAt(c.x, ny) === 3) { c.vy *= -.35; wall = true; } else c.y = ny;
+  if (wall) { c.sy = (c.sy || 0) * -.5 + rnd(-1.5, 1.5); c.sr = (c.sr || 0) * .6; c.dent = Math.max(c.dent || 0, .5); if (simT - (c.hitT || 0) > .3) { c.hitT = simT; fxDebris(c.x, c.y); sfx.crash(c); } }
+  const sp = Math.hypot(c.vx, c.vy);
+  if (c.z > 8 || sp < 4) return;
+  const ca = Math.cos(c.ang), sa = Math.sin(c.ang), [hl, hw] = carHalf(c);
+  if (sp > 8) near(c.x, c.y, hl + 3, a => {
+    if (a.hidden || a.post || a.state === "saved" || (a.z || 0) > c.z + 6 || a.carHitT > simT) return;
+    const dx = a.x - c.x, dy = a.y - c.y; if (Math.abs(dx * ca + dy * sa) > hl + .6 || Math.abs(-dx * sa + dy * ca) > hw + .6) return;
+    a.carHitT = simT + .6; const k = sp / 40;
+    if (a.state === "alive") {
+      if (a.role === "zombie") { a.zhp -= 1.5 * k + .5; a.riseT = 1.2; if (a.zhp <= 0) destroyZombie(a, false); }
+      else { a.hp -= 50 * k + 15; if (a.hp <= 0) kill(a, false, "car"); else a.grabT = 1; }
+    }
+    a.vx = c.vx * .8 + rnd(-3, 3); a.vy = c.vy * .8 + rnd(-3, 3); a.vz = Math.max(a.vz || 0, 4 + sp * .2); a.z = Math.max(a.z || 0, .1); a.spin = rnd(-8, 8);
+    c.vx *= .9; c.vy *= .9; fxBlood(a.x, a.y, 3, 6); sfx.thud(c);
+  });
+  nearCars(c.x, c.y, 26, o => {
+    if (o === c || o.gone || o.towedBy || o.player || Math.abs((o.z || 0) - c.z) > 6) return;
+    const h = obbOverlap(c, o); if (!h) return;
+    c.x += h.nx * Math.min(h.depth, 3); c.y += h.ny * Math.min(h.depth, 3); // нормаль смотрит от o к c
+    const rv = (c.vx - (o.vx || 0) * (o.z > 0 ? 1 : 0)) * h.nx + (c.vy - (o.vy || 0) * (o.z > 0 ? 1 : 0)) * h.ny;
+    if (rv >= 0) return;
+    if (o.tank) { c.vx -= 1.4 * rv * h.nx; c.vy -= 1.4 * rv * h.ny; }
+    else {
+      // упругий удар двух ящиков: автобус и грузовик втрое тяжелее легковой
+      const m1 = c.len > 1.4 || c.bus ? 3 : 1, m2 = o.len > 1.4 || o.bus ? 3 : 1, j = -1.3 * rv / (1 / m1 + 1 / m2);
+      c.vx += j / m1 * h.nx; c.vy += j / m1 * h.ny;
+      knockCar(o, -j / m2 * h.nx, -j / m2 * h.ny);
+    }
+    c.sy = (c.sy || 0) + rnd(-2, 2);
+    if (simT - (c.hitT || 0) > .3) { c.hitT = simT; fxDebris(o.x, o.y); sfx.crash(c); }
+  });
+}
+// машину толкнули: подпрыгивает и отлетает; сильно — она разбита (водитель её бросает)
+function knockCar(o, vx, vy) {
+  const imp = Math.hypot(vx, vy); if (imp < 3) return;
+  o.vx = (o.z > 0 ? o.vx || 0 : 0) + vx; o.vy = (o.z > 0 ? o.vy || 0 : 0) + vy; o.vz = Math.max(o.vz || 0, 2 + imp * .22); o.z = Math.max(o.z || 0, .1);
+  o.sr = (o.sr || 0) + rnd(-1, 1) * imp * .06; o.sy = rnd(-1.5, 1.5); o.roll = o.roll || 0; o.v = 0;
+  o.wreck = true; if (o.moving) abandonCar(o, "crash"); // из автобуса выходят раненые (abandonCar в sim3.js)
+  o.dent = Math.max(o.dent || 0, Math.min(1, imp / 40)); o.glass = o.glass || imp > 15;
+  clearCarCells(o);
+}
+// приземлилась: не внутри соседней машины и не в стене; кого накрыло кузовом — раздавлен
+function landCar(c, fall) {
+  c.vx = 0; c.vy = 0;
+  for (let k = 0; k < 3; k++) {
+    let moved = false;
+    nearCars(c.x, c.y, 26, o => { if (o === c || o.gone || o.towedBy || o.z > 0) return; const h = obbOverlap(c, o); if (h) { c.x = clamp(c.x + h.nx * (h.depth + .2), 4, W - 4); c.y = clamp(c.y + h.ny * (h.depth + .2), 4, H - 4); moved = true; } });
+    if (!moved) break;
+  }
+  if (cellAt(c.x, c.y) === 3) { const [x, y] = freeNear(c.x, c.y, 24); c.x = x; c.y = y; }
+  if (fall < 12) return;
+  const ca = Math.cos(c.ang), sa = Math.sin(c.ang), [hl, hw] = carHalf(c);
+  near(c.x, c.y, hl + 2, a => {
+    if (a.state !== "alive" || a.hidden || a.post || a.z > 2) return;
+    const dx = a.x - c.x, dy = a.y - c.y; if (Math.abs(dx * ca + dy * sa) > hl || Math.abs(-dx * sa + dy * ca) > hw) return;
+    if (a.role === "zombie") destroyZombie(a, false); else { kill(a, false, "car"); a.reanimate = false; } a.crushed = true; fxBlood(a.x, a.y, 1, 8);
+  });
+}
+// тело летит: не проходит сквозь кузов (ниже крыши отскакивает от борта), сбивает с ног тех, в кого врезалось
+function bodyHits(a, nx, ny) {
+  const sp = Math.abs(a.vx) + Math.abs(a.vy); if (a.z > 6 || sp < 2) return false;
+  let hit = null;
+  nearCars(nx, ny, 16, c => { if (!hit && !c.gone && !(c.z > 3) && insideCar(c, nx, ny)) hit = c; });
+  if (hit) {
+    const ca = Math.cos(hit.ang), sa = Math.sin(hit.ang), dx = a.x - hit.x, dy = a.y - hit.y, al = dx * ca + dy * sa, lt = -dx * sa + dy * ca, [hl, hw] = carHalf(hit);
+    const ex = (hl - Math.abs(al)) < (hw - Math.abs(lt)), n0 = ex ? ca * Math.sign(al || 1) : -sa * Math.sign(lt || 1), n1 = ex ? sa * Math.sign(al || 1) : ca * Math.sign(lt || 1), vn = a.vx * n0 + a.vy * n1;
+    if (vn < 0) { a.vx -= 1.3 * vn * n0; a.vy -= 1.3 * vn * n1; a.spin = (a.spin || 0) * -.5; }
+    a.vx *= .7; a.vy *= .7; if (sp > 20) sfx.thud(hit);
+    return true;
+  }
+  if (sp > 18 && a.z < 4) near(nx, ny, 2.4, b => {
+    if (b === a || b.state !== "alive" || b.hidden || b.post || b.z > 1 || b.carHitT > simT) return;
+    b.carHitT = simT + .5; b.vx += a.vx * .5; b.vy += a.vy * .5;
+    if (b.role === "zombie") b.riseT = 1; else { b.hp -= sp * .4; if (b.hp <= 0) kill(b, false, "blast"); }
+    a.vx *= .6; a.vy *= .6;
+  });
+  return false;
+}
 // отодвигаем только вдоль собственного курса, чтобы машина не сползала с полосы
 function nudgeBack(c, nx, ny, amount) {
   if (c.tank) return;
