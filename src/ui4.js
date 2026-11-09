@@ -60,7 +60,7 @@ function updateGrass() {
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0); let n = 0;
   for (let k = 0; k < 45000 && n < 9000; k++) {
     const x = cx + rnd(-180, 180), y = cy + rnd(-180, 180), c = cellAt(x, y);
-    if (c !== 2) continue;
+    if (c !== 2 || (hasHills && TH[Math.floor(y / CS) * GW + Math.floor(x / CS)] > TREE_H)) continue; // выше границы леса трава не растёт: там луг коротышка и снег
     q.setFromAxisAngle(up, rnd(0, TAU)); const s = rnd(.7, 1.2);
     m.compose(new THREE.Vector3(X(x), hasHills ? gY(x, y) : 0, Z(y)), q, new THREE.Vector3(s, s * rnd(.6, 1.1), s)); grass.setMatrixAt(n++, m);
   }

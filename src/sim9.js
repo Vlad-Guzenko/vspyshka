@@ -50,7 +50,7 @@ function stepShelters(dt) {
     // снаружи спокойно — выходят
     let zn = 0; nearZ(b.door[0], b.door[1], 110, () => zn++);
     if (b.doorHp <= 0) { if (zn) b.doorFixT = 0; else { b.doorFixT = (b.doorFixT || 0) + dt; if (b.doorFixT > 90) { b.doorHp = b.doorMax * .6; b.doorFixT = 0; logT("doorfix", "Жильцы заколотили выломанную дверь", "good", 60); } } }
-    for (const o of b.occ.slice()) { o.hideT += dt; if (!zn && !o.homeTrip && !settings.curfew && o.hideT > 25 && Math.random() < dt * .3) leaveShelter(o, false); }
+    for (const o of b.occ.slice()) { o.hideT += dt; if (!zn && !o.homeTrip && !o.errand && !settings.curfew && o.hideT > 25 && Math.random() < dt * .3) leaveShelter(o, false); } // зашедший по делам выходит по своему сроку (traffic.js)
     // вертолёт рядом — снимает людей с крыши
     if (evac && evac.landed && !evac.leaving && evac.cap > 0 && Math.hypot(evac.x - (b.x0 + b.x1) / 2, evac.y - (b.y0 + b.y1) / 2) < 140) {
       b.roofT = (b.roofT || 0) - dt;
@@ -60,9 +60,28 @@ function stepShelters(dt) {
   }
 }
 // зомби чуют людей за дверью и выламывают её
+// дома по ячейкам 128 ед. по положению двери. Индекс пересобирается, когда меняется список домов (стройка) или чья-то
+// дверь (выгорел, отремонтирован): проверка ссылок на двери — раз в шаг, 700 сравнений вместо 700 × число зомби расстояний.
+// Жильцы, наличие двери и её прочность проверяются живьём, как раньше
+const DOOR_C = 128, DOOR_W = Math.ceil(MAX_W / DOOR_C), DOOR_H = Math.ceil(MAX_H / DOOR_C);
+let doorIdx = null, doorRefs = [], doorIdxT = -1;
+function buildDoorIdx() {
+  doorIdx = Array.from({ length: DOOR_W * DOOR_H }, () => []); doorRefs = buildings.map(b => b.door);
+  for (const b of buildings) if (b.door) doorIdx[clamp(Math.floor(b.door[1] / DOOR_C), 0, DOOR_H - 1) * DOOR_W + clamp(Math.floor(b.door[0] / DOOR_C), 0, DOOR_W - 1)].push(b);
+}
+function doorIdxOk() {
+  if (!doorIdx || doorRefs.length !== buildings.length) return false;
+  for (let i = 0; i < buildings.length; i++) if (buildings[i].door !== doorRefs[i]) return false;
+  return true;
+}
 function zombieShelterTarget(a) {
+  if (doorIdxT !== simT) { doorIdxT = simT; if (!doorIdxOk()) buildDoorIdx(); }
   let best = null, bd = 220;
-  for (const b of buildings) { if (!b.occ || !b.occ.length || !b.door || b.doorHp <= 0) continue; const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y); if (d < bd) { bd = d; best = b; } }
+  const R = 220, x0 = clamp(Math.floor((a.x - R) / DOOR_C), 0, DOOR_W - 1), x1 = clamp(Math.floor((a.x + R) / DOOR_C), 0, DOOR_W - 1), y0 = clamp(Math.floor((a.y - R) / DOOR_C), 0, DOOR_H - 1), y1 = clamp(Math.floor((a.y + R) / DOOR_C), 0, DOOR_H - 1);
+  for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
+    const c = doorIdx[gy * DOOR_W + gx];
+    for (let k = 0; k < c.length; k++) { const b = c[k]; if (!b.occ || !b.occ.length || !b.door || b.doorHp <= 0) continue; const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y); if (d < bd) { bd = d; best = b; } }
+  }
   return best;
 }
 function bashDoor(a, b, dt) {

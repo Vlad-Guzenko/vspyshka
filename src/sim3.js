@@ -2,10 +2,13 @@
 const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
 const CH = 48, CHW = Math.ceil(MAX_W / CH), CHH = Math.ceil(MAX_H / CH);
 const carHash = Array.from({ length: CHW * CHH }, () => []);
+const chTouched = []; // занятые ячейки carHash: чистим только их (ячеек 11,9 тыс., машин 300–500)
+function carHashPut(o) { const i = clamp(Math.floor(o.y / CH), 0, CHH - 1) * CHW + clamp(Math.floor(o.x / CH), 0, CHW - 1), c = carHash[i]; if (!c.length) chTouched.push(i); c.push(o); }
 function rebuildCarHash() {
-  for (const c of carHash) c.length = 0;
-  for (const c of cars) if (!c.gone) carHash[clamp(Math.floor(c.y / CH), 0, CHH - 1) * CHW + clamp(Math.floor(c.x / CH), 0, CHW - 1)].push(c);
-  for (const t of tanks) carHash[clamp(Math.floor(t.y / CH), 0, CHH - 1) * CHW + clamp(Math.floor(t.x / CH), 0, CHW - 1)].push(t);
+  for (let k = 0; k < chTouched.length; k++) carHash[chTouched[k]].length = 0;
+  chTouched.length = 0;
+  for (const c of cars) if (!c.gone) carHashPut(c);
+  for (const t of tanks) carHashPut(t);
 }
 function nearCars(x, y, r, fn) {
   const x0 = clamp(Math.floor((x - r) / CH), 0, CHW - 1), x1 = clamp(Math.floor((x + r) / CH), 0, CHW - 1), y0 = clamp(Math.floor((y - r) / CH), 0, CHH - 1), y1 = clamp(Math.floor((y + r) / CH), 0, CHH - 1);
@@ -32,6 +35,7 @@ function markCarCells(c) {
   fieldT = 0;
 }
 function abandonCar(c, why) {
+  if (c.gas) cancelGas(c);
   c.moving = false; c.stopped = true; c.v = 0; c.stopT = simT; c.over = 0; c.latTgt = 0;
   if (c.turn) { const i = c.turn.n.occ.indexOf(c); if (i >= 0) c.turn.n.occ.splice(i, 1); }
   markCarCells(c); evictRect(c.x - 13, c.y - 13, c.x + 13, c.y + 13);
@@ -50,7 +54,7 @@ function abandonCar(c, why) {
 }
 let carsCompactT = 20;
 function stepTraffic(dt) {
-  gasTick(dt); signalTick(dt); laneIndex();
+  gasTick(dt); lifeTick(dt); signalTick(dt); laneIndex();
   carsCompactT -= dt; if (carsCompactT <= 0) { carsCompactT = 20; if (cars.some(c => c.gone)) cars = cars.filter(c => !c.gone); for (const n of RN) if (n.occ.length) n.occ = n.occ.filter(o => !o.gone && o.turn && o.turn.n === n); }
   for (const c of cars) {
     if (c.gone) { c.moving = false; continue; }

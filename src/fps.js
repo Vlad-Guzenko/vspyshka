@@ -20,7 +20,7 @@ const vmHuman = new THREE.Group(), vmZombie = new THREE.Group(); vm.add(vmHuman,
     vmZombie.userData[s] = g;
   }
 })();
-const flashlight = new THREE.SpotLight(0xfff2dd, 0, 140, .42, .5, 1.2); flashlight.position.set(.5, -.3, 0); camera.add(flashlight); camera.add(flashlight.target); flashlight.target.position.set(0, -.3, -10);
+const flashlight = new THREE.SpotLight(0xfff2dd, 0, 140, .42, .5, 1.2); flashlight.visible = false; // виден только с фонарём в руках: невидимый источник не считается в шейдерах flashlight.position.set(.5, -.3, 0); camera.add(flashlight); camera.add(flashlight.target); flashlight.target.position.set(0, -.3, -10);
 // чутьё зомби: живые светятся сквозь стены
 const senseMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xff4030, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }), 600);
 senseMesh.count = 0; senseMesh.frustumCulled = false; senseMesh.renderOrder = 9; scene.add(senseMesh);
@@ -51,7 +51,7 @@ function stopFps() {
   if (fps.mode === "drive" && drive.car) exitCar();
   if (fps.mode === "cable") leaveCable(true);
   if (fps.a) fps.a.player = false;
-  fps.on = false; fps.a = null; vm.visible = false; flashlight.intensity = 0; senseMesh.count = 0;
+  fps.on = false; fps.a = null; vm.visible = false; flashlight.intensity = 0; flashlight.visible = false; senseMesh.count = 0;
   camera.fov = 42; camera.updateProjectionMatrix();
   $("fpsHud").hidden = true; $("fpsHelp").hidden = true; $("fpsPause").hidden = true; document.body.classList.remove("fps"); document.body.classList.remove("drive"); $("cv").style.filter = "";
   if (document.pointerLockElement) document.exitPointerLock();
@@ -164,7 +164,7 @@ function fpsCamera(dt) {
   if (a.reload > 0) vmHuman.position.y -= .6 * Math.sin(Math.min(1, a.reload / 1.8) * Math.PI);
   const sw = fps.swing || 0;
   for (const s of [-1, 1]) { const g = vmZombie.userData[s]; g.rotation.x = -.15 + (moving ? Math.sin(fps.bob + (s > 0 ? 0 : 1.5)) * .12 : 0) + (sw > 0 ? -sw * 2 : 0); g.rotation.y = sw > 0 ? -s * sw * 1.5 : 0; }
-  flashlight.intensity = fps.mode === "human" && nightK > .3 ? 6 : 0;
+  flashlight.intensity = fps.mode === "human" && nightK > .3 ? 6 : 0; flashlight.visible = flashlight.intensity > 0;
   // чутьё
   let n = 0;
   if (fps.mode === "zombie" && fps.sense) for (const b of agents) {

@@ -94,7 +94,9 @@ function updateHeadBeams(dt) {
   beamMat.uniforms.uK.value = Math.max(carLightK, nightK) * air * .6;
   // настоящие фары: ближайшие к камере (игрок — всегда первым), не дальше 700 ед. от камеры
   cand.sort((p, q) => p[0] - q[0]);
+  const spotsOn = carLightK > .15; // днём фары выключены: невидимый источник не считается в шейдерах, нулевой — считается
   hb.spots.forEach((l, i) => {
+    l.visible = spotsOn;
     const p = cand[i]; if (!p || p[0] > 700) { l.intensity = 0; return; }
     const [, c, fx, fy, y, cs, sn, g1] = p;
     l.position.set(X(fx), y + 1, Z(fy)); l.target.position.set(X(fx + cs * 70), g1, Z(fy + sn * 70)); l.target.updateMatrixWorld();

@@ -81,7 +81,8 @@ function busCrash(c) {
   const n = c.passengers.length, hb = hospitalB();
   for (const p of c.passengers) { p.hidden = false; p.onBus = null; const [x, y] = freeNear(c.x, c.y, 14); p.x = x; p.y = y; p.panic = 1; if (Math.random() < .5) { p.hp = Math.max(5, p.hp - rnd(20, 50)); p.bleed = 4; } if (p.patient === undefined && hb && c.service === "ambulance") hb.patients = Math.max(0, (hb.patients || 0) - 1); }
   c.passengers = [];
-  logE(c.service === "bus" ? `Автобус с людьми попал в аварию: ${n} чел. выбираются из салона` : "Скорая разбилась: раненые на дороге", "bad");
+  c.fare = null;
+  logE(c.service === "ambulance" ? "Скорая разбилась: раненые на дороге" : c.model === "taxi" ? "Такси с пассажиром попало в аварию" : `Автобус с людьми попал в аварию: ${n} чел. выбираются из салона`, "bad");
 }
 // пассажир идёт к автобусу (или к скорой) и садится
 function busBoard(a, dt) {
@@ -158,14 +159,19 @@ function stepUtilities(dt) {
   const start = (type, stops, spd) => { const [ex, ey] = edgePointNear(rnd(300, W - 300), rnd(200, H - 200)); const c = spawnService(type, ex, ey, null); c.goal = null; c.roam = true; c.roamT = 0; c.stops = stops; c.nextStopT = simT + rnd(15, 30); c.spd = spd; return c; };
   if (h >= 6 && h < 11 && count("garbage") < 2 && Math.random() < .5) { start("garbage", 6, 32); logT("garbage", "Мусоровозы выехали по дворам", "", 60); }
   if (h >= 5 && h < 8 && count("sweeper") < 1 && Math.random() < .5) { start("sweeper", 0, 20); logT("sweeper", "Поливалка моет улицы", "", 60); }
-  if (h >= 9 && h < 19 && count("delivery") < 2 && special.mall && special.mall.b && special.mall.b.state === "ok" && Math.random() < .5) {
-    const c = spawnService("delivery", special.mall.x, special.mall.y, null); c.roam = true; c.roamT = 0; c.stops = 1; c.delivery = true; c.nextStopT = 1e9;
+  // доставка: фургон едет к торговому центру или магазину (кафе, пекарне, рынку), у двери курьер заносит коробки
+  if (h >= 9 && h < 19 && count("delivery") < 2 && Math.random() < .5) {
+    const shops = buildings.filter(b => b.door && b.state === "ok" && DELIVERY_KINDS.has(b.kind)), b = shops.length ? pick(shops) : null;
+    if (b) { const c = spawnService("delivery", b.door[0], b.door[1], null); c.roam = true; c.roamT = 0; c.stops = 1; c.delivery = true; c.nextStopT = 1e9; c.job = { shop: b }; c.courier = false; }
   }
 }
+const DELIVERY_KINDS = new Set(["mall", "shop", "cafe", "bakery", "market"]);
 // стоянка коммунальной машины кончилась: едем дальше или домой
 function roamStopDone(c, dt) {
   c.stopT2 = (c.stopT2 || 0) + dt;
-  if (c.stopT2 < (c.service === "delivery" ? 25 : 12)) return;
+  // фургон доставки встал у магазина: курьер выходит, относит коробки внутрь и возвращается; фургон ждёт его (errandBegin в traffic.js)
+  if (c.delivery && !c.courier) { c.courier = true; const b = c.job && c.job.shop; if (b && b.door && b.state === "ok" && b.occ.length < b.cap && Math.hypot(b.door[0] - c.x, b.door[1] - c.y) < 120) { const a = errandBegin(c, b, rnd(8, 16)); a.cloth = "#2a4a7a"; a.hat = "cap"; a.bag = null; } }
+  if (c.stopT2 < (c.service === "delivery" ? 25 : 12) || c.errand) return;
   c.stopT2 = 0; c.stops = (c.stops || 0) - 1;
   if (c.stops <= 0 || c.delivery) { releaseUnit(c); return; }
   c.deployed = false; c.stopped = false; c.moving = true; c.goal = null; c.nextStopT = simT + rnd(20, 45);

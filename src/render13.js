@@ -413,7 +413,7 @@ function updateCars() {
       F.bars.setColorAt(bar, _cc.set(on ? col : "#111")); bar++;
     }
   }
-  for (const k in cm.byModel) { const B = cm.byModel[k]; for (const part of B.list) { part.mesh.count = B.n; if (B.n) { part.mesh.instanceMatrix.needsUpdate = true; part.mesh.instanceColor.needsUpdate = true; } } }
+  for (const k in cm.byModel) { const B = cm.byModel[k]; for (const part of B.list) { part.mesh.count = B.n; part.mesh.visible = B.n > 0; if (B.n) { part.mesh.instanceMatrix.needsUpdate = true; part.mesh.instanceColor.needsUpdate = true; } } }
   F.wheels.count = wi; F.lights.count = li; F.beams.count = bi; F.bars.count = bar;
   F.beams.material.opacity = carLightK * (.18 + nightK * .32);
   for (const k in F) { F[k].instanceMatrix.needsUpdate = true; if (F[k].instanceColor) F[k].instanceColor.needsUpdate = true; }

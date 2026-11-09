@@ -4,7 +4,7 @@ const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOf
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
 const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown", "shape", "farm", "faceSgn"];
-const A_SKIP = new Set(["busGoal", "onBus", "busWait", "ride", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob"]);
+const A_SKIP = new Set(["busGoal", "onBus", "busWait", "ride", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob", "regul", "rescueBy", "lod", "errand", "waitCar", "hail"]); // regul — ребро дороги, rescueBy — вызов или машина спасателей: с ними JSON зацикливался; lod — «рисуется скелетной моделью», после загрузки такого не рисовал бы никто; errand, waitCar, hail — ссылки на машину: после загрузки человек просто живёт дальше
 function serializeGame() {
   if (typeof fps !== "undefined" && fps.on && fps.mode === "drive") exitCar(); // машина игрока сохраняется стоящей, игрок — рядом с ней
   const bi = new Map(buildings.map((b, i) => [b, i]));
@@ -15,9 +15,10 @@ function serializeGame() {
     return o;
   });
   const carsS = cars.filter(c => !c.gone && !c.service && !c.towedBy).map(c => {
-    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "next2", "route", "gas", "trip", "park", "passengers", "line", "stopI", "stopK", "stopT0", "yieldTo", "holdBy", "home"].includes(k)) o[k] = c[k]; // yieldTo — ссылка на машину: при сохранении в момент уступки получался цикл
+    const o = {}; for (const k in c) if (!["lane", "job", "crew", "towedBy", "goal", "bar", "turn", "next", "next2", "route", "gas", "trip", "park", "passengers", "line", "stopI", "stopK", "stopT0", "yieldTo", "holdBy", "home", "towAssigned", "fireAssigned", "towPrio", "errand", "fare"].includes(k)) o[k] = c[k]; // назначенные эвакуатор и пожарные после загрузки не приедут — пусть вызовут заново; errand и fare — ссылки на людей // yieldTo — ссылка на машину: при сохранении в момент уступки получался цикл
     // на перекрёстке — переносим на начало следующей полосы; на заправке — обратно в полосу, с которой заехала
     if (c.turn) { o.lane = c.turn.to.id; o.s = laneStart(c.turn.to); } else if (c.gas && c.gas.pts) { o.lane = c.gas.l.id; o.s = c.gas.s; } else o.lane = c.lane ? c.lane.id : -1;
+    if (c.broken) o.broken = { ...c.broken, driver: null }; // водитель у заглохшей — ссылка на человека; после загрузки он просто житель
     o.over = 0; o.latOff = 0; o.latTgt = 0; o.atLine = false; return o;
   });
   return {
@@ -28,7 +29,7 @@ function serializeGame() {
     roads: { nodes: RN.map(n => [n.x, n.y, n.off || 0, n.cul ? 1 : 0]), edges: RE.map(e => [e.a.id, e.b.id, e.pts, e.hw, e.kind, e.oneway ? 1 : 0, e.rural ? 1 : 0, e.boulevard ? 1 : 0, e.trees ? 1 : 0, e.sw]), rounds },
     roadMask: b64(roadMask.subarray(0, GW * GH)), regionOf: b64(Int16Array.from(regionOf.subarray(0, GW * GH), v => v)), patchOf: b64(patchOf.subarray(0, GW * GH)), patches,
     blocks: blocks.map(b => ({ id: b.id, n: b.n, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, cx: b.cx, cy: b.cy, kind: b.kind, ch: b.ch, d: b.d, lot: b.lot, rural: b.rural, city: b.city, paths: b.paths, pond: b.pond, lake: b.lake, farm: b.farm })),
-    trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), hydrants, lamps, fountains, fences, props, entries, threat: threat && { ...threat, cols: threat.cols.map(c => ({ ...c, cp: cps.indexOf(c.cp) })) }, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
+    trees: trees.map(t => ({ x: t.x, y: t.y, r: t.r, h: t.h, burnt: t.burnt })), hydrants, lamps, fountains, fences, props, entries, threat: threat && { ...threat, hordes: threat.hordes.map(h => ({ ...h, line: h.line ? cps.indexOf(h.line) : -1 })), cols: threat.cols.map(c => ({ ...c, cp: cps.indexOf(c.cp), block: c.block ? cps.indexOf(c.block) : -1 })), fed: threat.fed && { ...threat.fed, blocks: threat.fed.blocks.map(b => cps.indexOf(b)) } }, waters, bridges, ponds, oldTown, bigPark: bigPark && { ...bigPark },
     special: Object.fromEntries(Object.entries(special).map(([k, v]) => [k, { x: v.x, y: v.y, b: bi.get(v.b) }])),
     agents: agentsS, cars: carsS, tanks: tanks.filter(t => t.hp > 0).map(t => ({ x: t.x, y: t.y, ang: t.ang, turret: t.turret, hp: t.hp, shells: t.shells, rounds: t.rounds })),
     fires, tents: tents.map(t => ({ x: t.x, y: t.y, done: t.done })), research, scientists, vaccineReady, armyWaves, gangsSpawned,
@@ -60,8 +61,8 @@ function loadGame(S) {
   trees = S.trees; hydrants = S.hydrants || []; lamps = S.lamps; fountains = S.fountains; fences = S.fences; props = S.props || []; entries = S.entries || []; threat = S.threat || null; hordeFields.clear(); waters = S.waters; bridges = S.bridges; ponds = S.ponds; oldTown = S.oldTown; bigPark = S.bigPark;
   special = Object.fromEntries(Object.entries(S.special).map(([k, v]) => [k, { x: v.x, y: v.y, b: buildings[v.b] }]));
   buildBusLines(); // маршруты автобусов — заново из графа и остановок; автобусы возьмут ближайший
-  agents = S.agents.filter(o => !o.inCar || ["army", "police", "medic"].includes(o.role)).map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; a.squad = 0; a.unit = null; a.job = null; if (o.inCar) { delete a.inCar; if (a.role !== "army") { a.standDown = true; a.standT = 0; a.order = a.role === "police" ? { x: special.police.x, y: special.police.y } : { x: special.hospital.x, y: special.hospital.y }; } } if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
-  cars = S.cars.map(o => { const c = { ...newCar(), ...o, turn: null, next: null }; c.lane = o.lane >= 0 && RL[o.lane] ? RL[o.lane] : null; if (!c.lane) { c.moving = false; if (!c.stopped) c.lane = null; } return c; });
+  agents = S.agents.filter(o => !o.inCar || ["army", "police", "medic"].includes(o.role)).map(o => { const a = { phase: rnd(0, TAU), wx: 0, wy: 0, aim: 0, aimT: 0, shotT: -9, burst: 0, spin: 0, roll: 0, vz: 0, poolId: -1, poolR: 0, poolMax: 0, stuck: 0, ...o }; a.squad = 0; a.unit = null; a.job = null; a.lod = false; if (o.inCar) { delete a.inCar; if (a.role !== "army") { a.standDown = true; a.standT = 0; a.order = a.role === "police" ? { x: special.police.x, y: special.police.y } : { x: special.hospital.x, y: special.hospital.y }; } } if (o.hideB !== undefined && o.hideB !== null) { a.hideB = buildings[o.hideB]; if (a.hideB) a.hideB.occ.push(a); } return a; });
+  cars = S.cars.map(o => { const c = { ...newCar(), ...o, turn: null, next: null, towAssigned: false, fireAssigned: false }; c.lane = o.lane >= 0 && RL[o.lane] ? RL[o.lane] : null; if (!c.lane) { c.moving = false; if (!c.stopped) c.lane = null; } return c; });
   tanks = S.tanks.map(t => ({ tank: true, cd: 2, mg: 0, v: 0, z: 0, recoil: 0, track: 0, ...t }));
   fires = S.fires; tents = S.tents; research = S.research; scientists = S.scientists; vaccineReady = S.vaccineReady; armyWaves = S.armyWaves; gangsSpawned = S.gangsSpawned;
   simT = S.simT; bites = S.bites; deaths = S.deaths; zkills = S.zkills; saved = S.saved; cured = S.cured; nextId = S.nextId;
@@ -75,7 +76,9 @@ function loadGame(S) {
   // зоны карантина; у старых сохранений нет ни ворот, ни снятия — такие зоны остаются как поставил игрок
   wallJobs = (S.wallJobs || []).map(j => ({ prev: {}, mouths: [], quietT: 0, ...j, gate: j.gate || [(j.x0 + j.x1) / 2, j.y1], cp: cps[j.cp] || null })); zoneOf.fill(0); if (S.zones) zoneOf.set(unb64(S.zones, Int16Array)); zoneSeq = S.zoneSeq || wallJobs.length;
   for (const j of wallJobs) for (const m of j.mouths) { const e = RE.find(e => e.id === m.e); if (e) e.quar = j.id; }
-  if (threat) for (const c of threat.cols) c.cp = c.cp >= 0 ? cps[c.cp] || null : null;
+  // посты угроз: в новых сохранениях — номер в cps, в старых — копия поста (ищем настоящий на том же месте)
+  const cpRef = v => typeof v === "number" ? (v >= 0 ? cps[v] || null : null) : v && typeof v === "object" ? cps.find(c => Math.hypot(c.x - v.x, c.y - v.y) < 1) || null : null;
+  if (threat) { for (const c of threat.cols) { c.cp = cpRef(c.cp); c.block = cpRef(c.block); } for (const h of threat.hordes || []) h.line = cpRef(h.line); if (threat.fed) threat.fed.blocks = (threat.fed.blocks || []).map(cpRef).filter(Boolean); }
   for (const cp of cps) if (cp.e !== undefined) { const e = RE.find(e => e.id === cp.e); if (e) e.checkCp = cp; }
   postMask.fill(0); for (const cp of cps) if (cp.road) for (const i of cp.cells.concat(cp.shutCells || [])) postMask[i] = 1;
   for (const a of agents) { a.cpAt = null; a.cpChecked = null; if (a.detained) { let best = null, bd = 1e9; for (const c of cps) { const d = Math.hypot(c.x - a.x, c.y - a.y); if (d < bd) { bd = d; best = c; } } a.detained = best; } if (a.cp) a.cp = cps.find(c => Math.hypot(c.x - a.x, c.y - a.y) < 30) || null; }
@@ -130,7 +133,11 @@ $("saveList").addEventListener("click", async e => {
     }
     if (b.dataset.load) { const S = JSON.parse(await unpackSave(localStorage.getItem(slotKey(i)))); loadGame(S); $("saves").hidden = true; setPaused(false); }
     if (b.dataset.del) { localStorage.removeItem(slotKey(i)); localStorage.removeItem(slotKey(i) + "-meta"); $("saveNote").textContent = `Слот ${i} очищен.`; }
-  } catch (err) { $("saveNote").textContent = b.dataset.save ? "Не удалось сохранить: в браузере не хватает места или хранилище отключено." : "Не удалось загрузить это сохранение."; }
+  } catch (err) {
+    console.error(err);
+    const full = err && (err.name === "QuotaExceededError" || err.code === 22);
+    $("saveNote").textContent = b.dataset.save ? (full ? "Не удалось сохранить: в браузере не хватает места или хранилище отключено." : "Не удалось сохранить: ошибка в игре (" + (err && err.message || err) + ").") : "Не удалось загрузить это сохранение.";
+  }
   renderSaves();
 });
 $("openSaves").addEventListener("click", () => { renderSaves(); $("saveNote").textContent = "Сохранения лежат только в этом браузере."; $("saves").hidden = false; });

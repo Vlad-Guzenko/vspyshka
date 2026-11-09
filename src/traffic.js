@@ -335,6 +335,7 @@ function leaveMap(c) {
   // недостижимой цели, а исчезать за краем она не должна
   const u = c.lane && oppLane(c.lane);
   if (c.service && !c.turn && u && (c.homeGoal || (!c.leaving && c.goal))) { const ox = c.x, oy = c.y, ang = c.ang; placeOnLane(c, u, Math.max(0, c.lane.e.len - c.s)); c.offx = ox - c.x; c.offy = oy - c.y; c.x = ox; c.y = oy; c.ang = ang; c.v = Math.min(c.v, 8); return; }
+  if (c.fare) taxiGone(c); // пассажир такси уехал с ним из города
   if (c.service || c.flee || c.panic) {
     if (c.service && !c.leaving && typeof releaseJob === "function") releaseJob(c.job);
     c.gone = true; c.moving = false;
@@ -405,12 +406,13 @@ function stepRoadCar(c, dt) {
   if (c.gas && c.gas.pts) return stepGas(c, dt);
   if (c.turn) return stepTurnCar(c, dt);
   const l = c.lane; if (!l) { c.moving = false; c.stopped = true; return; }
+  if (c.broken) return stepBroken(c, l, dt); // заглохла: докатывается и встаёт
   if (c.gas) { if (c.panic || c.flee) cancelGas(c); else if (gasArrive(c, l)) return stepGas(c, dt); }
   if (c.pulled && !c.deployed) { c.pulled = false; if (!c.over) c.latTgt = 0; }
   if (c.park && c.park.stop !== undefined) busStopTick(c, dt);
   if (c.park && stepPark(c, l, dt)) return;
   if (c.bus && !c.service && busLines.length) busLineStep(c, l);
-  if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas && !(c.bus && c.line >= 0)) pickTrip(c); // маршрутный автобус по делам не ездит
+  if (!c.service && !c.refugee && !c.panic && !c.flee && !c.goal && !c.trip && !c.gas && !c.fare && !(c.bus && c.line >= 0)) pickTrip(c); // маршрутный автобус по делам не ездит, такси с вызовом — тоже
   const sE = laneEnd(l), p = lanePos(l, c.s), tx = p.tx, ty = p.ty;
   // служба доехала до места на своём ребре
   if (c.goal && c.service && c.service !== "plow" && !c.leaving && !c.deployed) { // снегоуборщик у цели не встаёт (sim18.js)
@@ -421,10 +423,13 @@ function stepRoadCar(c, dt) {
     if (R && l.e === R.e) { const sG = laneSOfT(l, R.et); if (c.s > sG - 10 && (c.s < sG + 16 || gd < 200)) { deployCrew(c); return; } }
   }
   // поездка: доехали до нужной улицы — к бордюру; слишком долго в пути — новая цель
-  if (c.trip && !c.trip.exit) { if (simT - c.trip.t0 > 420) pickTrip(c); else if (c.trip.e && l.e === c.trip.e) { const sG = laneSOfT(l, c.trip.et); if (c.s > sG - 8 && c.s < sG + 30) arriveTrip(c, l); } }
+  if (c.trip && !c.trip.exit) { if (simT - c.trip.t0 > 420) { if (c.trip.taxi) taxiDrop(c); pickTrip(c); } else if (c.trip.e && l.e === c.trip.e) { const sG = laneSOfT(l, c.trip.et); if (c.s > sG - 8 && c.s < sG + 30) arriveTrip(c, l); } }
+  if (c.fare && c.fare.stage === "ride" && !(c.trip && c.trip.taxi)) taxiDest(c); // такси с пассажиром потеряло цель (съехало с карты, разворот) — новая
+  if (c.fare && c.fare.stage === "stop") taxiStopStep(c, l);
   if (!c.next && sE - c.s < 70 && !l.to.exit) c.next = chooseNext(c);
   const A = scanAhead(c, c.x, c.y, tx, ty, l);
   let clear = A.clear, cellClear = 1e9;
+  if (c.fare && c.fare.stage === "stop") clear = Math.min(clear, Math.max(0, c.fare.s - c.s) + 11); // такси тормозит к пассажиру на тротуаре
   // клетки впереди по самой полосе (повторяя изгиб): баррикады, завалы, дома, брошенные машины
   for (let k = 10; k < 40; k += 6) {
     const q = lanePos(l, Math.min(c.s + k, l.e.len)), qx = q.x + q.ty * (c.latOff || 0), qy = q.y - q.tx * (c.latOff || 0), cc = cellAt(qx, qy);
@@ -526,7 +531,7 @@ function stepTurnCar(c, dt) {
   // двое на одном перекрёстке упёрлись друг в друга: едет тот, кто прошёл больше, второй ждёт
   // (на одном перекрёстке — кто прошёл больше; на соседних — младший по списку, иначе стоят вечно, видя друг друга перед носом)
   if (A.ahead && A.ahead.turn && (c.stallT || 0) > 4 && (A.ahead.stallT || 0) > 4 && (A.ahead.turn.n === T.n ? turnProg(c) > turnProg(A.ahead) : c._i < A.ahead._i)) A = scanAhead(c, c.x, c.y, p.tx, p.ty, null, A.ahead);
-  if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.trip = null; c.goal = null; }
+  if (A.zNear > 0 && !c.panic && !c.service) { c.panic = true; c.flee = true; c.spd *= 1.35; c.trip = null; cancelGas(c); c.goal = null; }
   // место за перекрёстком считается по очереди на следующей полосе: машина не влезает в чужой кузов и не прыгает
   const gap = nextLaneGap(c, m, laneStart(m) - (T.len - T.u));
   let clear = Math.min(A.clear, gap);
@@ -569,7 +574,7 @@ function pickCarModel(parked) {
 const BUS_COLS = ["#e0a020", "#3a7a9a", "#c84a2a", "#e8e2d0"];
 function newCar() {
   const M = pickCarModel();
-  return { model: M.k, moving: true, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: M.len, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, fuel: rnd(.12, 1), gas: null, gasTry: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false };
+  return { model: M.k, moving: true, col: pick(M.cols || CARC), wreck: false, boomT: 0, burnT: 0, spd: rnd(28, 44), v: 0, wait: 0, stuck: 0, dmg: 0, horn: 0, tanker: false, bus: false, len: M.len, flee: false, s: 0, turn: null, next: null, offx: 0, offy: 0, _i: 0, fuel: rnd(.12, 1), gas: null, gasTry: 0, latOff: 0, latTgt: 0, over: 0, overT: 0, unloaded: false, exploded: false, panic: false, alarm: 0, z: 0, vz: 0, vx: 0, vy: 0, roll: 0, sr: 0, sy: 0, stopped: false, gone: false, crushed: false, towedBy: null, service: null, goal: null, lane: null, dir: 0, ang: 0, atLine: false, errand: null, fare: null, broken: null };
 }
 function spawnTraffic(n) {
   const pool = RL.filter(l => laneEnd(l) - laneStart(l) > 30 && !l.e.closed), wt = l => l.e.len * (l.e.rural ? .25 : 1), tot = pool.reduce((a, l) => a + wt(l), 0);
@@ -675,7 +680,7 @@ function gasTick(dt) {
   gasT -= dt; if (gasT > 0) return; gasT = 3;
   for (const b of gasStations()) {
     const st = gasState(b);
-    st.stalls.forEach((o, i) => { if (o && (o.gone || o.wreck || !o.gas || o.gas.b !== b || !cars.includes(o))) st.stalls[i] = null; });
+    st.stalls.forEach((o, i) => { if (o && (o.gone || o.wreck || !o.moving || !o.gas || o.gas.b !== b || !cars.includes(o))) st.stalls[i] = null; });
     if (st.tanker && (st.tanker.gone || st.tanker.wreck || !st.tanker.gas || st.tanker.gas.b !== b)) st.tanker = null;
     if (st.stock >= 12 || st.tanker) { st.needT = 0; continue; }
     st.needT += 3;
@@ -730,22 +735,194 @@ function pickTrip(c) {
     if (local) for (let j = 0; j < 5; j++) { const o = pick(pool); if (o.door && o.state === "ok" && Math.hypot(o.door[0] - c.x, o.door[1] - c.y) < Math.hypot(b.door[0] - c.x, b.door[1] - c.y)) b = o; }
     const q = gEdgeNear(b.door[0], b.door[1], 400); if (!q || q.e.rural || q.e.kind === "ring") continue;
     if (c.lane && q.e === c.lane.e) continue; // не туда, где уже едем
-    c.trip = { e: q.e, et: q.t, t0: simT }; c.goal = { x: q.x, y: q.y }; return;
+    c.trip = { e: q.e, et: q.t, t0: simT, b }; c.goal = { x: q.x, y: q.y }; return;
   }
 }
 // доехали: к бордюру, если ширина улицы позволяет разойтись с проезжающими; на узкой улочке — просто дальше по делам
 function arriveTrip(c, l) {
-  c.trip = null; c.goal = null;
+  const T = c.trip; c.trip = null; c.goal = null;
+  if (T.taxi) taxiDrop(c); // такси довезло пассажира: он выходит у бордюра
   const sh = curbShift(l); let taken = !TRAFFIC_TUNE.park;
   nearCars(c.x, c.y, 44, o => { if (!taken && o !== c && !o.gone && o.lane === l && !o.turn && Math.abs(o.s - c.s) < 30) taken = true; }); // рядом кто-то стоит или едет — не встаём
   if (taken) return;
-  if (-sh >= 9.6 && !l.e.oneway && laneEnd(l) - c.s > 24 && c.s - laneStart(l) > 30 && !c.over && !c.bus && !c.tanker && !nearBusStop(l, c.s)) { c.park = { t: rnd(TRAFFIC_TUNE.park0, TRAFFIC_TUNE.park1) }; c.latTgt = sh; }
+  if (-sh >= 9.6 && !l.e.oneway && laneEnd(l) - c.s > 24 && c.s - laneStart(l) > 30 && !c.over && !c.bus && !c.tanker && !nearBusStop(l, c.s)) {
+    c.park = { t: rnd(TRAFFIC_TUNE.park0, TRAFFIC_TUNE.park1), t0: simT }; c.latTgt = sh;
+    if (T.b && !T.taxi) errandStart(c, T.b); // водитель выходит и идёт в дом или магазин
+  }
 }
 // стоянка у бордюра: докатываемся, стоим, выезжаем, когда в полосе за спиной свободно
 function stepPark(c, l, dt) {
-  if (c.panic || c.flee) { c.park = null; c.latTgt = 0; return false; }
+  // водитель ушёл по делам: машина ждёт его; без водителя (погиб, убежал, слишком долго нет) она остаётся стоять, пока не увезёт эвакуатор
+  if (c.errand) { const a = c.errand; if (c.panic || c.flee || a.state !== "alive" || a.role === "zombie" || !a.errand || a.errand.car !== c || simT - c.park.t0 > 300) { if (a.errand && a.errand.car === c) a.errand = null; c.errand = null; strandCar(c); return true; } }
+  if (c.panic || c.flee) { if (c.fare) taxiCancel(c); c.park = null; c.latTgt = 0; return false; }
   c.v = Math.max(0, c.v - 40 * dt); c.s = Math.min(laneEnd(l) - 4, c.s + c.v * dt); c.wait = 0;
   if (c.v <= 0) c.park.t -= dt;
-  if (c.park.t <= 0 && (c.park.t < -12 || !laneBusy(l, c.s + 6, c, 18))) { c.park = null; c.latTgt = 0; return false; }
+  if (c.park.t <= 0 && (c.park.t < -12 || !laneBusy(l, c.s + 6, c, 18))) { if (c.fare && c.fare.stage === "wait") taxiCancel(c); c.park = null; c.latTgt = 0; return false; } // такси не дождалось пассажира — едет дальше
   poseOnLane(c, dt); return true;
 }
+
+/* ---------- уличная жизнь в мирное время: по делам, поломки, такси ----------
+   Пока в городе спокойно (зомби нет, тревога не выше первой, нет комендантского часа), улицы живут обычной жизнью: водитель,
+   вставший у бордюра у дома или магазина, выходит, заходит внутрь и через минуту возвращается к машине; фургон доставки привозит
+   коробки в магазин; изредка машина глохнет посреди дороги — водитель выходит, включает аварийку и ждёт эвакуатор (половина
+   заводится сама); прохожий ловит такси, едет через город и выходит у нужного дома. Со вспышкой всё это просто прекращается:
+   новых дел не начинают, а начатые заканчиваются или бросаются — машина без водителя остаётся стоять, пока её не увезут.
+   Люди «из машин» (водитель, курьер) временные: появляются, когда машина встала, и исчезают, сев обратно */
+const LIFE = { errand: .3, errandMax: 12, breakGap: 240, breakMax: 2, taxi: .25 };
+function lifeCalm() { const k = lastCounts || counts(); return k.Z === 0 && alert < 2 && !settings.curfew; }
+let lifeGone = 0; // сколько временных людей уехало с тех пор, как список жителей чистили
+// точка у правого борта машины (со стороны бордюра); занята стеной или забором — у левого борта, за кормой, перед носом
+function carSide(c, k = 7) {
+  const tx = Math.cos(c.ang), ty = Math.sin(c.ang);
+  for (const [u, v] of [[0, k], [0, -k], [-k - 7, 0], [k + 7, 0]]) { const x = c.x + tx * u - ty * v, y = c.y + ty * u + tx * v; if (!blocked(x, y)) return [x, y]; }
+  return freeNear(c.x, c.y, 12);
+}
+// временный житель из машины: взрослый, с именем; сев обратно, исчезает
+function carPerson(c) {
+  const [x, y] = carSide(c), a = newAgent("civ", x, y);
+  if (a.age === "kid") { a.age = null; a.size = rnd(.9, 1.08) * (a.sex === "f" ? .96 : 1.02); }
+  nameFor(a); a.lifeTmp = true; a.dir = c.ang; return a;
+}
+function personIn(a) { a.state = "saved"; a.drove = true; a.hidden = false; a.vx = a.vy = 0; if (a.lifeTmp) lifeGone++; }
+// уехавших временных людей убираем из списка: в начале шага, до пересчёта сетки соседей (она хранит индексы)
+function lifeCompact() { if (lifeGone < 30) return; lifeGone = 0; agents = agents.filter(a => !(a.lifeTmp && a.state === "saved")); agentMapN = -1; }
+// шаг человека, занятого уличной жизнью (из thinkHuman)
+function lifeStep(a, dt) { return a.errand ? errandStep(a, dt) : a.waitCar ? waitCarStep(a, dt) : a.hail ? hailStep(a, dt) : null; }
+
+/* по делам: водитель выходит у дома или магазина, заходит внутрь и через 40–90 с возвращается к машине */
+function errandStart(c, b) {
+  if (!lifeCalm() || c.bus || c.tanker || c.model === "taxi" || c.refugee || (c.passengers && c.passengers.length) || Math.random() > LIFE.errand) return;
+  if (!b.door || b.state !== "ok" || b.doorHp <= 0 || b.occ.length >= b.cap || Math.hypot(b.door[0] - c.x, b.door[1] - c.y) > 90) return;
+  let n = 0; for (const o of cars) if (o.errand && !o.gone) n++; if (n >= LIFE.errandMax) return; // не полгорода разом
+  errandBegin(c, b, rnd(40, 90));
+  logT("errand", "Горожане ездят по делам: водитель вышел из машины и зашёл в дом", "", 600);
+}
+function errandBegin(c, b, stay) { const a = carPerson(c); a.errand = { car: c, b, stage: "in", stay, t0: simT, until: 0 }; c.errand = a; if (c.park) c.park.t = 1e9; return a; }
+// к двери, внутрь (сидит в укрытии, stepShelters его не выпускает — выпускает step по сроку), обратно к машине и в неё
+function errandStep(a, dt) {
+  const E = a.errand, c = E.car;
+  if (a.panic > .5 || c.gone || c.errand !== a || c.wreck || (!c.park && !c.deployed) || simT - E.t0 > 240) { errandLost(a); return null; }
+  if (E.stage === "in") {
+    const b = E.b;
+    if (!b.door || b.state !== "ok" || b.doorHp <= 0 || b.occ.length >= b.cap || simT - E.t0 > 90) E.stage = "back"; // закрыто или не дошёл за полторы минуты — возвращается ни с чем
+    else { const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y); if (d < 8) { enterDoor(a, b); E.stage = "inside"; E.until = simT + E.stay; return [0, 0, 0]; } return goTo(a, b.door[0], b.door[1], 6); } // у двери (вплотную к стене goTo не подводит)
+  }
+  const [x, y] = carSide(c);
+  if (Math.hypot(x - a.x, y - a.y) < 4 || Math.hypot(c.x - a.x, c.y - a.y) < 12) { a.errand = null; c.errand = null; if (c.park) c.park.t = Math.min(c.park.t, rnd(1, 3)); personIn(a); return [0, 0, 0]; } // у дверцы
+  return goTo(a, x, y, 6);
+}
+// зашёл в дом по делам: как в укрытие (enterShelter в sim9.js), но без крыши и без записи «люди прячутся» в журнале
+function enterDoor(a, b) { a.hidden = true; a.hideB = b; a.hideT = 0; a.onRoof = false; a.vx = a.vy = 0; b.occ.push(a); a.x = b.door[0]; a.y = b.door[1]; }
+// водитель не вернётся (погиб, убежал, застрял): машина остаётся стоять
+function errandLost(a) { const c = a.errand.car; a.errand = null; if (c.errand === a) { c.errand = null; if (!c.gone && !c.service) strandCar(c); } }
+// машина без водителя: стоит, где стояла, с аварийкой, пока её не увезёт эвакуатор (диспетчер видит стоящую машину, sim4.js)
+function strandCar(c) { c.park = null; c.errand = null; c.moving = false; c.stopped = true; c.v = 0; c.stopT = simT; c.latTgt = c.latOff; cancelGas(c); markCarCells(c); }
+
+/* поломка: машина глохнет, докатывается (к бордюру, если улица широкая), водитель выходит и ждёт с аварийкой. Половина заводится
+   сама через минуту-другую, остальных увозит эвакуатор; водитель уезжает с ним. Остальные машины объезжают заглохшую (sim16.js) */
+function breakDown() {
+  for (let k = 0; k < 40; k++) {
+    const c = pick(cars); if (!c) return;
+    if (c.gone || c.service || c.bus || c.tanker || c.player || c.refugee || c.gas || c.park || c.turn || !c.lane || !c.moving || c.panic || c.flee || c.over || c.fare || c.errand || c.broken || (c.passengers && c.passengers.length) || c.v < 6 || c.atLine || (c.stallT || 0) > 1) continue;
+    const l = c.lane; if (l.e.rural || laneEnd(l) - c.s < 50 || c.s - laneStart(l) < 24 || nearBusStop(l, c.s)) continue;
+    const curb = -curbShift(l) >= 9.6 && !l.e.oneway;
+    c.broken = { t0: simT, curb, fix: Math.random() < .5 ? rnd(50, 110) : 0, driver: null }; c.trip = null; c.goal = null; c.next = null; cancelGas(c);
+    return;
+  }
+}
+function stepBroken(c, l, dt) {
+  const B = c.broken;
+  c.v = Math.max(0, c.v - 10 * dt); c.wait = 0; c.brake = true;
+  if (B.curb) c.latTgt = curbShift(l);
+  const p = lanePos(l, c.s), A = scanAhead(c, c.x, c.y, p.tx, p.ty, l); if (A.clear < 14) c.v = 0; // перед носом кто-то — не въезжаем
+  c.s = Math.min(laneEnd(l) - 6, c.s + c.v * dt); poseOnLane(c, dt);
+  if (c.v > 0) return;
+  c.moving = false; c.stopped = true; c.stopT = simT; c.latTgt = c.latOff; markCarCells(c);
+  const a = carPerson(c); a.waitCar = c; B.driver = a;
+  logT("broke", B.curb ? "Машина заглохла и встала у обочины с аварийкой" : "Машина заглохла посреди дороги: водитель включил аварийку", "", 180);
+}
+// водитель стоит у заглохшей машины; увезли или завелась — уезжает с ней
+function waitCarStep(a, dt) {
+  const c = a.waitCar;
+  if (c.towedBy || c.gone) { a.waitCar = null; personIn(a); return [0, 0, 0]; }
+  if (!c.broken || c.wreck || c.moving || a.panic > .5) { a.waitCar = null; return null; }
+  const [x, y] = carSide(c); if (Math.hypot(x - a.x, y - a.y) > 3) return goTo(a, x, y, 5);
+  a.dir = c.ang; return [0, 0, 0];
+}
+let lifeT = 0;
+function lifeTick(dt) {
+  lifeT -= dt; if (lifeT > 0) return; lifeT = 2;
+  let n = 0;
+  for (const c of cars) {
+    const B = c.broken; if (!B || c.gone) continue;
+    if (c.towedBy || c.wreck) { c.broken = null; continue; }
+    if (c.moving) { n++; continue; } // ещё катится
+    if (B.fix && simT - B.t0 > B.fix && !c.towAssigned && c.lane && !laneBusy(c.lane, c.s + 6, c, 18)) { // завёлся — обратно в полосу, когда сзади свободно
+      c.broken = null; c.stopped = false; c.moving = true; c.v = 0; c.wait = 0; c.latTgt = 0; clearCarCells(c);
+      const a = B.driver; if (a && a.waitCar === c) { a.waitCar = null; personIn(a); }
+      logT("fixed", "Водитель завёл заглохшую машину и поехал дальше", "", 180);
+    } else n++;
+  }
+  if (!lifeCalm()) return;
+  if (n < LIFE.breakMax && Math.random() < 2 / LIFE.breakGap) breakDown();
+}
+
+/* такси: прохожий на тротуаре поднимает руку свободному такси, которое едет мимо; оно прижимается к бордюру рядом и ждёт, пассажир
+   садится (пропадает с улицы), такси везёт его к дому, работе или магазину в другой части города и там высаживает у бордюра */
+let taxiT = 0;
+function taxiHail(a) {
+  if (simT < taxiT || !lifeCalm()) return false;
+  let best = null;
+  nearCars(a.x, a.y, 80, o => {
+    if (best || o.gone || o.model !== "taxi" || o.service || !o.moving || o.fare || !o.lane || o.turn || o.park || o.gas || o.panic || o.flee || o.over || o.broken || o.v < 3 || (o.passengers && o.passengers.length)) return;
+    const l = o.lane, tx = Math.cos(o.ang), ty = Math.sin(o.ang), dx = a.x - o.x, dy = a.y - o.y, al = dx * tx + dy * ty, side = -dx * ty + dy * tx;
+    if (al < 14 || al > 70 || side < l.e.hw - l.off - 3 || side > l.e.hw - l.off + 14) return; // впереди, на тротуаре справа
+    if (-curbShift(l) < 9.6 || l.e.oneway || l.e.rural) return; // есть куда прижаться
+    const s = o.s + al; if (s < laneStart(l) + 24 || s > laneEnd(l) - 30 || nearBusStop(l, s)) return;
+    best = { o, s };
+  });
+  if (!best) return false;
+  const c = best.o; c.fare = { a, s: best.s, stage: "stop", t0: simT, l: c.lane }; c.trip = null; c.goal = null; a.hail = c; a.dest = null; a.idleT = 0; taxiT = simT + 8;
+  logT("taxi", "Прохожий поймал такси", "", 300); return true;
+}
+// такси подъезжает к пассажиру: к бордюру, встаёт напротив него и ждёт до полуминуты
+function taxiStopStep(c, l) {
+  const F = c.fare, a = F.a;
+  if (a.state !== "alive" || a.hail !== c || a.panic > .3 || F.l !== l || simT - F.t0 > 40) { taxiCancel(c); return; }
+  c.latTgt = curbShift(l);
+  if (F.s - c.s < 4 && c.v < .5) { F.stage = "wait"; c.park = { t: 30, t0: simT }; }
+}
+function taxiCancel(c) { const F = c.fare; if (F && F.a && F.a.hail === c) F.a.hail = null; c.fare = null; if (!c.park) c.latTgt = 0; }
+// пассажир: стоит с поднятой рукой, пока такси подъезжает, потом идёт к правой двери и садится
+function hailStep(a, dt) {
+  const c = a.hail, F = c.fare;
+  if (c.gone || !F || F.a !== a || c.wreck || c.panic || a.panic > .3) { a.hail = null; return null; }
+  if (F.stage === "stop") { a.dir = Math.atan2(c.y - a.y, c.x - a.x); return [0, 0, 0]; }
+  const [x, y] = carSide(c);
+  if (Math.hypot(x - a.x, y - a.y) < 4 || Math.hypot(c.x - a.x, c.y - a.y) < 8) { taxiBoard(a, c); return [0, 0, 0]; }
+  return goTo(a, x, y, 6);
+}
+function taxiBoard(a, c) {
+  a.hidden = true; a.onBus = c; a.hail = null; a.hideB = null; a.vx = a.vy = 0; a.dest = null; a.hideGoal = null; a.homeGoal = false; a.busWait = null;
+  (c.passengers || (c.passengers = [])).push(a); c.fare.stage = "ride"; if (c.park) c.park.t = Math.min(c.park.t, 1.5);
+  taxiDest(c);
+}
+// куда везти: дом, работа или магазин не ближе 200 и не дальше полутора километров
+function taxiDest(c) {
+  const P = tripPool(), pool = P.home.concat(P.work, P.shop); c.trip = null; if (c.gas) cancelGas(c); c.goal = null; // цель заправки без самой заправки — пустая ссылка в gasArrive
+  for (let k = 0; k < 12 && pool.length; k++) {
+    const b = pick(pool); if (!b.door || b.state !== "ok") continue;
+    const d = Math.hypot(b.door[0] - c.x, b.door[1] - c.y); if (d < 200 || d > 1500) continue;
+    const q = gEdgeNear(b.door[0], b.door[1], 400); if (!q || q.e.rural || q.e.kind === "ring" || (c.lane && q.e === c.lane.e)) continue;
+    c.trip = { e: q.e, et: q.t, t0: simT, b, taxi: true }; c.goal = { x: q.x, y: q.y }; return true;
+  }
+  taxiDrop(c); return false; // ехать некуда — пассажир выходит
+}
+// приехали: пассажиры выходят на тротуар
+function taxiDrop(c) {
+  for (const p of c.passengers || []) { p.hidden = false; p.onBus = null; const [x, y] = freeNear(...carSide(c, 8), 5); p.x = x; p.y = y; p.vx = p.vy = 0; p.panic = 0; p.dest = null; p.idleT = rnd(5, 20); }
+  if (c.passengers && c.passengers.length) logT("taxiout", "Такси довезло пассажира", "", 300);
+  c.passengers = []; c.fare = null;
+}
+// такси уехало с карты вместе с пассажиром
+function taxiGone(c) { for (const p of c.passengers || []) { p.hidden = false; p.onBus = null; p.state = "saved"; p.drove = true; } c.passengers = []; c.fare = null; }

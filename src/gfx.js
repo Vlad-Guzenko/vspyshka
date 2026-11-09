@@ -350,7 +350,7 @@ ground.material.onBeforeCompile = sh => {
       vec3 rk = (atlD(gWP / 18., vec2(.75, .5)) + atlD(mat2(.8, -.6, .6, .8) * gWP / 43. + .2, vec2(.75, .5))) * .5 / gRM;
       vec3 sc = (atlD(gWP / 14., vec2(0., 0.)) + atlD(mat2(.8, .6, -.6, .8) * gWP / 33. + .6, vec2(0., 0.))) * .5 / gSM;
       vec3 al = atlD(gWP / 12., vec2(.25, 0.)) / gLM;
-      vec3 sn = atlD(gWP / 16., vec2(.5, 0.)) / gWM;
+      vec3 sn = (atlD(gWP / 9., vec2(.5, 0.)) + atlD(mat2(.8, -.6, .6, .8) * gWP / 23. + .4, vec2(.5, 0.))) * .5 / gWM; // снег: две выборки, иначе вблизи виден квадратный повтор
       diffuseColor.rgb *= mix(vec3(1.), rk, .95 * mk.r * mfar);
       diffuseColor.rgb *= mix(vec3(1.), sc, .9 * mk.a * mfar);
       diffuseColor.rgb *= mix(vec3(1.), al, .8 * mk.b * mfar);

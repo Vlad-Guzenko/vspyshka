@@ -17,14 +17,15 @@ function buildCrossings() {
 }
 /* ---------- распорядок дня: ночью улицы пустеют, утром город оживает ---------- */
 let routineT = 0;
-function activity() { const h = world.hour; return h < 5 ? .12 : h < 7 ? .35 : h < 10 ? 1 : h < 17 ? .8 : h < 20 ? 1 : h < 23 ? .55 : .2; }
+// доля машин от обычной по часу: утром 8–9:30 и вечером 18–19:30 час пик (на треть больше), ночью единицы
+function activity() { const h = world.hour; return h < 5 ? .08 : h < 6 ? .18 : h < 7 ? .4 : h < 8 ? .75 : h < 9.5 ? 1.3 : h < 11 ? .95 : h < 17 ? .75 : h < 18 ? 1 : h < 19.5 ? 1.3 : h < 21 ? .85 : h < 23 ? .5 : .22; }
 function stepRoutine(dt) {
   routineT -= dt; if (routineT > 0) return; routineT = 2;
   const act = activity(), outbreak = (lastCounts || counts()).Z > 0 && firsts.zombie && (lastCounts || counts()).Z > 6;
   // горожане расходятся по домам и выходят утром; у кого дом далеко — в ближайший подъезд
   for (let k = 0; k < 12; k++) {
     const a = agents[Math.floor(Math.random() * agents.length)];
-    if (!a || a.state !== "alive" || a.role !== "civ" || a.panic > .3 || a.bitten) continue;
+    if (!a || a.state !== "alive" || a.role !== "civ" || a.panic > .3 || a.bitten || a.errand || a.waitCar || a.hail) continue; // занятого уличной жизнью не трогаем
     if (!a.hidden && Math.random() > act + .15 && !outbreak && !a.homeGoal) {
       const hb = a.home >= 0 ? buildings[a.home] : null;
       if (hb && hb.door && hb.state === "ok" && Math.hypot(hb.door[0] - a.x, hb.door[1] - a.y) < 500) a.homeGoal = true;
@@ -34,7 +35,7 @@ function stepRoutine(dt) {
   }
   // машин на улицах столько, сколько нужно в этот час
   const moving = cars.filter(c => c.moving && !c.service && !c.player), target = Math.round(trafficN() * act);
-  if (moving.length > target + 4) { const c = moving.find(c => !c.gas && (typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500)); if (c) { c.gone = true; c.moving = false; } } // кто едет заправляться, тот доедет
+  if (moving.length > target + 4) { const c = moving.find(c => !c.gas && !c.errand && !c.fare && !c.broken && (typeof camC === "undefined" || Math.hypot(c.x - W / 2 - camC.tx, c.y - H / 2 - camC.tz) > 500)); if (c) { c.gone = true; c.moving = false; } } // кто едет заправляться, ждёт водителя или везёт пассажира, тот доедет
   else if (moving.length < target - 4 && !outbreak) spawnTraffic(2);
 }
 

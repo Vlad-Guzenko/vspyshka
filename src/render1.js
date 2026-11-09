@@ -8,8 +8,18 @@ R3.toneMapping = THREE.ACESFilmicToneMapping;
 R3.shadowMap.enabled = true;
 R3.shadowMap.type = THREE.PCFShadowMap; // мягкие тени дороже, разница на такой карте невелика
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(42, 1, 3, 12000);
+const camera = new THREE.PerspectiveCamera(42, 1, 3, 40000); // далеко: за картой дальние хребты до 6 км
 scene.fog = new THREE.Fog(0xaebccb, 900, 3200);
+// туман с мягким хвостом: за дальней границей тумана силуэт не пропадает совсем, а дотаивает ещё вшестеро дальше — дальние хребты читаются в дымке
+THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+  #else
+    float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+  #endif
+  fogFactor = min( fogFactor, .78 + .2 * smoothstep( fogFar, fogFar * 6.0, vFogDepth ) );
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif`;
 const hemi = new THREE.HemisphereLight(0xe4eaf2, 0x52483c, .6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0d8, 2.4);
@@ -21,7 +31,7 @@ sun.shadow.bias = -.0005; sun.shadow.normalBias = .6;
 scene.add(sun, sun.target);
 // небо: вертикальный градиент на сфере
 const skyU = { top: { value: new THREE.Color(0x5b8fc9) }, bot: { value: new THREE.Color(0xd7e1e8) } };
-const sky = new THREE.Mesh(new THREE.SphereGeometry(9000, 24, 12), new THREE.ShaderMaterial({
+const sky = new THREE.Mesh(new THREE.SphereGeometry(36000, 24, 12), new THREE.ShaderMaterial({ // купол дальше дальних хребтов
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: "varying float h; void main(){ h = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }",
   fragmentShader: "uniform vec3 top; uniform vec3 bot; varying float h; void main(){ gl_FragColor = vec4(mix(bot, top, smoothstep(-.05, .5, h)), 1.); }",
@@ -248,12 +258,12 @@ function syncWorldSize() {
 }
 const grassTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#4a5a37"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#55663e", "#405030", "#5d6d44", "#3b4a2c", "#6a6a48"], 2); });
 grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(280, 280);
-const outskirts = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
+const outskirts = new THREE.Mesh(new THREE.PlaneGeometry(50000, 50000), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
 outskirts.rotation.x = -Math.PI / 2; outskirts.position.y = -.4; outskirts.receiveShadow = true;
 scene.add(outskirts);
 // ближние окрестности: сетка с высотами, цвет по высоте и уклону — трава, скалы, снег
 const terrTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#d0d0d0"; g.fillRect(0, 0, w, h); speckle(g, 0, 0, w, h, 26000, ["#bcbcbc", "#e0e0e0", "#c8c8c8", "#ececec", "#b0b0b0"], 2); }, false);
-terrTex.wrapS = terrTex.wrapT = THREE.RepeatWrapping; terrTex.repeat.set(160, 140);
+terrTex.wrapS = terrTex.wrapT = THREE.RepeatWrapping; terrTex.repeat.set(440, 290); // мелкий повтор: на крутых склонах за краем карты крупный растягивался в полосы
 // маска гор для шейдера земли: по клетке — скалы (крутизна и клетка 10), снег (выше линии), альпийский луг (под линией), осыпь (крутые склоны)
 let mtnMaskTex = null;
 function buildMountainMask() {
@@ -262,8 +272,8 @@ function buildMountainMask() {
     const i = gy * GW + gx, h = TH[i]; if (h <= WATER_Y + .5 || roadMask[i] || grid[i] === 9 || grid[i] === 3) continue;
     const sx = (TH[gy * GW + Math.min(GW - 1, gx + 1)] - TH[gy * GW + Math.max(0, gx - 1)]) / (2 * CS), sy = (TH[Math.min(GH - 1, gy + 1) * GW + gx] - TH[Math.max(0, gy - 1) * GW + gx]) / (2 * CS), s = Math.hypot(sx, sy);
     const nz = ((i * 7919) % 97) / 97 - .5;
-    const snow = sm(SNOW_H - 30, SNOW_H + 15, h + nz * 40), rock = grid[i] === 10 ? 1 : sm(.75, 1.05, s), scree = sm(.4, .7, s) * (1 - rock) * sm(40, 90, h);
-    const alpine = sm(SNOW_H - 130, SNOW_H - 50, h + nz * 30) * (1 - rock) * (1 - scree) * (grid[i] === 2 || grid[i] === 4 ? 1 : 0);
+    const snow = sm(SNOW_H - 60, SNOW_H + 40, h + nz * 14), rock = grid[i] === 10 ? 1 : sm(.75, 1.05, s), scree = sm(.4, .7, s) * (1 - rock) * sm(40, 90, h); // граница снега широкая и ровная, а не рваная по клеткам
+    const alpine = sm(SNOW_H - 130, SNOW_H - 50, h + nz * 12) * (1 - rock) * (1 - scree) * (grid[i] === 2 || grid[i] === 4 ? 1 : 0);
     const k = ((GH - 1 - gy) * GW + gx) * 4; // строки снизу вверх, как uv плоскости
     data[k] = rock * (1 - snow * .6) * 255; data[k + 1] = snow * 255; data[k + 2] = alpine * (1 - snow) * 255; data[k + 3] = scree * (1 - snow * .5) * 255;
   }
@@ -273,8 +283,62 @@ function buildMountainMask() {
 }
 const TEXT = 2300, TSEG = 24;
 let terrainMesh = null;
+// цвет земли по высоте и крутизне: лес, выше границы леса луга, на крутом камень, на вершинах снег. Для дальних хребтов
+// (dOut — расстояние за край карты) граница снега выше: это не физика, так дальние пики читаются пиками, а не белыми холмами
+const _tcA = new THREE.Color(), _tcB = new THREE.Color();
+function terrainColor(c, h, sl, dOut) {
+  const treeL = TREE_H + dOut * .05, snowL = SNOW_H + 60 + 900 * smooth(0, 2500, dOut) + dOut * .04, j = Math.random(); // за краем снег только на верхних склонах
+  c.setHSL(.29 + j * .02, .3, .17 + j * .03); // лес
+  _tcA.setHSL(.23, .33, .35 + j * .04); c.lerp(_tcA, smooth(treeL - 100, treeL, h)); // альпийский луг
+  _tcB.setHSL(.08, .1, .4 + j * .06); c.lerp(_tcB, clamp(clamp((sl - .55) / .35) * .9 + smooth(snowL - 150, snowL, h) * .5)); // камень на крутом и под снегом
+  _tcA.setRGB(.93, .95, .98); c.lerp(_tcA, smooth(snowL - 40, snowL + 60, h) * (1 - clamp((sl - .9) / .5)));
+  c.convertSRGBToLinear(); // цвета задуманы как на экране; в вершинах они должны быть линейными, иначе всё блёкнет
+  return c;
+}
+/* ---------- дальние горы: грубая сетка на 6 км вокруг карты, только картинка ----------
+   За ближней полосой рельефа (TEXT) мир не кончается: по тем же высотам, что и у края, дальше идут два яруса хребтов —
+   ближний в 1,5–5 км с вершинами около 250 м, дальний в 5–13 км до 500 м. На горной стороне они выше, напротив — ниже:
+   туда уходят трассы на равнину. Туман с мягким хвостом (fog_fragment) оставляет им силуэт в дымке. Симуляция о них не знает */
+const FAR_R = 24000, FAR_SEG = 160;
+let farMesh = null;
+function farSideK(x, y) {
+  if (!massif) return .55;
+  const dx = x < 0 ? -x : x > W ? x - W : 0, dy = y < 0 ? -y : y > H ? y - H : 0; if (!dx && !dy) return 1;
+  const kx = (massif.side === 3 ? x > W : x < 0) ? 1 : .45;
+  return (dx * kx + dy * .72) / (dx + dy);
+}
+function farH(x, y) {
+  const dOut = outDist(x, y), k = farSideK(x, y);
+  // хребты — гребневый шум: между цепями настоящие долины (где шум мал, высота почти нулевая)
+  const r1 = ridged(x / 2600 + 5.3, y / 2600 + 2.1), r2 = ridged(x / 5200 + 11, y / 5200 + 7);
+  const t1 = smooth(1400, 4500, dOut) * 1300 * Math.pow(r1, 1.6) * (.7 + fbm(x / 900 + 1, y / 900) * .6);
+  const t2 = smooth(4500, 13000, dOut) * 2400 * Math.pow(r2, 1.5);
+  return wildH(x, y) + (t1 + t2) * k;
+}
+function buildFarMesh() {
+  if (farMesh) { scene.remove(farMesh); farMesh.geometry.dispose(); farMesh = null; }
+  if (worldFlat()) return;
+  const geo = new THREE.PlaneGeometry(FAR_R * 2, FAR_R * 2, FAR_SEG, FAR_SEG), p = geo.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color(), hs = new Float32Array(p.count);
+  for (let i = 0; i < p.count; i++) {
+    const sx = p.getX(i) + W / 2, sy = -p.getY(i) + H / 2, dOut = outDist(sx, sy);
+    // под ближней полосой — чуть ниже неё (без мерцания), глубже внутрь — далеко вниз; снаружи — свои высоты
+    const hh = dOut < TEXT - 700 ? -80 : dOut < TEXT ? farH(sx, sy) - 6 * smooth(TEXT, TEXT - 300, dOut) : farH(sx, sy);
+    p.setZ(i, hh); hs[i] = hh;
+  }
+  geo.computeVertexNormals();
+  const nrm = geo.attributes.normal;
+  for (let i = 0; i < p.count; i++) {
+    const sx = p.getX(i) + W / 2, sy = -p.getY(i) + H / 2, ny = Math.abs(nrm.getZ(i)), sl = Math.sqrt(Math.max(0, 1 - ny * ny)) / Math.max(.05, ny);
+    terrainColor(c, hs[i], sl, Math.max(0, outDist(sx, sy))); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  farMesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  farMesh.rotation.x = -Math.PI / 2; farMesh.frustumCulled = false; farMesh.receiveShadow = false; farMesh.castShadow = false;
+  scene.add(farMesh);
+}
 function buildTerrainMesh() {
   if (terrainMesh) { scene.remove(terrainMesh); terrainMesh.geometry.dispose(); terrainMesh = null; }
+  buildFarMesh();
   if (worldFlat()) { outskirts.position.y = -.4; const gp0 = ground.geometry.attributes.position; for (let i = 0; i < gp0.count; i++) gp0.setZ(i, 0); gp0.needsUpdate = true; ground.geometry.computeVertexNormals(); return; }
   const w = W + 2 * TEXT, h = H + 2 * TEXT, nx = Math.round(w / TSEG), ny = Math.round(h / TSEG);
   const geo = new THREE.PlaneGeometry(w, h, nx, ny), p = geo.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
@@ -283,12 +347,7 @@ function buildTerrainMesh() {
     const inside = sx > -2 && sx < W + 2 && sy > -2 && sy < H + 2, hh = inside ? -30 : gY(sx, sy);
     p.setZ(i, hh);
     const sl = inside ? 0 : Math.hypot(gY(sx + 10, sy) - gY(sx - 10, sy), gY(sx, sy + 10) - gY(sx, sy - 10)) / 20;
-    // трава внизу, выше — альпийские луга и камень, снег только на вершинах
-    c.setHSL(.25 + Math.sin(sx * .01) * .01 - clamp(hh / 500) * .06, .36 - clamp(hh / 500) * .14, .3 + Math.random() * .04 + clamp(hh / 500) * .1);
-    const rock = new THREE.Color().setHSL(.08, .14, .44 + Math.random() * .06), snow = new THREE.Color(.94, .96, .99);
-    const k = clamp((sl - .5) / .35) * .9 + clamp((hh - 330) / 90) * .5;
-    c.lerp(rock, clamp(k)); if (hh > 400) c.lerp(snow, clamp((hh - 400) / 70) * (1 - clamp((sl - .8) / .4)));
-    c.convertSRGBToLinear(); // цвета задуманы как на экране; в вершинах они должны быть линейными, иначе всё блёкнет
+    terrainColor(c, hh, sl, Math.max(0, outDist(sx, sy)));
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
@@ -577,6 +636,15 @@ function buildTiles(items, base, mat, shadow, tag) {
   }
   return { meshes, tileOf, slotOf };
 }
+// ель: тонкий ствол и три яруса лап конусами, вершина острая; высота 1, радиус нижнего яруса .5
+function firGeo() {
+  const parts = [new THREE.CylinderGeometry(.04, .07, .3, 5).translate(0, .15, 0)];
+  for (const [y0, hgt, r] of [[.16, .44, .5], [.42, .38, .37], [.68, .32, .22]]) parts.push(new THREE.ConeGeometry(r, hgt, 7).translate(0, y0 + hgt / 2, 0));
+  return mergeGeo(parts);
+}
+// где лес хвойный: за городом выше 35 м почти сплошь ели, ниже — вперемешку с лиственными
+function isFir(x, y, h) { return cityK(x, y) < .35 && (h > 140 || Math.random() < (h > 60 ? .5 : .2)); }
+function firColor(h) { const j = Math.random(); return new THREE.Color().setHSL(.34 + j * .04, .28 + j * .1, .13 + j * .05 + clamp((h - 300) / 400) * .05); }
 function buildTrees() {
   trees3d = null;
   const trunkGeo = new THREE.CylinderGeometry(.7, 1.1, 1, 6).translate(0, .5, 0), trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 });
@@ -586,11 +654,20 @@ function buildTrees() {
     const lm = leafMaterial(); treeLeaf = new THREE.InstancedMesh(leafCrownGeo(), lm, LEAF_CAP); treeLeaf.customDepthMaterial = lm.userData.depth;
     treeLeaf.count = 0; treeLeaf.frustumCulled = false; treeLeaf.castShadow = treeLeaf.receiveShadow = true; treeLeaf.setColorAt(0, new THREE.Color()); cityGroup.add(treeLeaf);
   }
-  const q = new THREE.Quaternion(), cityTr = [], cityCr = [], outTr = [], outCr = [];
-  trees.forEach(t => {
+  const q = new THREE.Quaternion(), cityTr = [], cityCr = [], outTr = [], outCr = [], firCr = [], firOf = new Map();
+  trees.forEach((t, ti) => {
     const ty = gY(t.x, t.y);
     // в симуляции дерево занимает свою клетку, а рисуем его в натуральную величину: городские деревья 6–12 м
     const th = t.h * 1.45, trr = t.r * 1.3;
+    if (t.fir === undefined) t.fir = isFir(t.x, t.y, ty);
+    if (t.fir) {
+      // ель: одна крона-конус в своём списке; три места под шары остаются пустыми, чтобы номера крон (i·3+k) не сдвинулись
+      const fh = t.h * 1.7, fr = trr * .62;
+      firOf.set(ti, firCr.length); firCr.push({ m: new THREE.Matrix4().makeScale(fr * 2, fh, fr * 2).setPosition(X(t.x), ty, Z(t.y)), c: firColor(ty), r: fh * .6 });
+      cityTr.push({ m: new THREE.Matrix4().makeScale(0, 0, 0).setPosition(X(t.x), ty, Z(t.y)), c: null, r: 1 }); // ствол у ели свой; пустое место держит номера стволов (snapTree)
+      for (let k = 0; k < 3; k++) cityCr.push({ m: new THREE.Matrix4().makeScale(0, 0, 0).setPosition(X(t.x), ty, Z(t.y)), c: new THREE.Color(0, 0, 0), r: 1 });
+      return;
+    }
     cityTr.push({ m: new THREE.Matrix4().makeScale(1.25, th * .55, 1.25).setPosition(X(t.x), ty, Z(t.y)), c: null, r: th * .55 + 2 });
     for (let k = 0; k < 3; k++) {
       const r = trr * rnd(.6, .9); q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0));
@@ -605,12 +682,14 @@ function buildTrees() {
     if (wet(x, y)) continue;
     // лес растёт на пологих склонах ниже снега
     const hh = gY(x, y), sl = Math.hypot(gY(x + 8, y) - gY(x - 8, y), gY(x, y + 8) - gY(x, y - 8)) / 16;
-    if (hh > 330 || sl > .55) continue;
+    if (hh > TREE_H || sl > .55) continue;
+    if (isFir(x, y, hh)) { const fh = rnd(36, 64) * (hh > TREE_H - 120 ? .7 : 1), fr = fh * .28; firCr.push({ m: new THREE.Matrix4().makeScale(fr * 2, fh, fr * 2).setPosition(X(x), hh, Z(y)), c: firColor(hh), r: fh * .6 }); continue; }
     const r = rnd(10, 19) * (hh > 180 ? .7 : 1), h = rnd(26, 50) * (hh > 180 ? .7 : 1);
     outTr.push({ m: new THREE.Matrix4().makeScale(1, h * .55, 1).setPosition(X(x), hh, Z(y)), c: null, r: h * .55 + 2 });
     for (let k = 0; k < 2; k++) { q.setFromEuler(new THREE.Euler(rnd(0, 3), rnd(0, 3), 0)); outCr.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(X(x) + rnd(-3, 3), hh + h * rnd(.65, .85), Z(y) + rnd(-3, 3)), q, new THREE.Vector3(r, r * rnd(.8, 1.1), r)), c: new THREE.Color().setHSL(rnd(.2, .32) - (hh > 180 ? .06 : 0), rnd(.3, .45), rnd(.14, .24)), r: r * 1.2 }); }
   }
   const trunkT = buildTiles(cityTr, trunkGeo, trunkMat, true, "ct"); buildTiles(outTr, trunkGeo, trunkMat, false, "ot"); // лес за городом без теней: дорого, а издали не видно
+  const firT = buildTiles(firCr, firGeo(), new THREE.MeshStandardMaterial({ roughness: .9, envMapIntensity: .25 }), true, "fir"); // ели статичны: ярусы лап видны и издали
   // кроны: сначала городские (крона k дерева i — номер i·3+k), за ними лес; дальние — упрощённые шары по участкам
   const all = cityCr.concat(outCr), n = all.length, M = new Float32Array(n * 16), C = new Float32Array(n * 3);
   all.forEach((it, j) => { it.m.toArray(M, j * 16); C[j * 3] = it.c.r; C[j * 3 + 1] = it.c.g; C[j * 3 + 2] = it.c.b; });
@@ -618,7 +697,7 @@ function buildTrees() {
   const tiles = ct.meshes.concat(ft.meshes), tileOf = new Int32Array(n), slotOf = new Int32Array(n);
   for (let j = 0; j < n; j++) { const o = j < cityCr.length; tileOf[j] = o ? ct.tileOf[j] : ft.tileOf[j - cityCr.length] + ct.meshes.length; slotOf[j] = o ? ct.slotOf[j] : ft.slotOf[j - cityCr.length]; }
   const detail = new THREE.InstancedMesh(crownGeo, sphereMat, CROWN_DETAIL_CAP); detail.count = 0; detail.castShadow = detail.receiveShadow = true; detail.frustumCulled = false; detail.setColorAt(0, _lc.setRGB(1, 1, 1)); cityGroup.add(detail);
-  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, trunk: trunkT, trunkM: cityTr.map(it => it.m), where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true };
+  trees3d = { n, cityN: cityCr.length, M, C, tiles, tileOf, slotOf, detail, trunk: trunkT, trunkM: cityTr.map(it => it.m), where: new Uint8Array(n), cx: 1e9, cy: 1e9, rD: -1, rL: -1, dirty: true, fir: firT, firOf };
 }
 // кроны по местам: 2 — листва, 1 — бугристый шар, 0 — упрощённый шар в своём участке
 function updateLeafLOD() {
@@ -647,7 +726,7 @@ function refreshTrees() {
   const T = trees3d; if (!T) return;
   T.dirty = true;
   const col = new THREE.Color("#1b1714"), touched = new Set();
-  trees.forEach((t, i) => { if (t.snap && !t.shownSnap) snapTree(T, t, i); if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
+  trees.forEach((t, i) => { if (t.snap && !t.shownSnap) snapTree(T, t, i); if (t.burnt && !t.shownBurnt) { t.shownBurnt = true; if (T.firOf.has(i)) { const j = T.firOf.get(i), m = T.fir.meshes[T.fir.tileOf[j]]; m.setColorAt(T.fir.slotOf[j], col); touched.add(m); } for (let k = 0; k < 3; k++) { const j = i * 3 + k; if (j >= T.cityN) continue; col.toArray(T.C, j * 3); const m = T.tiles[T.tileOf[j]]; m.setColorAt(T.slotOf[j], col); touched.add(m); } } });
   for (const m of touched) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 function radialTex(stops) { return canvasTex(128, 128, (g) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); for (const [o, c] of stops) gr.addColorStop(o, c); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }); }
@@ -893,8 +972,10 @@ const wallWire = mkInst(barrPlane, new THREE.MeshStandardMaterial({ map: texWire
 const fenceMesh = mkInst(barrPlane, new THREE.MeshStandardMaterial({ map: texChain, transparent: true, alphaTest: .4, side: THREE.DoubleSide, roughness: .6, metalness: .4 }), false);
 const sitePanel = mkInst(barrBox, new THREE.MeshStandardMaterial({ map: texSite, roughness: .55, metalness: .35 }), true);
 const barrAll = [barr, barrJersey, wallPanel, wallStencil, wallPost, wallWire, fenceMesh, sitePanel];
+let barrT = 0;
 function updateBarricades() {
-  if (!barrDirty) return; barrDirty = false;
+  if (!barrDirty) return;
+  const now = performance.now(); if (now - barrT < 250) return; barrT = now; barrDirty = false; // пока зомби ломают забор, флаг горит каждый шаг: перебор всей сетки — не чаще четырёх раз в секунду
   const m = new THREE.Matrix4(), col = new THREE.Color(), q = new THREE.Quaternion(), qx = new THREE.Quaternion(), qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), p = new THREE.Vector3(), s = new THREE.Vector3();
   const n = new Map(barrAll.map(o => [o, 0]));
   const put = (o, x, y, z, sx, sy, sz, rot, k) => { const i = n.get(o); if (i >= barrMax) return; p.set(x, y, z); s.set(sx, sy, sz); m.compose(p, rot ? qz : qx, s); o.setMatrixAt(i, m); o.setColorAt(i, col.setScalar(k)); n.set(o, i + 1); };
@@ -938,5 +1019,5 @@ function updateBarricades() {
       put(jersey ? barrJersey : barr, x + (alongZ ? j * 1.2 : 0), y, z + (alongZ ? 0 : j * 1.2), (alongZ ? th : 1.02) * CS, hgt, (alongZ ? 1.02 : th) * CS, false, k * (jersey ? 1 : .9 + j * .2));
     }
   }
-  for (const o of barrAll) { o.count = n.get(o); o.instanceMatrix.needsUpdate = true; if (o.instanceColor) o.instanceColor.needsUpdate = true; }
+  for (const o of barrAll) { o.count = n.get(o); o.visible = o.count > 0; o.instanceMatrix.needsUpdate = true; if (o.instanceColor) o.instanceColor.needsUpdate = true; }
 }

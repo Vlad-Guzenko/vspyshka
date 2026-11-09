@@ -76,11 +76,11 @@ function prepareWater() {
     const spurs = []; for (let k = 0, n = Math.floor(rnd(1, 3)); k < n; k++) spurs.push({ a: rnd(AL * .15, AL * .85), r: rnd(260, 420), push: rnd(160, 300) });
     massifSpurs = spurs;
     const peaks = [], np = Math.floor(rnd(4, 9));
-    // холмы (colline), а не пики: невысокие, широкие, с мягкими гребнями
-    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(135, 285), r: rnd(420, 800), rw: rnd(280, 440) }); // в полтора раза выше: есть куда ехать фуникулёру
+    // настоящие горы: вершины 100–160 м над городом (1 ед. = 25 см), широкие, с мягкими гребнями; выше снеговой линии только макушки
+    for (let k = 0; k < np; k++) peaks.push({ a: AL * (k + rnd(.2, .8)) / np, d: rnd(BW * .4, BW + 200), h: rnd(400, 640), r: rnd(520, 900), rw: rnd(320, 500) });
     peaks.sort((p, q) => p.a - q.a);
     massifPeaks = peaks;
-    const vk = Math.floor(rnd(0, peaks.length - 1)), valley = { a0: (peaks[vk].a + peaks[vk + 1].a) / 2 + rnd(-120, 120), w: rnd(180, 280), depth: rnd(20, 45) };
+    const vk = Math.floor(rnd(0, peaks.length - 1)), valley = { a0: (peaks[vk].a + peaks[vk + 1].a) / 2 + rnd(-120, 120), w: rnd(180, 280), depth: rnd(60, 120) }; // глубокая долина — настоящий перевал для трассы
     massifValley = valley;
     massif = { side, w: BW, spurs, peaks, valley, terraces: [], lakes: [], lake: null };
     // полки: первая высоко, в настоящих горах, остальные ниже; все на умеренных склонах и не ближе 200 друг к другу
@@ -88,7 +88,7 @@ function prepareWater() {
     const nt = Math.floor(rnd(2, 4));
     for (let tries = 0; tries < 700 && massif.terraces.length < nt; tries++) {
       const a = rnd(AL * .14, AL * .86), d = rnd(520, BW - 180), [x, y] = P(d, a); if (x < 220 || y < 220 || x > W - 220 || y > H - 220) continue;
-      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 60 : 130; if (h < lo || h > 300 || s < .07 || s > .4) continue; // только мягкие склоны
+      const h = raw(x, y), s = slope(x, y), lo = massif.terraces.length ? 70 : 170; if (h < lo || h > 430 || s < .07 || s > .5) continue; // только мягкие склоны, ниже границы леса
       const r = rnd(190, 270); if (massif.terraces.some(q => Math.hypot(q.x - x, q.y - y) < q.r + r + 200)) continue;
       const lake = { x: x + rnd(-r * .18, r * .18), y: y + rnd(-r * .18, r * .18), rx: r * rnd(.24, .32), ry: r * rnd(.2, .27), level: h - 4.5 };
       massif.terraces.push({ x, y, a, d, h: h - 2, r, lake }); massif.lakes.push(lake);
@@ -149,7 +149,11 @@ function massifRaw(x, y) {
   }
   const wx = x + (fbm(x / 800 + 1, y / 800 + 2) - .5) * 240, wy = y + (fbm(x / 800 - 3, y / 800 + 4) - .5) * 240;
   const rg = ridged(wx / 300, wy / 300) * .6 + fbm(wx / 120, wy / 120) * .3 + fbm(x / 40, y / 40) * .1;
-  let h = f * (.86 + rg * .24) + fbm(x / 90, y / 90) * 6 * m + 30 * smooth(0, M.w, d) * m; // складки мягкие: холмы, а не скалы
+  // к краю карты склон поднимается ещё на 150, а за краем растёт дальше (до +1500) — хребет уходит за горизонт, а не обрывается
+  const rgS = ridged(wx / 300, wy / 300) * .7 + fbm(wx / 120, wy / 120) * .3; // без мелкой ряби: на подъёме в сотни метров она давала бы зубцы
+  // за краем карты подъём идёт ещё 1,5 км и сходит на нет: дальше свои хребты с долинами между ними (farH в render1.js), а не сплошное плато
+  const over = Math.max(0, d - M.w), rise = (150 * smooth(0, M.w, d) + Math.min(650, over * .5) * (1 - smooth(1200, 3200, over))) * (.8 + rgS * .4);
+  let h = f * (.86 + rg * .24) + fbm(x / 90, y / 90) * 6 * m + rise * m; // складки мягкие: холмы, а не скалы
   const V = M.valley, dv = Math.abs(a - V.a0 + (fbm(d / 500 + 9, 2.2) - .5) * 160); h -= V.depth * Math.exp(-((dv / V.w) ** 2)) * smooth(150, 600, d) * (h / (h + 80));
   return h * m;
 }
@@ -388,7 +392,7 @@ function smoothTerrain(passes) {
     TH.set(tmp);
   }
 }
-const SNOW_H = 330; // выше — снег: без деревьев и построек
+const SNOW_H = 560, TREE_H = SNOW_H - 90; // выше SNOW_H — снег; выше TREE_H — граница леса: альпийские луга и камень, без деревьев и построек
 function finishTerrain() {
   for (let gy = 1; gy < GH - 1; gy++) for (let gx = 1; gx < GW - 1; gx++) {
     const i = gy * GW + gx; if (grid[i] !== 2 && grid[i] !== 4) continue;
@@ -396,7 +400,7 @@ function finishTerrain() {
     if (Math.hypot(sx, sy) > 1.1 && TH[i] > WATER_Y) grid[i] = 10;
   }
   // на скалах и выше снеговой линии леса нет
-  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && grid[i] !== 9 && TH[i] < SNOW_H - 20 && waterD(t.x, t.y) > 5; });
+  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && grid[i] !== 9 && TH[i] < TREE_H && waterD(t.x, t.y) > 5; });
 }
 function slopeK(x0, y0, x1, y1) {
   const d = Math.hypot(x1 - x0, y1 - y0); if (d < .01) return 1;

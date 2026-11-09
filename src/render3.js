@@ -114,7 +114,8 @@ trGeo.setAttribute("position", new THREE.BufferAttribute(trPos, 3)); trGeo.setAt
 const tracers = new THREE.LineSegments(trGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
 tracers.frustumCulled = false; scene.add(tracers);
 let trList = [];
-const lightPool = Array.from({ length: 6 }, () => { const l = new THREE.PointLight(0xffb060, 0, 120, 2); scene.add(l); return { l, t: 0, k: 0 }; });
+const lightPool = Array.from({ length: 6 }, () => { const l = new THREE.PointLight(0xffb060, 0, 120, 2); l.visible = false; scene.add(l); return { l, t: 0, k: 0 }; });
+let lightPoolT = -1; // до какого simT пул точечных источников виден
 function flashLight(x, y, z, power, life, color = 0xffb060) {
   let best = lightPool[0];
   for (const p of lightPool) if (p.t <= 0) { best = p; break; } else if (p.t < best.t) best = p;
@@ -140,7 +141,9 @@ function stepTracers(dt) {
   });
   trGeo.setDrawRange(0, trList.length * 2);
   trGeo.attributes.position.needsUpdate = trGeo.attributes.color.needsUpdate = true;
-  for (const p of lightPool) { p.t -= dt; p.l.intensity = p.t > 0 ? p.k * 3 * (p.t / p.m) : 0; }
+  let anyLit = false; for (const p of lightPool) { p.t -= dt; p.l.intensity = p.t > 0 ? p.k * 3 * (p.t / p.m) : 0; if (p.l.intensity > 0) anyLit = true; }
+  // пул гаснет целиком через 10 с после последней вспышки: иначе каждый выстрел пересобирал бы шейдеры
+  if (anyLit) lightPoolT = simT + 10; const poolOn = simT < lightPoolT; for (const p of lightPool) p.l.visible = poolOn;
 }
 
 /* ---------- взрывы ---------- */
@@ -419,7 +422,7 @@ function updateLighting(dt, simDt) {
   if (world.weather === "storm" && !winter) { world.nextBolt -= dt; if (world.nextBolt <= 0) { world.nextBolt = Math.random() < .2 ? rnd(.25, .6) : rnd(2, 7); strikeBolt(); } }
   world.boltT = Math.max(0, (world.boltT || 0) - Math.max(0, dt));
   bolt.visible = world.boltT > 0; if (bolt.visible) bolt.material.opacity = Math.min(1, world.boltT * 4) * (.6 + .4 * Math.sin(world.boltT * 90));
-  boltLight.intensity = world.boltT > 0 ? 14 * world.boltT / .45 : 0;
+  boltLight.intensity = world.boltT > 0 ? 14 * world.boltT / .45 : 0; boltLight.visible = world.weather === "storm" && !winter;
   // капли
   rain.visible = world.rain > .02;
   if (rain.visible) {

@@ -191,6 +191,7 @@ function updatePeople(dt) {
   pm.bag.count = bi; pm.skirt.count = ki; pm.cap.count = ci; pm.visor.count = vi; pm.dome.count = di; pm.vest.count = vsi; pm.beard.count = bdi; pm.glasses.count = gli; pm.lhair.count = lhi;
   for (const k of ["bag", "skirt", "cap", "visor", "dome", "vest", "beard", "glasses", "lhair"]) { pm[k].instanceMatrix.needsUpdate = true; if (pm[k].instanceColor) pm[k].instanceColor.needsUpdate = true; }
   pm.gun.count = gi; pm.gun.instanceMatrix.needsUpdate = true;
+  for (const k in pm) pm[k].visible = pm[k].count > 0; // пустые меши не рисуются и не считаются в тенях
 }
 
 /* ---------- пятна: кровь, копоть, обломки ---------- */

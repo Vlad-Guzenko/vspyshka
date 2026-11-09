@@ -88,8 +88,8 @@ function updateTrafficLights(dt) {
   if (!tlLamps || !tlList.length) return; tlT -= dt; if (tlT > 0) return; tlT = .25;
   tlList.forEach((t, j) => {
     const st = t.n.sigBroken || pwLvAt(t.n.x, t.n.y) < .5 ? "off" : lightFor(t.n, t.e); // квартал обесточен — светофор погас
-    // верхняя лампа — красный/жёлтый, нижняя — зелёный
-    tlLamps.setColorAt(j * 2, st === "g" || st === "off" ? TL_COL.off : TL_COL[st]);
+    // верхняя лампа — красный/жёлтый (ночью мигает жёлтым раз в секунду), нижняя — зелёный
+    tlLamps.setColorAt(j * 2, st === "yb" ? (simT % 1 < .5 ? TL_COL.y : TL_COL.off) : st === "g" || st === "off" ? TL_COL.off : TL_COL[st]);
     tlLamps.setColorAt(j * 2 + 1, st === "g" ? TL_COL.g : TL_COL.off);
   });
   if (tlLamps.instanceColor) tlLamps.instanceColor.needsUpdate = true;

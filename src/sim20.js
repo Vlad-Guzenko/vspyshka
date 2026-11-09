@@ -153,8 +153,8 @@ function nearBusStop(l, s) { for (const st of busStops) if (st.l === l && st.s -
 function busUnload(c) {
   const n = c.passengers.length;
   for (const p of c.passengers) { p.hidden = false; p.onBus = null; p.ride = null; const [x, y] = freeNear(c.x, c.y, 14); p.x = x; p.y = y; p.panic = 1; p.vx = p.vy = 0; }
-  c.passengers = []; c.unloaded = true;
-  if (n) logT("bus", `Пассажиры выбегают из автобуса: ${n} чел.`, "bad", 20);
+  c.passengers = []; c.unloaded = true; c.fare = null;
+  if (n) logT("bus", c.model === "taxi" ? "Пассажир выскочил из брошенного такси" : `Пассажиры выбегают из автобуса: ${n} чел.`, "bad", 20);
 }
 
 /* ---------- пассажиры: горожанин идёт на остановку, ждёт автобус и садится; выходит через 2–4 остановки ---------- */

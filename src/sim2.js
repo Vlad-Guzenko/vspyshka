@@ -25,6 +25,9 @@ function newAgent(role, x, y) {
     depotDone: false, ambAssigned: false, tent: null, buildB: null, workT: 0, tool: 0, spray: 0, sprayAt: null, axe: 0, far: 0, onRoofT: 0,
     order: null, post: null, campGoal: null, inCamp: null, forage: null, carry: 0,
     cpWait: 0, cpAt: null, cpChecked: null, detained: null, faction: 0, bcastT: 0, withdraw: false, zapT: 0, sanitAssigned: false, removed: false, cp: null, sweep: false, guardB: null, clearB: null, clearT: 0, clearScanT: 0, squad: 0, guardJob: null, dz: null, dzT: 0, seenT: -99, body: null, collected: 0, depotT: 0, standDown: false, standT: 0, leftCity: false, stopT: 0,
+    errand: null, waitCar: null, hail: null, drove: false, lifeTmp: false, // уличная жизнь: по делам из машины, у заглохшей машины, ловит такси (traffic.js)
+    // поля, которые раньше добавлялись по ходу игры (значение undefined — поведение то же, но форма объекта одна у всех жителей, иначе V8 переводит часть в медленный словарный режим)
+    spotT: undefined, carHitT: undefined, carried: undefined, busGoal: undefined, busWait: undefined, onBus: undefined, regul: undefined, regulDir: undefined, fenceSkip: undefined, fenceGi: undefined, buildT: undefined, fenceBest: undefined, fenceProgT: undefined, fed: undefined,
   };
   if (role === "civ") {
     const r = Math.random();
@@ -59,16 +62,30 @@ const hHead = new Int32Array(HW * HH).fill(-1); let hNext = new Int32Array(4096)
 // отдельная крупная сетка только для живых зомби: людям нужно искать лишь их
 const ZC = 64, ZW = Math.ceil(MAX_W / ZC), ZH = Math.ceil(MAX_H / ZC);
 const zhash = Array.from({ length: ZW * ZH }, () => []);
+const hhash = Array.from({ length: ZW * ZH }, () => []), hTouched = []; // живые не-зомби: кого высматривают зомби
+function nearH(x, y, r, fn) {
+  const x0 = clamp(Math.floor((x - r) / ZC), 0, ZW - 1), x1 = clamp(Math.floor((x + r) / ZC), 0, ZW - 1), y0 = clamp(Math.floor((y - r) / ZC), 0, ZH - 1), y1 = clamp(Math.floor((y + r) / ZC), 0, ZH - 1);
+  for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) { const c = hhash[gy * ZW + gx]; for (let i = c.length - 1; i >= 0; i--) fn(c[i]); }
+}
+const zTouched = []; // занятые ячейки zhash с прошлого шага: чистим только их (всего ячеек 6,8 тыс., занятых — десятки)
 function rebuildHash() {
   hHead.fill(-1);
   if (hNext.length < agents.length) hNext = new Int32Array(agents.length * 2);
-  for (const c of zhash) c.length = 0;
+  for (let k = 0; k < zTouched.length; k++) zhash[zTouched[k]].length = 0;
+  zTouched.length = 0;
+  for (let k = 0; k < hTouched.length; k++) hhash[hTouched[k]].length = 0;
+  hTouched.length = 0;
   for (let i = 0; i < agents.length; i++) {
     const a = agents[i];
     if (a.state === "saved") continue;
     let gx = (a.x / HC) | 0, gy = (a.y / HC) | 0; if (gx < 0) gx = 0; else if (gx >= HW) gx = HW - 1; if (gy < 0) gy = 0; else if (gy >= HH) gy = HH - 1;
     const ci = gy * HW + gx; hNext[i] = hHead[ci]; hHead[ci] = i;
-    if (a.state === "alive" && a.role === "zombie" && !(a.riseT > 0) && !a.hidden) zhash[clamp(Math.floor(a.y / ZC), 0, ZH - 1) * ZW + clamp(Math.floor(a.x / ZC), 0, ZW - 1)].push(a);
+    if (a.state === "alive" && a.role !== "zombie") { const hi = clamp(Math.floor(a.y / ZC), 0, ZH - 1) * ZW + clamp(Math.floor(a.x / ZC), 0, ZW - 1), c = hhash[hi]; if (!c.length) hTouched.push(hi); c.push(a); }
+    if (a.state === "alive" && a.role === "zombie" && !(a.riseT > 0) && !a.hidden) {
+      const zi = clamp(Math.floor(a.y / ZC), 0, ZH - 1) * ZW + clamp(Math.floor(a.x / ZC), 0, ZW - 1), c = zhash[zi];
+      if (!c.length) zTouched.push(zi);
+      c.push(a);
+    }
   }
 }
 function nearZ(x, y, r, fn) {
@@ -218,14 +235,15 @@ function wander(a, dt) {
   }
   return [a.wx, a.wy, 1];
 }
+const ZK_FAST = { walker: 1, runner: 1.15, brute: .7, screamer: 1, crawler: .42, spitter: .9, titan: .55 }, ZK_SLOW = { walker: 1, runner: 2.8, brute: .7, screamer: 1, crawler: .42, spitter: .9, titan: .85 };
 function thinkZombie(a, dt) {
-  const zk = { walker: 1, runner: settings.fast ? 1.15 : 2.8, brute: .7, screamer: 1, crawler: .42, spitter: .9, titan: settings.fast ? .55 : .85 }[a.ztype || "walker"];
+  const zk = (settings.fast ? ZK_FAST : ZK_SLOW)[a.ztype || "walker"];
   const sight = sightR(a), base = (settings.fast ? 20 : 6) * zk * (1 + .06 * strainK());
   a.shriek = Math.max(0, (a.shriek || 0) - dt); a.shriekCd = (a.shriekCd || 0) - dt; a.spitCd = (a.spitCd || 0) - dt;
   if (a.riseT > 0) { a.riseT -= dt; return [0, 0, 0]; }
   if (a.ztype === "titan") titanRage(a, dt);
   let best = null, bd = sight;
-  near(a.x, a.y, sight, b => {
+  nearH(a.x, a.y, sight, b => {
     if (b.state !== "alive" || b.role === "zombie" || b.hidden || b.post) return;
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     if (d < bd && (d < 14 || los(a.x, a.y, b.x, b.y))) { bd = d; best = b; }
@@ -344,6 +362,8 @@ function thinkHuman(a, dt) {
   // слух об опасности: уходим из зоны
   let dz = null; if (a.role === "civ") { a.dzT -= dt; if (a.dzT <= 0) { a.dzT = .5; a.dz = dangers.length ? inDanger(a) : null; } dz = a.dz; }
   if (dz && !a.dest && !a.homeGoal && !a.campGoal && !a.hideGoal && !a.forage && !(a.bcastT > 0) && !(evac && evac.landed)) { const dd = Math.hypot(a.x - dz.x, a.y - dz.y) || 1; return [(a.x - dz.x) / dd, (a.y - dz.y) / dd, 12 * hurt]; }
+  // уличная жизнь: водитель идёт по делам из машины, стоит у заглохшей, пассажир садится в такси (traffic.js)
+  if (a.role === "civ" && (a.errand || a.waitCar || a.hail)) { const r = lifeStep(a, dt); if (r) return r; }
   if (a.armed && a.role === "civ" && a.ammo < a.magMax && depots.length) { const d = nearestDepot(a, 200); if (d) return goTo(a, d.x, d.y, 7); }
   if (a.role === "medic") {
     let tgt = null, td = 1e9;
@@ -388,6 +408,7 @@ function thinkHuman(a, dt) {
   if (a.role === "civ" && a.busWait) { const r = busWaitStep(a, dt, zn); if (r) return r; } // ждёт автобус на остановке (sim20.js)
   if (a.role === "civ" && a.panic < .3) {
     if (!a.dest && a.idleT <= 0 && busLines.length && !settings.curfew && alert < 3 && Math.random() < dt * .003 && busWaitStart(a)) return [0, 0, 0];
+    if (!a.dest && !a.busWait && !a.lifeTmp && a.age !== "kid" && Math.random() < dt * LIFE.taxi && taxiHail(a)) return [0, 0, 0]; // поднял руку такси, которое едет мимо
     if (!a.dest && a.idleT <= 0 && Math.random() < dt * .02) a.dest = civDestination(a);
     if (a.dest) { const d = Math.hypot(a.dest[0] - a.x, a.dest[1] - a.y); if (d < 7) { a.dest = null; a.idleT = rnd(15, 60); } else return goTo(a, a.dest[0], a.dest[1], 5.5 * hurt); }
   }
@@ -431,6 +452,10 @@ function move(a, mx, my, sp, dt) {
     const cx = Math.cos(car.ang), cy = Math.sin(car.ang), al = (a.x - car.x) * cx + (a.y - car.y) * cy, sg = al >= 0 ? 1 : -1;
     a.vx = cx * sg * 5; a.vy = cy * sg * 5; const sx = a.x + a.vx * dt, sy = a.y + a.vy * dt;
     if (!blocked(sx, sy) && !vehicleAt(sx, sy, inCarA)) { a.x = sx; a.y = sy; }
+    else { // упёрся в торец кузова (шаг вдоль — в сам кузов): шагает вбок, от оси машины, и дальше обходит её вдоль борта
+      const lt = -(a.x - car.x) * cy + (a.y - car.y) * cx, sl = lt >= 0 ? 1 : -1; a.vx = -cy * sl * 5; a.vy = cx * sl * 5;
+      const ux = a.x + a.vx * dt, uy = a.y + a.vy * dt; if (!blocked(ux, uy) && !vehicleAt(ux, uy, inCarA)) { a.x = ux; a.y = uy; }
+    }
   }
   a.speed = Math.hypot(a.vx, a.vy);
   a.stuck = sp > 2 && a.speed < 1.5 ? (a.stuck || 0) + dt : 0;
@@ -452,6 +477,7 @@ function stepBody(a, dt) {
 }
 function step(dt) {
   simT += dt;
+  lifeCompact(); // уехавшие на машинах временные люди — до пересчёта сетки (traffic.js)
   rebuildHash();
   noises = noises.filter(n => simT - n.t < 8);
   fieldT -= dt;
@@ -484,6 +510,7 @@ function step(dt) {
       if (a.role === "bandit" && a.lootT > 0) { a.lootT -= dt; if (a.lootT <= 0) { a.hidden = false; a.loot = null; a.bag = pick(["#3a2a1e", "#1e1e22", "#8a6a2a"]); logT("loot", "Мародёры вынесли добычу", "bad", 25); } }
       if (!a.hideB && !a.detained && !a.onBus && !(a.role === "bandit" && a.lootT > 0)) { a.hidden = false; a.onRoof = false; } // никто не остаётся невидимым без укрытия
       if (a.onBus && a.onBus !== funicular && (a.onBus.gone || !cars.includes(a.onBus))) { a.hidden = false; a.onBus = null; } // вагон фуникулёра — не машина
+      if (a.errand && a.errand.stage === "inside" && a.hideB && simT > a.errand.until && !zombiesAt(a.x, a.y, 100)) { leaveShelter(a, false); a.errand.stage = "back"; } // сделал дела — обратно к машине (если снаружи тихо)
       if (a.bitten && a.role !== "zombie") { a.incT -= dt; if (a.incT <= 0) { turn(a); a.riseT = 0; if (a.detained) a.detained.detained--; } }
       if (a.onRoof && a.hideB) { a.x = a.rx; a.y = a.ry; a.dir += dt * .3; }
       a.speed = 0; continue;

@@ -310,6 +310,7 @@ function fateLine(a) {
   if (a.removed) return `${who}: ${causeText(a)}, тело увезла санитарная служба`;
   if (a.state === "saved" && a.leftCity) return `${who}: вернул${a.sex === "f" ? "ась" : "ся"} на базу после отбоя`;
   if (a.state === "saved" && a.withdraw) return `${who}: отозван${a.sex === "f" ? "а" : ""} штабом`;
+  if (a.state === "saved" && a.drove) return `${who}: уехал${a.sex === "f" ? "а" : ""} на машине`;
   if (a.state === "saved" && !a.vapor) return `${who}: эвакуирован${a.sex === "f" ? "а" : ""} вертолётом`;
   if (a.state === "dead" && a.role === "zombie" && !a.reanimate) return `${who}: обратил${a.sex === "f" ? "ась" : "ся"}, упокоен${a.sex === "f" ? "а" : ""} ${a.deathWhere || ""} на ${mmss(a.diedT || 0)}`;
   if (a.role === "zombie") return `${who}: обратил${a.sex === "f" ? "ась" : "ся"} и до сих пор бродит по городу`;

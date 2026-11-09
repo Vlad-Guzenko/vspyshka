@@ -120,7 +120,7 @@ const SUB_KINDS = new Set(["warehouse", "hangar", "garages", "container", "autos
 function pwReady() { if (pwBlocks !== blocks || !pwCell || pwCell.length !== GW * GH) pwBuild(); return blocks.length > 0; }
 function pwBlockAt(x, y) { if (!pwReady()) return -1; const gx = Math.floor(x / CS), gy = Math.floor(y / CS); return pwCell[(gy < 0 ? 0 : gy >= GH ? GH - 1 : gy) * GW + (gx < 0 ? 0 : gx >= GW ? GW - 1 : gx)]; }
 function powerAt(x, y) { const b = pwBlockAt(x, y); return b < 0 || pwOn[b] === 1; }
-function sigOn(n) { return !!n.sig && powerAt(n.x, n.y); } // светофор горит, только если в его квартале есть свет; иначе — старшинство
+function sigOn(n) { return !!n.sig && powerAt(n.x, n.y) && !sigNight(); } // светофор горит, только если в его квартале есть свет и не ночь (жёлтое мигание); иначе — старшинство
 function pwBuild() {
   pwBlocks = blocks; const nb = blocks.length, L = pwLoad; pwLoad = null;
   pwCells();

@@ -318,8 +318,11 @@ function laneSOfT(l, t) { return l.d > 0 ? t : l.e.len - t; }
 // (n.ar), чтобы успели проехать въехавшие на жёлтый. Переключает signalTick по спросу: зелёный не уходит с улицы, к которой подъезжают
 // машины, и не отдаётся пустой поперечной; ждущим поперёк — не дольше SIG.max
 const SIG = { min: 6, max: 18, yel: 2.5, red: 1, look: 110 };
+// ночью, с 23 до 6, светофоры мигают жёлтым: перекрёстки нерегулируемые, едут по старшинству (sigOn в sim12.js, лампы в render7.js)
+function sigNight() { const h = world.hour; return h >= 23 || h < 6; }
 function lightFor(n, e) {
   if (!n.sig) return "g";
+  if (sigNight()) return "yb";
   const ph = n.ph === undefined ? ((simT + (n.off || 0)) % 30 < 15 ? 0 : 2) : n.ph, A = n.grpA.has(e);
   if ((ph === 1 || ph === 3) && n.ar) return "r";
   return ph === 0 ? (A ? "g" : "r") : ph === 1 ? (A ? "y" : "r") : ph === 2 ? (A ? "r" : "g") : (A ? "r" : "y");
