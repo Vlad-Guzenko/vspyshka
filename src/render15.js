@@ -22,6 +22,7 @@ function swapBody(b, obj, box, mesh) { obj.remove(box); box.geometry.dispose(); 
 function landmarkMesh(b, obj, box, w, d) {
   const h = b.h;
   if (b.kind === "church") {
+    if (b.alpine) return alpineChurchMesh(b, obj, box, w, d); // горная: белый неф, колокольня со шпилем
     if (b.shape) return churchShape(b, obj, box, w, d); // кирха или часовня (buildings.js)
     // неф с апсидой, барабан с луковичным куполом, четыре малые главки, шатровая колокольня у входа
     lmAdd(obj, new THREE.CylinderGeometry(w * .32, w * .32, h * .8, 18, 1, false, Math.PI / 2, Math.PI), facadeMats[27], 0, h * .4, -d / 2);

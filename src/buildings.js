@@ -247,6 +247,80 @@ function schoolShape(b, obj, box, w, d) {
   obj.add(fbox(gw, 12, wd - 6, gx, 6, -d / 2 + (wd - 6) / 2, facadeMats[44])); slab22(obj, gw, wd - 6, 12, gx, -d / 2 + (wd - 6) / 2);
 }
 // церкви других типов: кирха — высокий неф под крутой крышей и башня со шпилем; часовня — маленькая, с одной главкой
+/* ---------- альпийское шале и горная церковь (курортные городки на полках, mountain.js) ----------
+   Шале: светлый каменный цоколь в первый этаж, над ним тёмный деревянный верх, пологая двускатная крыша с большими свесами
+   (конёк поперёк улицы, фронтон смотрит на дорогу), под фронтоном и вдоль боков деревянные балконы с балясинами,
+   ставни у окон, кое-где цветочные ящики. Отель — то же, но длиннее, в три этажа, балконы в каждом этаже и вывеска.
+   Церковь — белый неф, тонкая колокольня у входа с острым шпилем (не луковица) */
+const chaletWoodMat = new THREE.MeshStandardMaterial({ color: 0x5e3f26, roughness: .85 }), chaletWoodLight = new THREE.MeshStandardMaterial({ color: 0x8a6440, roughness: .85 });
+const chaletRoofMat = new THREE.MeshStandardMaterial({ color: 0x4a403a, roughness: .9 }), chaletRoofMat2 = new THREE.MeshStandardMaterial({ color: 0x6b4a3a, roughness: .9 });
+const shutterMat = new THREE.MeshStandardMaterial({ color: 0x2e5a3a, roughness: .8 }), shutterMat2 = new THREE.MeshStandardMaterial({ color: 0x7a2a22, roughness: .8 });
+const flowerMat = new THREE.MeshStandardMaterial({ color: 0xc83a4a, roughness: .9 });
+// балкон вдоль стены: настил, перила с балясинами; x, z — середина, вдоль x длина L, выступ out к +z (повёрнутый — к +x)
+function chaletBalcony(obj, x, y, z, L, out, along) {
+  const g = new THREE.Group(); g.position.set(x, y, z); if (along) g.rotation.y = -Math.PI / 2; obj.add(g);
+  lmAdd(g, new THREE.BoxGeometry(L, .35, out), chaletWoodLight, 0, 0, out / 2);
+  lmAdd(g, new THREE.BoxGeometry(L, .25, .25), chaletWoodMat, 0, 2.6, out - .15);
+  for (let u = -L / 2 + .5; u <= L / 2 - .4; u += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, u, 1.3, out - .15);
+  for (const s of [-1, 1]) { lmAdd(g, new THREE.BoxGeometry(.25, .25, out), chaletWoodMat, s * (L / 2 - .12), 2.6, out / 2); for (let v = .6; v < out - .3; v += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, s * (L / 2 - .12), 1.3, v); }
+  if (Math.random() < .6) lmAdd(g, new THREE.BoxGeometry(L - 1, .5, .5), flowerMat, 0, 2.9, out - .15); // цветочный ящик на перилах
+  // кронштейны под настилом
+  for (let u = -L / 2 + 1; u <= L / 2 - .9; u += 3) lmAdd(g, new THREE.BoxGeometry(.3, .3, out - .3), chaletWoodMat, u, -.3, (out - .3) / 2);
+}
+// боковой балкон вдоль стены x = s·w/2: группа повёрнута так, что её +z смотрит наружу
+function chaletSideBalcony(obj, s, w, d, y) {
+  const g = new THREE.Group(); g.position.set(s * (w / 2 + .05), y, 0); g.rotation.y = s > 0 ? -Math.PI / 2 : Math.PI / 2; obj.add(g);
+  const L = d - 2, out = 2.2;
+  lmAdd(g, new THREE.BoxGeometry(L, .35, out), chaletWoodLight, 0, 0, out / 2);
+  lmAdd(g, new THREE.BoxGeometry(L, .25, .25), chaletWoodMat, 0, 2.6, out - .15);
+  for (let u = -L / 2 + .5; u <= L / 2 - .4; u += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, u, 1.3, out - .15);
+  for (const q of [-1, 1]) { lmAdd(g, new THREE.BoxGeometry(.25, .25, out), chaletWoodMat, q * (L / 2 - .12), 2.6, out / 2); for (let v = .6; v < out - .3; v += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, q * (L / 2 - .12), 1.3, v); }
+  for (let u = -L / 2 + 1; u <= L / 2 - .9; u += 3) lmAdd(g, new THREE.BoxGeometry(.3, .3, out - .3), chaletWoodMat, u, -.3, (out - .3) / 2);
+}
+function chaletMesh(b, obj, box, w, d) {
+  const stone = facadeMats[b.style] || facadeMats[11], fh = b.h / b.floors, hotel = !!b.hotel;
+  obj.remove(box); box.geometry.dispose();
+  // цоколь каменный в один этаж, выше — дерево; у отеля каменных этажей нет, но первый всё равно светлый
+  const base = fbox(w, fh, d, 0, fh / 2, 0, stone); obj.add(base); b.mesh = base;
+  const wood = fbox(w + .8, b.h - fh, d + .8, 0, fh + (b.h - fh) / 2, 0, facadeMats[51]); obj.add(wood); // верх нависает над цоколем на 10 см
+  lmAdd(obj, new THREE.BoxGeometry(w + 1.4, .5, d + 1.4), chaletWoodMat, 0, fh + .1, 0); // карниз-обвязка на стыке камня и дерева
+  // широкие свесы: по бокам по 3, над фронтоном 2,5; пологая крыша; конёк вдоль x (фронтон на улицу, которая к +z)
+  const rh = w * .26, roofMat = bId(b) % 3 ? chaletRoofMat : chaletRoofMat2;
+  gableRoof(obj, w, d, b.h, rh, false, roofMat, 3, 0, 0);
+  // стропила под свесом и фронтонная доска
+  for (const s of [-1, 1]) for (let u = -w / 2; u <= w / 2; u += 4) lmAdd(obj, new THREE.BoxGeometry(.3, .4, 3.2), chaletWoodMat, u, b.h + rh * (1 - Math.abs(u) / (w / 2 + 3)) - .3, s * (d / 2 + 1.5));
+  // фронтонный балкон на улицу во всех верхних этажах, боковые — через один
+  for (let f = 1; f < b.floors; f++) {
+    chaletBalcony(obj, 0, f * fh + .3, d / 2 + .45, w - 1, 2.6, false);
+    if (hotel || f === b.floors - 1) for (const s of [-1, 1]) if (hotel || (bId(b) + s + 3) % 2 === 0) chaletSideBalcony(obj, s, w, d, f * fh + .3);
+  }
+  // ставни у окон цоколя на фасаде
+  const sm = bId(b) % 2 ? shutterMat : shutterMat2;
+  for (let u = -w / 2 + 4; u <= w / 2 - 4; u += 8) for (const s of [-1, 1]) lmAdd(obj, new THREE.BoxGeometry(.7, 2.6, .12), sm, u + s * 1.9, fh * .55, d / 2 + .12);
+  if (hotel) { landSign(obj, pick(["HOTEL", "GASTHOF", "PENSION", "ALPENHOF"]), "#f4efe4", "#3b2a1a", Math.min(16, w - 4), fh - 1.6, d / 2 + .4); if (Math.random() < .5) chimney(obj, w, d, b.h + rh * .4); }
+  else if (Math.random() < .6) chimney(obj, w, d, b.h + rh * .4);
+  // дровяник у боковой стены
+  if (!hotel && Math.random() < .5) { const s = bId(b) % 2 ? 1 : -1; lmAdd(obj, new THREE.BoxGeometry(1.4, 2.6, 6), chaletWoodLight, s * (w / 2 + .8), 1.3, -d / 4); }
+  b.h += rh * .6; return true;
+}
+// горная церковь: неф с крутой крышей, у входа колокольня с острым шпилем и часами
+function alpineChurchMesh(b, obj, box, w, d) {
+  const fm = facadeMats[b.style] || facadeMats[27], h = b.h;
+  // неф вытянут от улицы в глубь участка: конёк вдоль d, крутая крыша
+  const rh = w * .6; gableRoof(obj, w, d, h, rh, true, chaletRoofMat, 1, 0, 0);
+  // колокольня у входа, по центру уличной стены, наполовину выступает из нефа; шпиль острый
+  const tw = 8, th = h + 26, tz = d / 2 - 1;
+  obj.add(fbox(tw, th, tw, 0, th / 2, tz, fm));
+  lmAdd(obj, new THREE.BoxGeometry(tw + .8, .6, tw + .8), stoneTrim, 0, th, tz);
+  for (const [ox, oz, ry] of [[0, tw / 2 + .05, 0], [tw / 2 + .05, 0, Math.PI / 2], [-tw / 2 - .05, 0, -Math.PI / 2]]) { const c = lmAdd(obj, new THREE.CircleGeometry(1.8, 20), whiteMat, ox, th - 6, tz + oz); c.rotation.y = ry; }
+  lmAdd(obj, new THREE.BoxGeometry(2.2, 3.4, .4), openMat, 0, th - 12, tz + tw / 2 + .1); // проём звонницы
+  lmAdd(obj, new THREE.ConeGeometry(5.4, 30, 8), chaletRoofMat, 0, th + 15, tz);
+  crossOn(obj, 0, th + 30, tz, .5);
+  lmAdd(obj, new THREE.BoxGeometry(3.6, 6.4, .4), openMat, 0, 3.2, tz + tw / 2 + .1); // вход в основании башни
+  // высокие окна по боковым стенам нефа
+  for (let v = -d / 2 + 5; v <= d / 2 - 8; v += 6) for (const s of [-1, 1]) { const win = lmAdd(obj, new THREE.BoxGeometry(.3, 6, 2.2), darkGlassMat, s * (w / 2 + .1), h * .55, v); }
+  b.h += 26 + 30; return true;
+}
 function churchShape(b, obj, box, w, d) {
   const fm = facadeMats[b.style] || facadeMats[27], h = b.h;
   if (b.shape === "gothic") {

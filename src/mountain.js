@@ -6,7 +6,7 @@
    складки. Когда плечо выросло или впереди край, на самом пологом месте закладывается петля радиусом 12 м с центром выше по
    склону и малым уклоном, полотно в петле шире. Дорога врезается полкой (benchRoads в terrain.js): выемка сверху, насыпь снизу.
    Единицы мира: 1 ед. = 25 см, поэтому все длины вчетверо больше метров */
-const MR = { grade: .08, step: 8, rHp: 48, hpGrade: .03, legMin: 120, legMax: [260, 480], look: 96, cliff: 1.6, maxHp: 8, hw: 14 };
+const MR = { grade: .10, step: 8, rHp: 48, hpGrade: .03, legMin: 120, legMax: [260, 480], look: 96, cliff: 1.6, maxHp: 8, hw: 14, cutMax: 24 }; // cutMax — допустимая выемка под полотном (6 м)
 // градиент по сглаженному рельефу: мелкие бугры дорога не замечает, их срежет полка
 function mrGrad(x, y) { const e = 20; return [(landH(x + e, y) - landH(x - e, y)) / (2 * e), (landH(x, y + e) - landH(x, y - e)) / (2 * e)]; }
 // расстояние наружу от края карты по стороне: 0 — верх, 1 — низ, 2 — левый, 3 — правый
@@ -113,9 +113,10 @@ function mrPass(side, along0) {
   return best;
 }
 // трассы, уходящие к краю карты на горной стороне, обрезаются у подножия и заменяются серпантином до перевала
+let mrTraceN = 0; // сколько раз на город звали трассировщик по местному уклону
 function buildMountainRoads() {
-  mountainRoads = [];
-  if (massif) return buildMassifRoads();
+  mountainRoads = []; mrTraceN = 0;
+  if (massif) { buildMassifRoads(); trimMountainStubs(); return; }
   if (!ridgeSides.length) return;
   for (const side of ridgeSides) {
     const exits = RN.filter(n => n.ed.length === 1 && !n.dead && Math.abs(sideDs(side, n.x, n.y)) < 3);
@@ -179,11 +180,49 @@ function mrFoot(n, side) {
   for (const c of chain) if (!c.from.ed.length) { c.from.dead = true; } if (!from.ed.length) from.dead = true; n.dead = true; n.ed = [];
   return foot;
 }
+// плечи прижимаются к рельефу: на прямом плече каждая точка сдвигается поперёк туда, где земля ближе к ровному подъёму
+// от начала плеча к его концу — дорога огибает отроги и лощины вместо траншеи сквозь одно и насыпи через другое
+function mrHug(pts, wid) {
+  let i = 0;
+  while (i < pts.length) {
+    if (wid[i]) { i++; continue; }
+    let j = i; while (j < pts.length && !wid[j]) j++; // [i, j) — прямое плечо между петлями
+    const n = j - i;
+    if (n >= 6) {
+      const A = pts[i], B = pts[j - 1], hA = landH(A[0], A[1]), hB = landH(B[0], B[1]), dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      const mv = pts.slice(i, j);
+      for (let k = 1; k < n - 1; k++) {
+        const p = pts[i + k], ht = hA + (hB - hA) * k / (n - 1); let bo = 0, bc = Math.abs(landH(p[0], p[1]) - ht);
+        for (let o = -24; o <= 24; o += 4) { if (!o) continue; const c = Math.abs(landH(p[0] + nx * o, p[1] + ny * o) - ht) + Math.abs(o) * .12; if (c < bc) { bc = c; bo = o; } }
+        mv[k] = [p[0] + nx * bo, p[1] + ny * bo];
+      }
+      for (let pass = 0; pass < 3; pass++) for (let k = 1; k < n - 1; k++) mv[k] = [(mv[k - 1][0] + mv[k][0] * 2 + mv[k + 1][0]) / 4, (mv[k - 1][1] + mv[k][1] * 2 + mv[k + 1][1]) / 4];
+      for (let k = 0; k < n; k++) pts[i + k] = mv[k];
+    }
+    i = j;
+  }
+}
+// тупик, упирающийся в склон: трасса, обрезанная у подножия, к которой не проложился подъём, или повисший хвост горной
+// дороги — убирается до ближайшего перекрёстка или до городской улицы. Дорогу в стену никто не строит
+function trimMountainStubs() {
+  if (!massif) return;
+  const atBorder = n => n.x < 3 || n.y < 3 || n.x > W - 3 || n.y > H - 3;
+  for (let pass = 0; pass < 60; pass++) {
+    let any = false;
+    for (const n of RN) {
+      if (n.dead || n.ed.length !== 1 || n.exit || atBorder(n)) continue;
+      const e = n.ed[0]; if (e.dead || !(e.mountain || (e.rural && e.hw >= 12)) || !inMassifArea(n.x, n.y, 160)) continue;
+      const pm = edgePos(e, e.len / 2); if (cityK(pm.x, pm.y) > .5) continue; // до города дошли — дальше не трогаем
+      const o = e.a === n ? e.b : e.a; reKill(e); n.dead = true; n.ed = []; if (!o.ed.length) { o.dead = true; } any = true;
+    }
+    if (!any) break;
+  }
+}
 // Зигзаг по склону массива, как его чертят дорожники: средний уклон g между концами задаёт угол плеч к горизонталям
 // (sin θ = уклон/g), между плечами петли с центром выше по склону, число плеч подбирается так, чтобы дорога пришла в цель
 // по оси склона. Стиль случайный: тесные петли и короткие плечи, обычные или широкие; плечи разной длины и с изгибом,
 // последнее плечо идёт прямо в цель. Если живая трасса сблизилась сама с собой — строится ровная
-function mrZigzag(sx, sy, ex, ey, side) {
+function mrZigzag(sx, sy, ex, ey, side, depth = 0) {
   const d0 = massifDs(sx, sy), d1 = massifDs(ex, ey), a0 = sideAlong(side, sx, sy), a1 = sideAlong(side, ex, ey), D = d1 - d0, A = a1 - a0;
   if (D < 40) return null;
   const h0 = landH(sx, sy), h1 = landH(ex, ey), g = (h1 - h0) / D; if (g <= MR.grade * 1.05) return null;
@@ -196,11 +235,17 @@ function mrZigzag(sx, sy, ex, ey, side) {
     if (u < 110 || u > style.legMax || v < 110 || v > style.legMax) continue;
     const legs = []; for (let k = 0; k < n; k++) legs.push(k % 2 ? v : u); if (!best || Math.abs(u - v) < best.spread) best = { n, s0, legs, spread: Math.abs(u - v) };
   }
-  if (!best) { // цель далеко вдоль склона: подходной участок вдоль подножия, потом зигзаг
-    if (Math.abs(A) < 400) return null;
-    const run = Math.abs(A) - 320, sg = Math.sign(A), p1 = pt(a0 + sg * run, d0 + 30), rest = mrZigzag(p1[0], p1[1], ex, ey, side); if (!rest) return null;
-    const pts = [], wid = []; for (let t = 0; t < run; t += 8) { pts.push(pt(a0 + sg * t, d0 + 30 * t / run)); wid.push(0); }
-    return { pts: pts.concat(rest.pts), wid: wid.concat(rest.wid), hairpins: rest.hairpins };
+  if (!best) { // плечи не умещаются (цель далеко вдоль склона — или слишком близко и высоко: полка прямо над подножием):
+    // подходной участок вдоль подножия, потом зигзаг. Иначе дорога лезла бы прямо на обрыв, в десятиметровой выемке
+    if (depth >= 3) return null;
+    const far = Math.abs(A) >= 400, sg0 = far ? Math.sign(A) : Math.random() < .5 ? 1 : -1, runs = far ? [Math.abs(A) - 320] : [320, 480, 640];
+    for (const run of runs) for (const sg of [sg0, -sg0]) {
+      const p1 = pt(a0 + sg * run, d0 + 30); if (p1[0] < 40 || p1[1] < 40 || p1[0] > W - 40 || p1[1] > H - 40 || waterD(p1[0], p1[1]) < 30) continue;
+      const rest = mrZigzag(p1[0], p1[1], ex, ey, side, depth + 1); if (!rest) continue;
+      const pts = [], wid = []; for (let t = 0; t < run; t += 8) { pts.push(pt(a0 + sg * t, d0 + 30 * t / run)); wid.push(0); }
+      return { pts: pts.concat(rest.pts), wid: wid.concat(rest.wid), hairpins: rest.hairpins };
+    }
+    return null;
   }
   const gen = jitter => {
     const pts = [], wid = []; let a = a0, d = d0, hairpins = 0; pts.push(pt(a, d)); wid.push(0);
@@ -215,6 +260,7 @@ function mrZigzag(sx, sy, ex, ey, side) {
     }
     const L = Math.hypot(a1 - a, d1 - d); if (L < 30) return null; for (let t = 8; t < L; t += 8) { pts.push(pt(a + (a1 - a) * t / L, d + (d1 - d) * t / L)); wid.push(0); }
     pts.push(pt(a1, d1)); wid.push(0);
+    mrHug(pts, wid);
     return { pts, wid, hairpins };
   };
   const close = P => { for (let i = 0; i < P.length; i++) for (let j = 0; j < i - 30; j++) if (Math.abs(P[i][0] - P[j][0]) < 64 && Math.abs(P[i][1] - P[j][1]) < 64 && Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1]) < 64) return true; return false; };
@@ -234,10 +280,28 @@ function mrContour(sx, sy, ex, ey, side) {
   return { pts, wid: pts.map(() => 0), hairpins: 0 };
 }
 // горная дорога между двумя точками: зигзаг, где нужно набирать высоту, иначе по горизонталям; через воду — старый трассировщик
+// глубина выемки, которую потребует трасса: профиль полотна считается так же, как его потом срежет benchRoads (сглаживание
+// и норма уклона), и сравнивается с землёй по оси. Зигзаг чертится по среднему уклону склона, и там, где склон местами
+// вдвое круче среднего, полотно уходило на десять метров под землю — дорога в стену. Такую трассу заменяет трассировщик
+// по местному уклону (mrTrace), если у него выемка мельче
+function mrDeficit(pts) {
+  const S = [];
+  for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / 4)); for (let k = i === 1 ? 0 : 1; k <= n; k++) { const h = landH(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n); S.push({ raw: h, h }); } }
+  for (let pass = 0; pass < 3; pass++) { const c = S.map(s => s.h); for (let i = 0; i < S.length; i++) { let a = 0, n = 0; for (let k = -5; k <= 5; k++) { const j = i + k; if (j >= 0 && j < S.length) { a += c[j]; n++; } } S[i].h = a / n; } }
+  const dh = MR.grade * 4, n = S.length - 1;
+  for (let i = 1; i <= n; i++) if (S[i].h > S[i - 1].h + dh) S[i].h = S[i - 1].h + dh;
+  for (let i = n - 1; i >= 0; i--) if (S[i].h > S[i + 1].h + dh) S[i].h = S[i + 1].h + dh;
+  let d = 0; for (const s of S) d = Math.max(d, s.raw - s.h); return d;
+}
 function mrRoute(sx, sy, ex, ey, side) {
-  let R = mrZigzag(sx, sy, ex, ey, side) || mrContour(sx, sy, ex, ey, side);
-  if (R.pts.slice(1, -1).some(p => waterD(p[0], p[1]) < 20 || p[0] < 0 || p[1] < 0 || p[0] > W || p[1] > H)) R = mrTrace(sx, sy, ex, ey, side);
-  if (!R || R.pts.length < 6) return null;
+  const wet = Q => Q.pts.slice(1, -1).some(p => waterD(p[0], p[1]) < 20 || p[0] < 0 || p[1] < 0 || p[0] > W || p[1] > H);
+  // зигзаг случаен (стиль, разброс плеч): несколько дешёвых попыток, берётся та, где выемка мельче; трассировщик по местному
+  // уклону в разы дороже (сетка проходимости на каждый вызов) — к нему лишь когда зигзаг не вышел, и не чаще трёх раз на город
+  let R = null, cut = Infinity;
+  for (let k = 0; k < 4; k++) { const Z = mrZigzag(sx, sy, ex, ey, side) || (k ? null : mrContour(sx, sy, ex, ey, side)); if (!Z || Z.pts.length < 6 || wet(Z)) continue; const c = mrDeficit(Z.pts); if (c < cut) { cut = c; R = Z; } if (cut <= MR.cutMax) break; }
+  if ((!R || cut > MR.cutMax) && (mrTraceN < 3 || !R)) { mrTraceN++; const T = mrTrace(sx, sy, ex, ey, side); if (T && T.pts.length >= 6 && !wet(T)) { const c = mrDeficit(T.pts); if (c < cut) { R = T; cut = c; R.traced = true; } } }
+  if (!R) return null;
+  if (cut > MR.cutMax * 2.5) return null; // выемка в пятнадцать метров: такой дороги не будет, пусть ищут другой подход
   const last = R.pts[R.pts.length - 1]; if (Math.hypot(last[0] - ex, last[1] - ey) > 6) R.pts.push([ex, ey]);
   return R;
 }
@@ -246,7 +310,7 @@ function mrSelfCross(pts) { for (let i = 2; i < pts.length; i++) for (let j = 1;
 function mrRoad(sx, sy, ex, ey, side, hw, R = mrRoute(sx, sy, ex, ey, side)) {
   if (!R) return null;
   const made = addRoad(R.pts, hw, "st", { extra: { rural: true, mountain: true, sw: 3 } });
-  if (made) { for (const f of made.edges) f.mountain = true; mountainRoads.push({ side, hairpins: R.hairpins, pts: R.pts }); }
+  if (made) { for (const f of made.edges) f.mountain = true; mountainRoads.push({ side, hairpins: R.hairpins, pts: R.pts, traced: !!R.traced }); }
   return made;
 }
 // кольцевая улица городка по полке (двумя дугами, чтобы у кольца были узлы) и проулок к ферме на больших полках
@@ -347,20 +411,63 @@ function buildMountainVillage() {
     const innerSlots = slots.filter(q => q.inner).sort((a, b) => a.lakeD - b.lakeD);
     for (const q of innerSlots) {
       let b = null;
-      if (hotels < 2 && q.lakeD < 3.2) { b = placeAlong(q.e, q.s, q.sd, rnd(26, 34), 12, 18, rnd(5, 8), { kind: "manor", floors: 3, style: 35, ridge: "x", village: true, hotel: true }); if (b) { hotels++; q.used = true; continue; } }
+      if (hotels < 2 && q.lakeD < 3.2) { b = placeAlong(q.e, q.s, q.sd, rnd(30, 38), 14, 20, rnd(5, 8), { kind: "manor", floors: Math.random() < .5 ? 3 : 4, style: pick([11, 12, 13]), ridge: "x", village: true, hotel: true, chalet: true }); if (b) { hotels++; q.used = true; continue; } } // отель: длиннее и выше шале
       if (cafes < 1 && q.lakeD < 3.6) { b = placeAlong(q.e, q.s, q.sd, 18, 10, 13, rnd(5, 8), { kind: "cafe", floors: 1, style: 12, village: true }); if (b) { cafes++; q.used = true; continue; } }
     }
     const high = innerSlots.filter(q => !q.used).sort((a, b) => b.h - a.h);
-    for (const q of high) { if (church) break; const b = placeAlong(q.e, q.s, q.sd, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 31, ridge: "x", village: true }); if (b) { church = true; q.used = true; } }
+    for (const q of high) { if (church) break; const b = placeAlong(q.e, q.s, q.sd, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 27, ridge: "x", village: true, alpine: true }); if (b) { church = true; q.used = true; } }
     // шале: внешняя сторона кольца целиком и свободные места внутренней
     for (const q of slots) {
       if (q.used || Math.random() < .15) continue; const w = rnd(15, 21);
-      const b = placeAlong(q.e, q.s, q.sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
+      const b = placeAlong(q.e, q.s, q.sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .35 ? 3 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
       if (b) { houses++; suburbLot(q.e, q.s - 10, q.sd, w + 20, b); }
     }
   }
 }
 
+// хутора по склонам: вдоль серпантинов, между подножием и границей леса, на пологих местах — по два-четыре шале
+// на своей маленькой террасе (двор выравнивается, как у ферм), с забором, сенным сараем, стожками и коровами на лугу.
+// Так дома стоят россыпью по горе, а не только кольцом у озера
+function buildMountainHamlets() {
+  if (!massif) return;
+  // серпантины и просёлки у подножия (узкие загородные дороги в горной стране)
+  const ME = RE.filter(e => !e.dead && e.len > 160 && (e.mountain || (e.rural && e.hw <= 10 && inMassifArea(edgePos(e, e.len / 2).x, edgePos(e, e.len / 2).y, 200)))), made = [];
+  for (const e of ME) {
+    for (let s = 60; s < e.len - 60; s += rnd(60, 100)) {
+      if (Math.random() > .6 || made.length >= 12) continue;
+      const p = edgePos(e, s), side = Math.random() < .5 ? 1 : -1, nx = -p.ty * side, ny = p.tx * side;
+      const yx = p.x + nx * (e.hw + 40), yy = p.y + ny * (e.hw + 40), h = landH(yx, yy);
+      if (yx < 60 || yy < 60 || yx > W - 60 || yy > H - 60 || h < 24 || h > TREE_H - 20) continue; // ниже границы леса, выше подножия
+      if (Math.hypot(...mrGrad(yx, yy)) > .45 || waterD(yx, yy) < 40 || onTerrace(yx, yy, 40)) continue; // не на обрыве (двор выравнивается террасой), не на полке
+      if (made.some(q => Math.hypot(q[0] - yx, q[1] - yy) < 200)) continue;
+      { const pi = patchOf[Math.floor(yy / CS) * GW + Math.floor(yx / CS)]; if (pi >= 0 && patches[pi] && patches[pi].kind === "field") continue; } // не на пашне
+      if (buildings.some(q => q.farm && Math.hypot((q.x0 + q.x1) / 2 - yx, (q.y0 + q.y1) / 2 - yy) < 170)) continue; // не на чужой ферме
+      if (massif.summit && Math.hypot(massif.summit.x - yx, massif.summit.y - yy) < 220) continue;
+      const ang = Math.atan2(p.ty, p.tx), cells = rotCells(yx, yy, 84, 56, ang);
+      if (!cells.length || cells.some(i => roadMask[i] || usedMask[i] || grid[i] === 3 || grid[i] === 9 || grid[i] === 5)) continue; // скалы (10) — можно: двор выровняют
+      // поляна под хутор: лес вырубается с запасом вокруг двора — луг, на котором пасутся коровы
+      // (занятость самого двора ставится после домов — иначе footFree им откажет)
+      const glade = rotCells(yx, yy, 150, 120, ang); for (const i of glade) if (grid[i] === 4) grid[i] = 2;
+      const inside = new Set(glade); trees = trees.filter(t => !inside.has(Math.floor(t.y / CS) * GW + Math.floor(t.x / CS)));
+      const b = blockAt(yx, yy), rid = b ? b.id : undefined;
+      // шале фасадом к серпантину, через 22–26 ед. вдоль дороги; второе — иногда в глубине
+      const n = 2 + Math.floor(Math.random() * 3); let got = 0;
+      for (let k = 0; k < n; k++) {
+        const t = s - 36 + k * rnd(22, 28); if (t < 14 || t > e.len - 30) continue;
+        const hb = placeAlong(e, t, side, rnd(14, 18), 12, 15, rnd(8, 14), { kind: "house", floors: 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true, hamlet: true }, rid);
+        if (hb) { got++; suburbLot(e, t - 6, side, 26, hb); }
+      }
+      if (!got) continue;
+      made.push([yx, yy]);
+      for (const i of cells) usedMask[i] = 1; terraces.push({ cells: rotCells(p.x + nx * (e.hw + 26), p.y + ny * (e.hw + 26), 96, 44, ang).concat(cells), at: [p.x, p.y] }); // двор и полоса домов у дороги ровняются террасой
+      // сенной сарай в глубине двора, стожки и пара коров на лугу за ним
+      const at = (u, v) => [p.x + Math.cos(ang) * u + nx * (e.hw + v), p.y + Math.sin(ang) * u + ny * (e.hw + v)];
+      const bn = addRotBuilding(...at(rnd(-10, 10), 56), 16, 10, ang, { kind: "barn", floors: 1, style: 26, ridge: "x", hamlet: true }); bn.doorPref = at(0, 48);
+      for (let k = 0; k < 3; k++) { const [hx, hy] = at(-24 + k * 8, 58 + (k % 2) * 5); if (cellAt(hx, hy) === 2) props.push({ k: "hay", x: hx, y: hy, a: ang + rnd(-.3, .3) }); }
+      for (let k = 0, m = 2 + Math.floor(Math.random() * 3); k < m; k++) { const [cx, cy] = at(rnd(14, 34), rnd(50, 64)); if (cellAt(cx, cy) === 2) props.push({ k: "cow", x: cx, y: cy, a: rnd(0, TAU), v: Math.floor(Math.random() * 3) }); }
+    }
+  }
+}
 // ---------- канатная дорога: трос над склоном на опорах, кабинки по кругу, посадка на станциях ----------
 // Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
 // в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.

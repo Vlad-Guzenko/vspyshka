@@ -609,7 +609,7 @@ function genCityBody(layout) {
     rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;
   }
-  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); finishTerrain(); planCableCar();
+  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); carveCreek(); finishTerrain(); planCableCar();
   lamps = lamps.filter(l => cellAt(l.x, l.y) === 1);
   buildBusLines();
 }
@@ -1933,7 +1933,7 @@ function fillCity() {
   buildFrontage();
   placeLandmarks(false);
   if (oldTown) { addRotBuilding(oldTown.x, oldTown.y - 6, 44, 70, rnd(-.3, .3), { kind: "cathedral", floors: 4, style: 21 }); const fx = oldTown.x, fy = oldTown.y + 52; fountains.push({ x: fx, y: fy, r: 9 }); fillDisc(fx, fy, 7, 7, 3); }
-  furnishLakes(); fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts(); buildMountainVillage();
+  furnishLakes(); fillInteriors(); streetFurniture(); placeProps(); buildRural(); buildOutskirts(); buildMountainVillage(); buildMountainHamlets();
 }
 // достопримечательности: храм, вокзал, школа, заправки, водонапорная башня — у улиц со своим участком;
 // телебашня, стадион, колесо обозрения и стела с вечным огнём — внутри кварталов; каждой по одной, если нашлось место
@@ -3425,7 +3425,7 @@ const WORLD_WATER = false;
 let relief = "mountains"; // "plain" — равнина, "mountains" — хребет с предгорьями за городом с одной-двух сторон, серпантин к перевалу
 function worldFlat() { return !river && !shore && !lakes.length && !ridgeSides.length; }
 function prepareWater() {
-  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = [];
+  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = []; creek = null; creekMask = null;
   const mountains = relief === "mountains" && L.ridges !== 0;
   // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Граница предгорий гуляет, отроги выходят
   // в равнину; пики соединены гребнями, между двумя — долина к седловине; на умеренных склонах случайные полки с озёрами
@@ -3627,13 +3627,82 @@ function hillBlock(b) {
 // серпантины врезаны полкой: полотно ровное поперёк, продольный уклон не круче MR.grade,
 // выше дороги — откос выемки 1:0.6, ниже — откос насыпи 1:1.5. Все горные рёбра считаются вместе:
 // общие узлы получают одну высоту, полотно пишет ближайшая ось, выемка/насыпь не трогают чужое полотно
+let creek = null, creekMask = null, creekWhy = ""; // ручей с гор: ломаная [x, y] от истока к устью; маска клеток русла (деревья там не растут)
+/* ---------- ручей ----------
+   Исток — у снеговой линии (не на полке и не на вершине-смотровой). Русло ищется по сетке высот поиском кратчайшего пути:
+   вниз дёшево (чем круче, тем дешевле), вверх дорого, по дворам, домам, полкам и городу нельзя, полотно дороги пересекается
+   за тройную цену (труба под насыпью). Устье — озеро в долине, а без него подножие массива. Русло врезается в рельеф на 3 ед.
+   с пологими берегами; на крутых участках — пороги и водопады (в рендере пена) */
+function carveCreek() {
+  creek = null; creekMask = null; if (!massif || !hasHills) return;
+  const T0 = Date.now(), tm = [];
+  const M = massif, cellOf = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const onShelf = (x, y, pad) => M.terraces.some(t => Math.hypot(x - t.x, y - t.y) < t.r + pad) || (M.summit && Math.hypot(x - M.summit.x, y - M.summit.y) < M.summit.r + pad);
+  const L = M.lake, inLake = (x, y) => !!L && Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry) < .8;
+  // устье: озеро в долине, а без него — луг у подножия. Проходимость: город, дворы, полки, вода (кроме устья) закрыты;
+  // полотно дорог — втрое дороже
+  const ok = new Uint8Array(GW * GH), tgt = []; const dist = new Float64Array(GW * GH).fill(Infinity), prev = new Int32Array(GW * GH).fill(-1); // Float64: с float32 округлённая цена сравнивалась с точной и клетки релаксировались без конца
+  // только полоса массива с подножием (mountainH на каждую клетку слишком дорог: подножие — низкая земля у массива)
+  const gx0 = M.side === 3 ? Math.max(1, Math.floor((W - M.w - 260) / CS)) : 1, gx1 = M.side === 3 ? GW - 1 : Math.min(GW - 1, Math.ceil((M.w + 260) / CS));
+  for (let gy = 1; gy < GH - 1; gy++) for (let gx = gx0; gx < gx1; gx++) { const i = gy * GW + gx, x = gx * CS + 4, y = gy * CS + 4;
+    if (usedMask[i] || grid[i] === 3 || grid[i] === 5 || onShelf(x, y, 20)) continue;
+    const low = TH[i] < 40, ck = low ? cityK(x, y) : 0; if (ck > .5) continue;
+    const t = L ? inLake(x, y) : (TH[i] < 14 && ck < .35 && grid[i] === 2 && !(patchOf[i] >= 0 && patches[patchOf[i]] && patches[patchOf[i]].kind === "field")); // не на пашню
+    if (grid[i] === 9 && !t) continue;
+    ok[i] = 1; if (t) { tgt.push(i); dist[i] = 0; } }
+  tm.push('маска ' + (Date.now() - T0)); creekWhy = "устья нет"; if (!tgt.length) return;
+  // Дейкстра от устья вверх по восьми соседям (цена шага — как для воды сверху вниз): каждой клетке — её лучшее русло к устью
+  const heap = tgt.map(i => [0, i]);
+  const push = it => { heap.push(it); let k = heap.length - 1; while (k) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  const D2 = CS * Math.SQRT2, NB = [[1, 0, CS], [-1, 0, CS], [0, 1, CS], [0, -1, CS], [1, 1, D2], [1, -1, D2], [-1, 1, D2], [-1, -1, D2]];
+  while (heap.length) {
+    const [d, j] = pop(); if (d > dist[j]) continue;
+    const gx = j % GW, gy = (j / GW) | 0;
+    for (const [dx, dy, len] of NB) { const x = gx + dx, y = gy + dy; if (x < gx0 || y < 1 || x >= gx1 || y >= GH - 1) continue; const i = y * GW + x; if (!ok[i]) continue;
+      const dh = TH[j] - TH[i], c = dh > 0 ? len * (1 + dh * 6) : len * (.35 + .65 * Math.exp(dh / len * 3)), nd = d + c * (roadMask[i] || (benchMask && benchMask[i]) ? 3 : 1);
+      if (nd < dist[i]) { dist[i] = nd; prev[i] = j; push([nd, i]); } }
+  }
+  tm.push('дейкстра ' + (Date.now() - T0));
+  // исток: клетка у снеговой линии (не на полке, не на вершине), от которой русло до устья самое длинное
+  let src = -1, bs = -1e9;
+  for (let gy = 40; gy < GH - 40; gy += 2) for (let gx = 40; gx < GW - 40; gx += 2) { const i = gy * GW + gx, h = TH[i]; if (h < SNOW_H - 120 || h > SNOW_H + 60 || dist[i] === Infinity || !ok[i]) continue; const x = gx * CS + 4, y = gy * CS + 4; if (onShelf(x, y, 60)) continue;
+    let n = 0; for (let k = i; k >= 0 && n < 4000; k = prev[k]) n++;
+    const sc = n + (fbm(x / 70, y / 70) - .5) * 30; if (sc > bs) { bs = sc; src = i; } }
+  tm.push('исток ' + (Date.now() - T0)); creekWhy = "истока нет"; if (src < 0) return;
+  const cells = []; for (let i = src; i >= 0 && cells.length < 4000; i = prev[i]) cells.push(i);
+  creekWhy = "коротко"; if (cells.length < 12) return; creekWhy = "";
+  // ломаная по центрам клеток, сглаженная и пересэмплированная через 6 ед.
+  let P = cells.map(i => [(i % GW) * CS + 4, ((i / GW) | 0) * CS + 4]);
+  for (let pass = 0; pass < 3; pass++) for (let k = 1; k < P.length - 1; k++) P[k] = [(P[k - 1][0] + P[k][0] * 2 + P[k + 1][0]) / 4, (P[k - 1][1] + P[k][1] * 2 + P[k + 1][1]) / 4];
+  const Q = [P[0]]; for (let k = 1; k < P.length; k++) { const a = Q[Q.length - 1]; if (Math.hypot(P[k][0] - a[0], P[k][1] - a[1]) >= 6) Q.push(P[k]); } P = Q;
+  // русло: дно не поднимается вниз по течению; полотно дорог не трогаем (труба под дорогой)
+  let bed = TH[cellOf(P[0][0], P[0][1])];
+  const floor = new Float32Array(P.length);
+  for (let k = 0; k < P.length; k++) { bed = Math.min(bed, TH[cellOf(P[k][0], P[k][1])]); floor[k] = bed; }
+  for (let k = 0; k < P.length; k++) {
+    const [px, py] = P[k], b = floor[k] - 3;
+    for (let oy = -16; oy <= 16; oy += CS) for (let ox = -16; ox <= 16; ox += CS) { const i = cellOf(px + ox, py + oy), cx = (i % GW) * CS + 4, cy = ((i / GW) | 0) * CS + 4, d = Math.hypot(cx - px, cy - py); if (d > 14) continue;
+      if (roadMask[i] || (benchMask && benchMask[i]) || grid[i] === 9 || TH[i] <= WATER_Y) continue;
+      const want = b + 3 * smooth(0, 14, d); if (TH[i] > want) TH[i] = want; if (grid[i] === 4 && d < 9) grid[i] = 2; }
+  }
+  tm.push('русло ' + (Date.now() - T0)); creekWhy = tm.join(' | ');
+  creek = { pts: P.map(p => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]), mouth: L ? "lake" : "foot" };
+  rebuildCreekMask();
+}
+// маска русла по ломаной: деревья и трава там не растут; при загрузке партии строится заново из creek.pts
+function rebuildCreekMask() {
+  creekMask = null; if (!creek) return; creekMask = new Uint8Array(GW * GH);
+  for (const [px, py] of creek.pts) for (let oy = -8; oy <= 8; oy += CS) for (let ox = -8; ox <= 8; ox += CS) { const gx = Math.floor((px + ox) / CS), gy = Math.floor((py + oy) / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; if (Math.hypot(gx * CS + 4 - px, gy * CS + 4 - py) < 9) creekMask[gy * GW + gx] = 1; }
+}
 let benchMask = null; // ячейки полотна серпантинов: сглаживание их не трогает
 let terraces = []; // дворы ферм на склонах: площадка выравнивается, вокруг откос
 function levelTerraces() {
   if (!hasHills) return;
   for (const T of terraces) {
     let s = 0, n = 0; for (const i of T.cells) if (TH[i] > WATER_Y && grid[i] !== 9) { s += TH[i]; n++; } if (!n) continue;
-    const h0 = s / n, inside = new Set(T.cells);
+    // двор у дороги (хутор) ровняется в уровень дорожного полотна, иначе дома висели бы над врезкой серпантина
+    const h0 = T.at ? TH[clamp(Math.floor(T.at[1] / CS), 0, GH - 1) * GW + clamp(Math.floor(T.at[0] / CS), 0, GW - 1)] : s / n, inside = new Set(T.cells);
     for (const i of T.cells) if (TH[i] > WATER_Y) TH[i] = h0;
     for (const i of T.cells) { const gx = i % GW, gy = (i / GW) | 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = gx + dx, y = gy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (inside.has(j) || TH[j] <= WATER_Y || grid[j] === 9 || (benchMask && benchMask[j])) continue; const lim = Math.hypot(dx, dy) * CS * .66; TH[j] = clamp(TH[j], h0 - lim, h0 + lim); } }
   }
@@ -3760,7 +3829,7 @@ function finishTerrain() {
     if (Math.hypot(sx, sy) > 1.1 && TH[i] > WATER_Y) grid[i] = 10;
   }
   // на скалах и выше снеговой линии леса нет
-  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && grid[i] !== 9 && TH[i] < TREE_H && waterD(t.x, t.y) > 5; });
+  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && grid[i] !== 9 && TH[i] < TREE_H && waterD(t.x, t.y) > 5 && !(creekMask && creekMask[i]); });
 }
 function slopeK(x0, y0, x1, y1) {
   const d = Math.hypot(x1 - x0, y1 - y0); if (d < .01) return 1;
@@ -3776,7 +3845,7 @@ function slopeK(x0, y0, x1, y1) {
    складки. Когда плечо выросло или впереди край, на самом пологом месте закладывается петля радиусом 12 м с центром выше по
    склону и малым уклоном, полотно в петле шире. Дорога врезается полкой (benchRoads в terrain.js): выемка сверху, насыпь снизу.
    Единицы мира: 1 ед. = 25 см, поэтому все длины вчетверо больше метров */
-const MR = { grade: .08, step: 8, rHp: 48, hpGrade: .03, legMin: 120, legMax: [260, 480], look: 96, cliff: 1.6, maxHp: 8, hw: 14 };
+const MR = { grade: .10, step: 8, rHp: 48, hpGrade: .03, legMin: 120, legMax: [260, 480], look: 96, cliff: 1.6, maxHp: 8, hw: 14, cutMax: 24 }; // cutMax — допустимая выемка под полотном (6 м)
 // градиент по сглаженному рельефу: мелкие бугры дорога не замечает, их срежет полка
 function mrGrad(x, y) { const e = 20; return [(landH(x + e, y) - landH(x - e, y)) / (2 * e), (landH(x, y + e) - landH(x, y - e)) / (2 * e)]; }
 // расстояние наружу от края карты по стороне: 0 — верх, 1 — низ, 2 — левый, 3 — правый
@@ -3883,9 +3952,10 @@ function mrPass(side, along0) {
   return best;
 }
 // трассы, уходящие к краю карты на горной стороне, обрезаются у подножия и заменяются серпантином до перевала
+let mrTraceN = 0; // сколько раз на город звали трассировщик по местному уклону
 function buildMountainRoads() {
-  mountainRoads = [];
-  if (massif) return buildMassifRoads();
+  mountainRoads = []; mrTraceN = 0;
+  if (massif) { buildMassifRoads(); trimMountainStubs(); return; }
   if (!ridgeSides.length) return;
   for (const side of ridgeSides) {
     const exits = RN.filter(n => n.ed.length === 1 && !n.dead && Math.abs(sideDs(side, n.x, n.y)) < 3);
@@ -3949,11 +4019,49 @@ function mrFoot(n, side) {
   for (const c of chain) if (!c.from.ed.length) { c.from.dead = true; } if (!from.ed.length) from.dead = true; n.dead = true; n.ed = [];
   return foot;
 }
+// плечи прижимаются к рельефу: на прямом плече каждая точка сдвигается поперёк туда, где земля ближе к ровному подъёму
+// от начала плеча к его концу — дорога огибает отроги и лощины вместо траншеи сквозь одно и насыпи через другое
+function mrHug(pts, wid) {
+  let i = 0;
+  while (i < pts.length) {
+    if (wid[i]) { i++; continue; }
+    let j = i; while (j < pts.length && !wid[j]) j++; // [i, j) — прямое плечо между петлями
+    const n = j - i;
+    if (n >= 6) {
+      const A = pts[i], B = pts[j - 1], hA = landH(A[0], A[1]), hB = landH(B[0], B[1]), dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      const mv = pts.slice(i, j);
+      for (let k = 1; k < n - 1; k++) {
+        const p = pts[i + k], ht = hA + (hB - hA) * k / (n - 1); let bo = 0, bc = Math.abs(landH(p[0], p[1]) - ht);
+        for (let o = -24; o <= 24; o += 4) { if (!o) continue; const c = Math.abs(landH(p[0] + nx * o, p[1] + ny * o) - ht) + Math.abs(o) * .12; if (c < bc) { bc = c; bo = o; } }
+        mv[k] = [p[0] + nx * bo, p[1] + ny * bo];
+      }
+      for (let pass = 0; pass < 3; pass++) for (let k = 1; k < n - 1; k++) mv[k] = [(mv[k - 1][0] + mv[k][0] * 2 + mv[k + 1][0]) / 4, (mv[k - 1][1] + mv[k][1] * 2 + mv[k + 1][1]) / 4];
+      for (let k = 0; k < n; k++) pts[i + k] = mv[k];
+    }
+    i = j;
+  }
+}
+// тупик, упирающийся в склон: трасса, обрезанная у подножия, к которой не проложился подъём, или повисший хвост горной
+// дороги — убирается до ближайшего перекрёстка или до городской улицы. Дорогу в стену никто не строит
+function trimMountainStubs() {
+  if (!massif) return;
+  const atBorder = n => n.x < 3 || n.y < 3 || n.x > W - 3 || n.y > H - 3;
+  for (let pass = 0; pass < 60; pass++) {
+    let any = false;
+    for (const n of RN) {
+      if (n.dead || n.ed.length !== 1 || n.exit || atBorder(n)) continue;
+      const e = n.ed[0]; if (e.dead || !(e.mountain || (e.rural && e.hw >= 12)) || !inMassifArea(n.x, n.y, 160)) continue;
+      const pm = edgePos(e, e.len / 2); if (cityK(pm.x, pm.y) > .5) continue; // до города дошли — дальше не трогаем
+      const o = e.a === n ? e.b : e.a; reKill(e); n.dead = true; n.ed = []; if (!o.ed.length) { o.dead = true; } any = true;
+    }
+    if (!any) break;
+  }
+}
 // Зигзаг по склону массива, как его чертят дорожники: средний уклон g между концами задаёт угол плеч к горизонталям
 // (sin θ = уклон/g), между плечами петли с центром выше по склону, число плеч подбирается так, чтобы дорога пришла в цель
 // по оси склона. Стиль случайный: тесные петли и короткие плечи, обычные или широкие; плечи разной длины и с изгибом,
 // последнее плечо идёт прямо в цель. Если живая трасса сблизилась сама с собой — строится ровная
-function mrZigzag(sx, sy, ex, ey, side) {
+function mrZigzag(sx, sy, ex, ey, side, depth = 0) {
   const d0 = massifDs(sx, sy), d1 = massifDs(ex, ey), a0 = sideAlong(side, sx, sy), a1 = sideAlong(side, ex, ey), D = d1 - d0, A = a1 - a0;
   if (D < 40) return null;
   const h0 = landH(sx, sy), h1 = landH(ex, ey), g = (h1 - h0) / D; if (g <= MR.grade * 1.05) return null;
@@ -3966,11 +4074,17 @@ function mrZigzag(sx, sy, ex, ey, side) {
     if (u < 110 || u > style.legMax || v < 110 || v > style.legMax) continue;
     const legs = []; for (let k = 0; k < n; k++) legs.push(k % 2 ? v : u); if (!best || Math.abs(u - v) < best.spread) best = { n, s0, legs, spread: Math.abs(u - v) };
   }
-  if (!best) { // цель далеко вдоль склона: подходной участок вдоль подножия, потом зигзаг
-    if (Math.abs(A) < 400) return null;
-    const run = Math.abs(A) - 320, sg = Math.sign(A), p1 = pt(a0 + sg * run, d0 + 30), rest = mrZigzag(p1[0], p1[1], ex, ey, side); if (!rest) return null;
-    const pts = [], wid = []; for (let t = 0; t < run; t += 8) { pts.push(pt(a0 + sg * t, d0 + 30 * t / run)); wid.push(0); }
-    return { pts: pts.concat(rest.pts), wid: wid.concat(rest.wid), hairpins: rest.hairpins };
+  if (!best) { // плечи не умещаются (цель далеко вдоль склона — или слишком близко и высоко: полка прямо над подножием):
+    // подходной участок вдоль подножия, потом зигзаг. Иначе дорога лезла бы прямо на обрыв, в десятиметровой выемке
+    if (depth >= 3) return null;
+    const far = Math.abs(A) >= 400, sg0 = far ? Math.sign(A) : Math.random() < .5 ? 1 : -1, runs = far ? [Math.abs(A) - 320] : [320, 480, 640];
+    for (const run of runs) for (const sg of [sg0, -sg0]) {
+      const p1 = pt(a0 + sg * run, d0 + 30); if (p1[0] < 40 || p1[1] < 40 || p1[0] > W - 40 || p1[1] > H - 40 || waterD(p1[0], p1[1]) < 30) continue;
+      const rest = mrZigzag(p1[0], p1[1], ex, ey, side, depth + 1); if (!rest) continue;
+      const pts = [], wid = []; for (let t = 0; t < run; t += 8) { pts.push(pt(a0 + sg * t, d0 + 30 * t / run)); wid.push(0); }
+      return { pts: pts.concat(rest.pts), wid: wid.concat(rest.wid), hairpins: rest.hairpins };
+    }
+    return null;
   }
   const gen = jitter => {
     const pts = [], wid = []; let a = a0, d = d0, hairpins = 0; pts.push(pt(a, d)); wid.push(0);
@@ -3985,6 +4099,7 @@ function mrZigzag(sx, sy, ex, ey, side) {
     }
     const L = Math.hypot(a1 - a, d1 - d); if (L < 30) return null; for (let t = 8; t < L; t += 8) { pts.push(pt(a + (a1 - a) * t / L, d + (d1 - d) * t / L)); wid.push(0); }
     pts.push(pt(a1, d1)); wid.push(0);
+    mrHug(pts, wid);
     return { pts, wid, hairpins };
   };
   const close = P => { for (let i = 0; i < P.length; i++) for (let j = 0; j < i - 30; j++) if (Math.abs(P[i][0] - P[j][0]) < 64 && Math.abs(P[i][1] - P[j][1]) < 64 && Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1]) < 64) return true; return false; };
@@ -4004,10 +4119,28 @@ function mrContour(sx, sy, ex, ey, side) {
   return { pts, wid: pts.map(() => 0), hairpins: 0 };
 }
 // горная дорога между двумя точками: зигзаг, где нужно набирать высоту, иначе по горизонталям; через воду — старый трассировщик
+// глубина выемки, которую потребует трасса: профиль полотна считается так же, как его потом срежет benchRoads (сглаживание
+// и норма уклона), и сравнивается с землёй по оси. Зигзаг чертится по среднему уклону склона, и там, где склон местами
+// вдвое круче среднего, полотно уходило на десять метров под землю — дорога в стену. Такую трассу заменяет трассировщик
+// по местному уклону (mrTrace), если у него выемка мельче
+function mrDeficit(pts) {
+  const S = [];
+  for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / 4)); for (let k = i === 1 ? 0 : 1; k <= n; k++) { const h = landH(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n); S.push({ raw: h, h }); } }
+  for (let pass = 0; pass < 3; pass++) { const c = S.map(s => s.h); for (let i = 0; i < S.length; i++) { let a = 0, n = 0; for (let k = -5; k <= 5; k++) { const j = i + k; if (j >= 0 && j < S.length) { a += c[j]; n++; } } S[i].h = a / n; } }
+  const dh = MR.grade * 4, n = S.length - 1;
+  for (let i = 1; i <= n; i++) if (S[i].h > S[i - 1].h + dh) S[i].h = S[i - 1].h + dh;
+  for (let i = n - 1; i >= 0; i--) if (S[i].h > S[i + 1].h + dh) S[i].h = S[i + 1].h + dh;
+  let d = 0; for (const s of S) d = Math.max(d, s.raw - s.h); return d;
+}
 function mrRoute(sx, sy, ex, ey, side) {
-  let R = mrZigzag(sx, sy, ex, ey, side) || mrContour(sx, sy, ex, ey, side);
-  if (R.pts.slice(1, -1).some(p => waterD(p[0], p[1]) < 20 || p[0] < 0 || p[1] < 0 || p[0] > W || p[1] > H)) R = mrTrace(sx, sy, ex, ey, side);
-  if (!R || R.pts.length < 6) return null;
+  const wet = Q => Q.pts.slice(1, -1).some(p => waterD(p[0], p[1]) < 20 || p[0] < 0 || p[1] < 0 || p[0] > W || p[1] > H);
+  // зигзаг случаен (стиль, разброс плеч): несколько дешёвых попыток, берётся та, где выемка мельче; трассировщик по местному
+  // уклону в разы дороже (сетка проходимости на каждый вызов) — к нему лишь когда зигзаг не вышел, и не чаще трёх раз на город
+  let R = null, cut = Infinity;
+  for (let k = 0; k < 4; k++) { const Z = mrZigzag(sx, sy, ex, ey, side) || (k ? null : mrContour(sx, sy, ex, ey, side)); if (!Z || Z.pts.length < 6 || wet(Z)) continue; const c = mrDeficit(Z.pts); if (c < cut) { cut = c; R = Z; } if (cut <= MR.cutMax) break; }
+  if ((!R || cut > MR.cutMax) && (mrTraceN < 3 || !R)) { mrTraceN++; const T = mrTrace(sx, sy, ex, ey, side); if (T && T.pts.length >= 6 && !wet(T)) { const c = mrDeficit(T.pts); if (c < cut) { R = T; cut = c; R.traced = true; } } }
+  if (!R) return null;
+  if (cut > MR.cutMax * 2.5) return null; // выемка в пятнадцать метров: такой дороги не будет, пусть ищут другой подход
   const last = R.pts[R.pts.length - 1]; if (Math.hypot(last[0] - ex, last[1] - ey) > 6) R.pts.push([ex, ey]);
   return R;
 }
@@ -4016,7 +4149,7 @@ function mrSelfCross(pts) { for (let i = 2; i < pts.length; i++) for (let j = 1;
 function mrRoad(sx, sy, ex, ey, side, hw, R = mrRoute(sx, sy, ex, ey, side)) {
   if (!R) return null;
   const made = addRoad(R.pts, hw, "st", { extra: { rural: true, mountain: true, sw: 3 } });
-  if (made) { for (const f of made.edges) f.mountain = true; mountainRoads.push({ side, hairpins: R.hairpins, pts: R.pts }); }
+  if (made) { for (const f of made.edges) f.mountain = true; mountainRoads.push({ side, hairpins: R.hairpins, pts: R.pts, traced: !!R.traced }); }
   return made;
 }
 // кольцевая улица городка по полке (двумя дугами, чтобы у кольца были узлы) и проулок к ферме на больших полках
@@ -4117,20 +4250,63 @@ function buildMountainVillage() {
     const innerSlots = slots.filter(q => q.inner).sort((a, b) => a.lakeD - b.lakeD);
     for (const q of innerSlots) {
       let b = null;
-      if (hotels < 2 && q.lakeD < 3.2) { b = placeAlong(q.e, q.s, q.sd, rnd(26, 34), 12, 18, rnd(5, 8), { kind: "manor", floors: 3, style: 35, ridge: "x", village: true, hotel: true }); if (b) { hotels++; q.used = true; continue; } }
+      if (hotels < 2 && q.lakeD < 3.2) { b = placeAlong(q.e, q.s, q.sd, rnd(30, 38), 14, 20, rnd(5, 8), { kind: "manor", floors: Math.random() < .5 ? 3 : 4, style: pick([11, 12, 13]), ridge: "x", village: true, hotel: true, chalet: true }); if (b) { hotels++; q.used = true; continue; } } // отель: длиннее и выше шале
       if (cafes < 1 && q.lakeD < 3.6) { b = placeAlong(q.e, q.s, q.sd, 18, 10, 13, rnd(5, 8), { kind: "cafe", floors: 1, style: 12, village: true }); if (b) { cafes++; q.used = true; continue; } }
     }
     const high = innerSlots.filter(q => !q.used).sort((a, b) => b.h - a.h);
-    for (const q of high) { if (church) break; const b = placeAlong(q.e, q.s, q.sd, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 31, ridge: "x", village: true }); if (b) { church = true; q.used = true; } }
+    for (const q of high) { if (church) break; const b = placeAlong(q.e, q.s, q.sd, 22, 18, 24, rnd(8, 12), { kind: "church", floors: 2, style: 27, ridge: "x", village: true, alpine: true }); if (b) { church = true; q.used = true; } }
     // шале: внешняя сторона кольца целиком и свободные места внутренней
     for (const q of slots) {
       if (q.used || Math.random() < .15) continue; const w = rnd(15, 21);
-      const b = placeAlong(q.e, q.s, q.sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .6 ? 2 : 1, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
+      const b = placeAlong(q.e, q.s, q.sd, w, 13, 18, rnd(8, 13), { kind: "house", floors: Math.random() < .35 ? 3 : 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true });
       if (b) { houses++; suburbLot(q.e, q.s - 10, q.sd, w + 20, b); }
     }
   }
 }
 
+// хутора по склонам: вдоль серпантинов, между подножием и границей леса, на пологих местах — по два-четыре шале
+// на своей маленькой террасе (двор выравнивается, как у ферм), с забором, сенным сараем, стожками и коровами на лугу.
+// Так дома стоят россыпью по горе, а не только кольцом у озера
+function buildMountainHamlets() {
+  if (!massif) return;
+  // серпантины и просёлки у подножия (узкие загородные дороги в горной стране)
+  const ME = RE.filter(e => !e.dead && e.len > 160 && (e.mountain || (e.rural && e.hw <= 10 && inMassifArea(edgePos(e, e.len / 2).x, edgePos(e, e.len / 2).y, 200)))), made = [];
+  for (const e of ME) {
+    for (let s = 60; s < e.len - 60; s += rnd(60, 100)) {
+      if (Math.random() > .6 || made.length >= 12) continue;
+      const p = edgePos(e, s), side = Math.random() < .5 ? 1 : -1, nx = -p.ty * side, ny = p.tx * side;
+      const yx = p.x + nx * (e.hw + 40), yy = p.y + ny * (e.hw + 40), h = landH(yx, yy);
+      if (yx < 60 || yy < 60 || yx > W - 60 || yy > H - 60 || h < 24 || h > TREE_H - 20) continue; // ниже границы леса, выше подножия
+      if (Math.hypot(...mrGrad(yx, yy)) > .45 || waterD(yx, yy) < 40 || onTerrace(yx, yy, 40)) continue; // не на обрыве (двор выравнивается террасой), не на полке
+      if (made.some(q => Math.hypot(q[0] - yx, q[1] - yy) < 200)) continue;
+      { const pi = patchOf[Math.floor(yy / CS) * GW + Math.floor(yx / CS)]; if (pi >= 0 && patches[pi] && patches[pi].kind === "field") continue; } // не на пашне
+      if (buildings.some(q => q.farm && Math.hypot((q.x0 + q.x1) / 2 - yx, (q.y0 + q.y1) / 2 - yy) < 170)) continue; // не на чужой ферме
+      if (massif.summit && Math.hypot(massif.summit.x - yx, massif.summit.y - yy) < 220) continue;
+      const ang = Math.atan2(p.ty, p.tx), cells = rotCells(yx, yy, 84, 56, ang);
+      if (!cells.length || cells.some(i => roadMask[i] || usedMask[i] || grid[i] === 3 || grid[i] === 9 || grid[i] === 5)) continue; // скалы (10) — можно: двор выровняют
+      // поляна под хутор: лес вырубается с запасом вокруг двора — луг, на котором пасутся коровы
+      // (занятость самого двора ставится после домов — иначе footFree им откажет)
+      const glade = rotCells(yx, yy, 150, 120, ang); for (const i of glade) if (grid[i] === 4) grid[i] = 2;
+      const inside = new Set(glade); trees = trees.filter(t => !inside.has(Math.floor(t.y / CS) * GW + Math.floor(t.x / CS)));
+      const b = blockAt(yx, yy), rid = b ? b.id : undefined;
+      // шале фасадом к серпантину, через 22–26 ед. вдоль дороги; второе — иногда в глубине
+      const n = 2 + Math.floor(Math.random() * 3); let got = 0;
+      for (let k = 0; k < n; k++) {
+        const t = s - 36 + k * rnd(22, 28); if (t < 14 || t > e.len - 30) continue;
+        const hb = placeAlong(e, t, side, rnd(14, 18), 12, 15, rnd(8, 14), { kind: "house", floors: 2, style: 11 + Math.floor(Math.random() * 4), ridge: "x", village: true, chalet: true, hamlet: true }, rid);
+        if (hb) { got++; suburbLot(e, t - 6, side, 26, hb); }
+      }
+      if (!got) continue;
+      made.push([yx, yy]);
+      for (const i of cells) usedMask[i] = 1; terraces.push({ cells: rotCells(p.x + nx * (e.hw + 26), p.y + ny * (e.hw + 26), 96, 44, ang).concat(cells), at: [p.x, p.y] }); // двор и полоса домов у дороги ровняются террасой
+      // сенной сарай в глубине двора, стожки и пара коров на лугу за ним
+      const at = (u, v) => [p.x + Math.cos(ang) * u + nx * (e.hw + v), p.y + Math.sin(ang) * u + ny * (e.hw + v)];
+      const bn = addRotBuilding(...at(rnd(-10, 10), 56), 16, 10, ang, { kind: "barn", floors: 1, style: 26, ridge: "x", hamlet: true }); bn.doorPref = at(0, 48);
+      for (let k = 0; k < 3; k++) { const [hx, hy] = at(-24 + k * 8, 58 + (k % 2) * 5); if (cellAt(hx, hy) === 2) props.push({ k: "hay", x: hx, y: hy, a: ang + rnd(-.3, .3) }); }
+      for (let k = 0, m = 2 + Math.floor(Math.random() * 3); k < m; k++) { const [cx, cy] = at(rnd(14, 34), rnd(50, 64)); if (cellAt(cx, cy) === 2) props.push({ k: "cow", x: cx, y: cy, a: rnd(0, TAU), v: Math.floor(Math.random() * 3) }); }
+    }
+  }
+}
 // ---------- канатная дорога: трос над склоном на опорах, кабинки по кругу, посадка на станциях ----------
 // Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
 // в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.
@@ -10050,12 +10226,18 @@ const STYLES = [
   { wall: "#9a4e36", glass: "#3a4650", frame: "#d8d0c0", win: .42 }, // промышленный кирпич: хлебозавод (48)
   { wall: "#4f6f8f", glass: "#4b5a64", frame: "#7a8a96", win: .2, metal: true }, // синий профлист: склады, автомойка (49)
   { wall: "#8a4632", glass: "#2c3a48", frame: "#e8dcc4", win: .3, arch: true, house: true }, // кирпичная кирха: арочные окна, без витрин (50)
+  { wall: "#6a4a2e", glass: "#2c3a48", frame: "#d8c8a8", win: .36, house: true, wood: true }, // деревянный верх шале (51)
 ];
 // кирпичные — красные и рыжие стены
-function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && r > g + 25 && r > b + 30 && r < 200; }
+function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && !st.wood && r > g + 25 && r > b + 30 && r < 200; }
 let realBrick = false; // загрузилась настоящая кладка (gfx.js) — рисованную не нужно
 // фактура стены: кирпичная кладка у красных и рыжих стен, швы панелей у панельных домов, неровная штукатурка у остальных
 function wallDetail(g, w, h, st) {
+  if (st.wood) {
+    // брус: горизонтальные доски с тёмными швами, каждая своего тона
+    for (let y = 0; y < h; y += 6) { g.fillStyle = shade(st.wall, rnd(-14, 12)); g.fillRect(0, y, w, 5); g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(0, y + 5, w, 1); }
+    return;
+  }
   if (isBrick(st)) {
     if (realBrick) return;
     // кладка: ряды по 4 пикселя, перевязка в полкирпича, каждый кирпич своего тона, светлые швы
@@ -10178,6 +10360,8 @@ function buildCity() {
     if (topY - b.baseY > .25) { const fh = topY - b.baseY + 2.4; const fnd = new THREE.Mesh(new THREE.BoxGeometry(w + .6, fh, d + .6), parapetMat); fnd.position.y = fh / 2 - 2.2; fnd.receiveShadow = fnd.castShadow = true; obj.add(fnd); }
     const cx = obj.position.x, cz = obj.position.z, by = b.baseY;
     if (landmarkMesh(b, obj, mesh, w, d)) { if (b.anim) cityGroup.add(obj); obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
+    if (b.chalet && chaletMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
+    if (b.alpine && b.kind === "church" && alpineChurchMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (districtMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (newKindMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (b.kind === "cathedral") {
@@ -10403,6 +10587,24 @@ function buildFountains() {
 const waterTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { g.strokeStyle = `rgba(255,255,255,${rnd(.05, .25)})`; g.lineWidth = rnd(.5, 1.5); const x = rnd(0, w), y = rnd(0, h), l = rnd(4, 14); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 2, x + l, y); g.stroke(); } }, false);
 waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(30, 30);
 const waterMat = new THREE.MeshStandardMaterial({ color: 0x1f4559, roughness: .12, metalness: .35, map: waterTex });
+// ручей: лента воды по руслу чуть выше дна, цвет по уклону — на порогах и водопадах белая пена; над дорогой разрыв (труба)
+const creekMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .18, metalness: .25, map: waterTex, transparent: true, opacity: .88, side: THREE.DoubleSide }); // глубину пишет (иначе рельеф закрашивал ленту); двусторонний — порядок вершин ленты зависит от направления русла
+function buildCreek() {
+  const P = creek.pts, n = P.length; if (n < 4) return;
+  const pos = [], col = [], uv = [], idx = []; let run = 0; const blue = new THREE.Color(0x6fc0e8).convertSRGBToLinear(), foam = new THREE.Color(0xdcecf4).convertSRGBToLinear(), c = new THREE.Color();
+  const cell = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const hidden = k => { const i = cell(P[k][0], P[k][1]); return !!roadMask[i] || !!(benchMask && benchMask[i]); };
+  for (let k = 0; k < n; k++) {
+    const a = P[Math.max(0, k - 1)], b = P[Math.min(n - 1, k + 1)], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+    const w = (3.2 + 2.6 * k / n) * Math.min(1, (n - 1 - k) / 8 + .15), slope = Math.max(0, (gY(a[0], a[1]) - gY(b[0], b[1])) / L), f = clamp((slope - .25) / .5); // у устья на лугу сужается: уходит в землю
+    c.copy(blue).lerp(foam, f);
+    for (const s of [-1, 1]) { const x = P[k][0] + nx * w * s, y = P[k][1] + ny * w * s; pos.push(X(x), gY(x, y) + .9 + f * .4, Z(y)); col.push(c.r, c.g, c.b); uv.push(s > 0 ? 0 : 1, k * .25); }
+    if (k && !hidden(k) && !hidden(k - 1)) { const v = pos.length / 3 - 4; idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); run++; }
+  }
+  if (!run) return;
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, creekMat); m.renderOrder = -1; m.frustumCulled = false; cityGroup.add(m);
+}
 function buildWater() {
   if (worldFlat()) { buildCityWalls(); return; }
   // вода — один лист под всем миром; видна там, где рельеф ниже её уровня: река, море, озёра, пруды
@@ -10422,6 +10624,7 @@ function buildWater() {
     const m = new THREE.Mesh(geo, makeWaterMat(-1e6, -1e6, 1e6, 1e6));
     m.position.set(X(l.x), l.level, Z(l.y)); m.renderOrder = -1; cityGroup.add(m);
   }
+  if (creek) buildCreek();
   outskirts.position.y = sea ? WATER_Y - 6 : WATER_Y - 1.2;
   const rail = new THREE.MeshStandardMaterial({ color: 0x8a8d8f, roughness: .5, metalness: .6 }), conc = new THREE.MeshStandardMaterial({ color: 0x9a978f, roughness: .9 });
   for (const b of bridges) {
@@ -13073,6 +13276,7 @@ function swapBody(b, obj, box, mesh) { obj.remove(box); box.geometry.dispose(); 
 function landmarkMesh(b, obj, box, w, d) {
   const h = b.h;
   if (b.kind === "church") {
+    if (b.alpine) return alpineChurchMesh(b, obj, box, w, d); // горная: белый неф, колокольня со шпилем
     if (b.shape) return churchShape(b, obj, box, w, d); // кирха или часовня (buildings.js)
     // неф с апсидой, барабан с луковичным куполом, четыре малые главки, шатровая колокольня у входа
     lmAdd(obj, new THREE.CylinderGeometry(w * .32, w * .32, h * .8, 18, 1, false, Math.PI / 2, Math.PI), facadeMats[27], 0, h * .4, -d / 2);
@@ -14099,6 +14303,80 @@ function schoolShape(b, obj, box, w, d) {
   obj.add(fbox(gw, 12, wd - 6, gx, 6, -d / 2 + (wd - 6) / 2, facadeMats[44])); slab22(obj, gw, wd - 6, 12, gx, -d / 2 + (wd - 6) / 2);
 }
 // церкви других типов: кирха — высокий неф под крутой крышей и башня со шпилем; часовня — маленькая, с одной главкой
+/* ---------- альпийское шале и горная церковь (курортные городки на полках, mountain.js) ----------
+   Шале: светлый каменный цоколь в первый этаж, над ним тёмный деревянный верх, пологая двускатная крыша с большими свесами
+   (конёк поперёк улицы, фронтон смотрит на дорогу), под фронтоном и вдоль боков деревянные балконы с балясинами,
+   ставни у окон, кое-где цветочные ящики. Отель — то же, но длиннее, в три этажа, балконы в каждом этаже и вывеска.
+   Церковь — белый неф, тонкая колокольня у входа с острым шпилем (не луковица) */
+const chaletWoodMat = new THREE.MeshStandardMaterial({ color: 0x5e3f26, roughness: .85 }), chaletWoodLight = new THREE.MeshStandardMaterial({ color: 0x8a6440, roughness: .85 });
+const chaletRoofMat = new THREE.MeshStandardMaterial({ color: 0x4a403a, roughness: .9 }), chaletRoofMat2 = new THREE.MeshStandardMaterial({ color: 0x6b4a3a, roughness: .9 });
+const shutterMat = new THREE.MeshStandardMaterial({ color: 0x2e5a3a, roughness: .8 }), shutterMat2 = new THREE.MeshStandardMaterial({ color: 0x7a2a22, roughness: .8 });
+const flowerMat = new THREE.MeshStandardMaterial({ color: 0xc83a4a, roughness: .9 });
+// балкон вдоль стены: настил, перила с балясинами; x, z — середина, вдоль x длина L, выступ out к +z (повёрнутый — к +x)
+function chaletBalcony(obj, x, y, z, L, out, along) {
+  const g = new THREE.Group(); g.position.set(x, y, z); if (along) g.rotation.y = -Math.PI / 2; obj.add(g);
+  lmAdd(g, new THREE.BoxGeometry(L, .35, out), chaletWoodLight, 0, 0, out / 2);
+  lmAdd(g, new THREE.BoxGeometry(L, .25, .25), chaletWoodMat, 0, 2.6, out - .15);
+  for (let u = -L / 2 + .5; u <= L / 2 - .4; u += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, u, 1.3, out - .15);
+  for (const s of [-1, 1]) { lmAdd(g, new THREE.BoxGeometry(.25, .25, out), chaletWoodMat, s * (L / 2 - .12), 2.6, out / 2); for (let v = .6; v < out - .3; v += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, s * (L / 2 - .12), 1.3, v); }
+  if (Math.random() < .6) lmAdd(g, new THREE.BoxGeometry(L - 1, .5, .5), flowerMat, 0, 2.9, out - .15); // цветочный ящик на перилах
+  // кронштейны под настилом
+  for (let u = -L / 2 + 1; u <= L / 2 - .9; u += 3) lmAdd(g, new THREE.BoxGeometry(.3, .3, out - .3), chaletWoodMat, u, -.3, (out - .3) / 2);
+}
+// боковой балкон вдоль стены x = s·w/2: группа повёрнута так, что её +z смотрит наружу
+function chaletSideBalcony(obj, s, w, d, y) {
+  const g = new THREE.Group(); g.position.set(s * (w / 2 + .05), y, 0); g.rotation.y = s > 0 ? -Math.PI / 2 : Math.PI / 2; obj.add(g);
+  const L = d - 2, out = 2.2;
+  lmAdd(g, new THREE.BoxGeometry(L, .35, out), chaletWoodLight, 0, 0, out / 2);
+  lmAdd(g, new THREE.BoxGeometry(L, .25, .25), chaletWoodMat, 0, 2.6, out - .15);
+  for (let u = -L / 2 + .5; u <= L / 2 - .4; u += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, u, 1.3, out - .15);
+  for (const q of [-1, 1]) { lmAdd(g, new THREE.BoxGeometry(.25, .25, out), chaletWoodMat, q * (L / 2 - .12), 2.6, out / 2); for (let v = .6; v < out - .3; v += 1.1) lmAdd(g, new THREE.BoxGeometry(.18, 2.4, .18), chaletWoodMat, q * (L / 2 - .12), 1.3, v); }
+  for (let u = -L / 2 + 1; u <= L / 2 - .9; u += 3) lmAdd(g, new THREE.BoxGeometry(.3, .3, out - .3), chaletWoodMat, u, -.3, (out - .3) / 2);
+}
+function chaletMesh(b, obj, box, w, d) {
+  const stone = facadeMats[b.style] || facadeMats[11], fh = b.h / b.floors, hotel = !!b.hotel;
+  obj.remove(box); box.geometry.dispose();
+  // цоколь каменный в один этаж, выше — дерево; у отеля каменных этажей нет, но первый всё равно светлый
+  const base = fbox(w, fh, d, 0, fh / 2, 0, stone); obj.add(base); b.mesh = base;
+  const wood = fbox(w + .8, b.h - fh, d + .8, 0, fh + (b.h - fh) / 2, 0, facadeMats[51]); obj.add(wood); // верх нависает над цоколем на 10 см
+  lmAdd(obj, new THREE.BoxGeometry(w + 1.4, .5, d + 1.4), chaletWoodMat, 0, fh + .1, 0); // карниз-обвязка на стыке камня и дерева
+  // широкие свесы: по бокам по 3, над фронтоном 2,5; пологая крыша; конёк вдоль x (фронтон на улицу, которая к +z)
+  const rh = w * .26, roofMat = bId(b) % 3 ? chaletRoofMat : chaletRoofMat2;
+  gableRoof(obj, w, d, b.h, rh, false, roofMat, 3, 0, 0);
+  // стропила под свесом и фронтонная доска
+  for (const s of [-1, 1]) for (let u = -w / 2; u <= w / 2; u += 4) lmAdd(obj, new THREE.BoxGeometry(.3, .4, 3.2), chaletWoodMat, u, b.h + rh * (1 - Math.abs(u) / (w / 2 + 3)) - .3, s * (d / 2 + 1.5));
+  // фронтонный балкон на улицу во всех верхних этажах, боковые — через один
+  for (let f = 1; f < b.floors; f++) {
+    chaletBalcony(obj, 0, f * fh + .3, d / 2 + .45, w - 1, 2.6, false);
+    if (hotel || f === b.floors - 1) for (const s of [-1, 1]) if (hotel || (bId(b) + s + 3) % 2 === 0) chaletSideBalcony(obj, s, w, d, f * fh + .3);
+  }
+  // ставни у окон цоколя на фасаде
+  const sm = bId(b) % 2 ? shutterMat : shutterMat2;
+  for (let u = -w / 2 + 4; u <= w / 2 - 4; u += 8) for (const s of [-1, 1]) lmAdd(obj, new THREE.BoxGeometry(.7, 2.6, .12), sm, u + s * 1.9, fh * .55, d / 2 + .12);
+  if (hotel) { landSign(obj, pick(["HOTEL", "GASTHOF", "PENSION", "ALPENHOF"]), "#f4efe4", "#3b2a1a", Math.min(16, w - 4), fh - 1.6, d / 2 + .4); if (Math.random() < .5) chimney(obj, w, d, b.h + rh * .4); }
+  else if (Math.random() < .6) chimney(obj, w, d, b.h + rh * .4);
+  // дровяник у боковой стены
+  if (!hotel && Math.random() < .5) { const s = bId(b) % 2 ? 1 : -1; lmAdd(obj, new THREE.BoxGeometry(1.4, 2.6, 6), chaletWoodLight, s * (w / 2 + .8), 1.3, -d / 4); }
+  b.h += rh * .6; return true;
+}
+// горная церковь: неф с крутой крышей, у входа колокольня с острым шпилем и часами
+function alpineChurchMesh(b, obj, box, w, d) {
+  const fm = facadeMats[b.style] || facadeMats[27], h = b.h;
+  // неф вытянут от улицы в глубь участка: конёк вдоль d, крутая крыша
+  const rh = w * .6; gableRoof(obj, w, d, h, rh, true, chaletRoofMat, 1, 0, 0);
+  // колокольня у входа, по центру уличной стены, наполовину выступает из нефа; шпиль острый
+  const tw = 8, th = h + 26, tz = d / 2 - 1;
+  obj.add(fbox(tw, th, tw, 0, th / 2, tz, fm));
+  lmAdd(obj, new THREE.BoxGeometry(tw + .8, .6, tw + .8), stoneTrim, 0, th, tz);
+  for (const [ox, oz, ry] of [[0, tw / 2 + .05, 0], [tw / 2 + .05, 0, Math.PI / 2], [-tw / 2 - .05, 0, -Math.PI / 2]]) { const c = lmAdd(obj, new THREE.CircleGeometry(1.8, 20), whiteMat, ox, th - 6, tz + oz); c.rotation.y = ry; }
+  lmAdd(obj, new THREE.BoxGeometry(2.2, 3.4, .4), openMat, 0, th - 12, tz + tw / 2 + .1); // проём звонницы
+  lmAdd(obj, new THREE.ConeGeometry(5.4, 30, 8), chaletRoofMat, 0, th + 15, tz);
+  crossOn(obj, 0, th + 30, tz, .5);
+  lmAdd(obj, new THREE.BoxGeometry(3.6, 6.4, .4), openMat, 0, 3.2, tz + tw / 2 + .1); // вход в основании башни
+  // высокие окна по боковым стенам нефа
+  for (let v = -d / 2 + 5; v <= d / 2 - 8; v += 6) for (const s of [-1, 1]) { const win = lmAdd(obj, new THREE.BoxGeometry(.3, 6, 2.2), darkGlassMat, s * (w / 2 + .1), h * .55, v); }
+  b.h += 26 + 30; return true;
+}
 function churchShape(b, obj, box, w, d) {
   const fm = facadeMats[b.style] || facadeMats[27], h = b.h;
   if (b.shape === "gothic") {
@@ -14526,7 +14804,7 @@ function weatherMat(m, k = 1, roof = false, det = null) {
 // фактура фасада по стилю: кирпич — настоящая кладка вместо цвета стены; частные дома и старый город — штукатурка;
 // панельные и общественные здания — бетон; стекло и металл без фактуры
 function facadeDet(st) {
-  if (st.metal || st.curtain) return null;
+  if (st.metal || st.curtain || st.wood) return null; // брус рисован досками, фактуры не надо
   if (isBrick(st)) return { tex: "brick", scale: 4.8, sat: 1, amt: 1, bump: 1.3, flat: true, wall: st.wall };
   if (st.house || st.arch) return { tex: "plaster", scale: 12, sat: .2, amt: .55, bump: .6, wall: st.wall };
   return { tex: "panel", scale: 14, sat: .15, amt: .65, bump: .5, wall: st.wall };
@@ -16579,7 +16857,7 @@ const SAVE_SLOTS = 3;
 const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
-const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown", "shape", "farm", "faceSgn"];
+const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown", "shape", "farm", "faceSgn", "chalet", "hotel", "alpine", "village", "hamlet"]; // chalet/hotel/alpine — формы горных городков: без них после загрузки шале стали бы обычными домами
 const A_SKIP = new Set(["busGoal", "onBus", "busWait", "ride", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob", "regul", "rescueBy", "lod", "errand", "waitCar", "hail"]); // regul — ребро дороги, rescueBy — вызов или машина спасателей: с ними JSON зацикливался; lod — «рисуется скелетной моделью», после загрузки такого не рисовал бы никто; errand, waitCar, hail — ссылки на машину: после загрузки человек просто живёт дальше
 function serializeGame() {
   if (typeof fps !== "undefined" && fps.on && fps.mode === "drive") exitCar(); // машина игрока сохраняется стоящей, игрок — рядом с ней
@@ -16612,7 +16890,7 @@ function serializeGame() {
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather, season: world.season }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, power: pwSave(), traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     camp, // кампания: день, итоги по дням, бюджет (campaign.js)
-    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
+    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, creek, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
 // название планировки и номер города в панели; подсказка — как получить тот же город
@@ -16662,7 +16940,7 @@ function loadGame(S) {
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
   for (const a of agents) if (!a.name) nameFor(a);
   const T = S.terrain || {}; terrainSeed = T.seed || 1; hasHills = !!T.hasHills; ridgeSides = T.ridgeSides || []; ridgeSides.intrude = !!T.intrude; rocks = T.rocks || [];
-  river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || [];
+  river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || []; creek = T.creek || null; rebuildCreekMask();
   funicular = T.funicular ? { ...T.funicular, cabins: (T.funicular.cabins || []).map(c => ({ s: c.s, riders: [] })) } : null; massif = null;
   TH.fill(0); if (T.th) { const u = unb64(T.th, Uint8Array); for (let i = 0; i < TH.length && i < u.length; i++) TH[i] = u[i] * 2 - 10; }
   scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = []; wave = S.wave || 0; waveT = S.waveT ?? 40;
@@ -17153,7 +17431,7 @@ function updateGrass() {
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0); let n = 0;
   for (let k = 0; k < 45000 && n < 9000; k++) {
     const x = cx + rnd(-180, 180), y = cy + rnd(-180, 180), c = cellAt(x, y);
-    if (c !== 2 || (hasHills && TH[Math.floor(y / CS) * GW + Math.floor(x / CS)] > TREE_H)) continue; // выше границы леса трава не растёт: там луг коротышка и снег
+    const ci = Math.floor(y / CS) * GW + Math.floor(x / CS); if (c !== 2 || (hasHills && TH[ci] > TREE_H) || (creekMask && creekMask[ci])) continue; // выше границы леса трава не растёт (луг коротышка и снег); в русле ручья — вода
     q.setFromAxisAngle(up, rnd(0, TAU)); const s = rnd(.7, 1.2);
     m.compose(new THREE.Vector3(X(x), hasHills ? gY(x, y) : 0, Z(y)), q, new THREE.Vector3(s, s * rnd(.6, 1.1), s)); grass.setMatrixAt(n++, m);
   }

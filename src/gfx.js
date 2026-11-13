@@ -215,7 +215,7 @@ function weatherMat(m, k = 1, roof = false, det = null) {
 // фактура фасада по стилю: кирпич — настоящая кладка вместо цвета стены; частные дома и старый город — штукатурка;
 // панельные и общественные здания — бетон; стекло и металл без фактуры
 function facadeDet(st) {
-  if (st.metal || st.curtain) return null;
+  if (st.metal || st.curtain || st.wood) return null; // брус рисован досками, фактуры не надо
   if (isBrick(st)) return { tex: "brick", scale: 4.8, sat: 1, amt: 1, bump: 1.3, flat: true, wall: st.wall };
   if (st.house || st.arch) return { tex: "plaster", scale: 12, sat: .2, amt: .55, bump: .6, wall: st.wall };
   return { tex: "panel", scale: 14, sat: .15, amt: .65, bump: .5, wall: st.wall };

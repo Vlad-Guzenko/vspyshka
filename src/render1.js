@@ -421,12 +421,18 @@ const STYLES = [
   { wall: "#9a4e36", glass: "#3a4650", frame: "#d8d0c0", win: .42 }, // промышленный кирпич: хлебозавод (48)
   { wall: "#4f6f8f", glass: "#4b5a64", frame: "#7a8a96", win: .2, metal: true }, // синий профлист: склады, автомойка (49)
   { wall: "#8a4632", glass: "#2c3a48", frame: "#e8dcc4", win: .3, arch: true, house: true }, // кирпичная кирха: арочные окна, без витрин (50)
+  { wall: "#6a4a2e", glass: "#2c3a48", frame: "#d8c8a8", win: .36, house: true, wood: true }, // деревянный верх шале (51)
 ];
 // кирпичные — красные и рыжие стены
-function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && r > g + 25 && r > b + 30 && r < 200; }
+function isBrick(st) { const n = parseInt(st.wall.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return !st.metal && !st.curtain && !st.wood && r > g + 25 && r > b + 30 && r < 200; }
 let realBrick = false; // загрузилась настоящая кладка (gfx.js) — рисованную не нужно
 // фактура стены: кирпичная кладка у красных и рыжих стен, швы панелей у панельных домов, неровная штукатурка у остальных
 function wallDetail(g, w, h, st) {
+  if (st.wood) {
+    // брус: горизонтальные доски с тёмными швами, каждая своего тона
+    for (let y = 0; y < h; y += 6) { g.fillStyle = shade(st.wall, rnd(-14, 12)); g.fillRect(0, y, w, 5); g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(0, y + 5, w, 1); }
+    return;
+  }
   if (isBrick(st)) {
     if (realBrick) return;
     // кладка: ряды по 4 пикселя, перевязка в полкирпича, каждый кирпич своего тона, светлые швы
@@ -549,6 +555,8 @@ function buildCity() {
     if (topY - b.baseY > .25) { const fh = topY - b.baseY + 2.4; const fnd = new THREE.Mesh(new THREE.BoxGeometry(w + .6, fh, d + .6), parapetMat); fnd.position.y = fh / 2 - 2.2; fnd.receiveShadow = fnd.castShadow = true; obj.add(fnd); }
     const cx = obj.position.x, cz = obj.position.z, by = b.baseY;
     if (landmarkMesh(b, obj, mesh, w, d)) { if (b.anim) cityGroup.add(obj); obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
+    if (b.chalet && chaletMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
+    if (b.alpine && b.kind === "church" && alpineChurchMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (districtMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (newKindMesh(b, obj, mesh, w, d)) { obj.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); continue; }
     if (b.kind === "cathedral") {
@@ -774,6 +782,24 @@ function buildFountains() {
 const waterTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { g.strokeStyle = `rgba(255,255,255,${rnd(.05, .25)})`; g.lineWidth = rnd(.5, 1.5); const x = rnd(0, w), y = rnd(0, h), l = rnd(4, 14); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 2, x + l, y); g.stroke(); } }, false);
 waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(30, 30);
 const waterMat = new THREE.MeshStandardMaterial({ color: 0x1f4559, roughness: .12, metalness: .35, map: waterTex });
+// ручей: лента воды по руслу чуть выше дна, цвет по уклону — на порогах и водопадах белая пена; над дорогой разрыв (труба)
+const creekMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .18, metalness: .25, map: waterTex, transparent: true, opacity: .88, side: THREE.DoubleSide }); // глубину пишет (иначе рельеф закрашивал ленту); двусторонний — порядок вершин ленты зависит от направления русла
+function buildCreek() {
+  const P = creek.pts, n = P.length; if (n < 4) return;
+  const pos = [], col = [], uv = [], idx = []; let run = 0; const blue = new THREE.Color(0x6fc0e8).convertSRGBToLinear(), foam = new THREE.Color(0xdcecf4).convertSRGBToLinear(), c = new THREE.Color();
+  const cell = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const hidden = k => { const i = cell(P[k][0], P[k][1]); return !!roadMask[i] || !!(benchMask && benchMask[i]); };
+  for (let k = 0; k < n; k++) {
+    const a = P[Math.max(0, k - 1)], b = P[Math.min(n - 1, k + 1)], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+    const w = (3.2 + 2.6 * k / n) * Math.min(1, (n - 1 - k) / 8 + .15), slope = Math.max(0, (gY(a[0], a[1]) - gY(b[0], b[1])) / L), f = clamp((slope - .25) / .5); // у устья на лугу сужается: уходит в землю
+    c.copy(blue).lerp(foam, f);
+    for (const s of [-1, 1]) { const x = P[k][0] + nx * w * s, y = P[k][1] + ny * w * s; pos.push(X(x), gY(x, y) + .9 + f * .4, Z(y)); col.push(c.r, c.g, c.b); uv.push(s > 0 ? 0 : 1, k * .25); }
+    if (k && !hidden(k) && !hidden(k - 1)) { const v = pos.length / 3 - 4; idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); run++; }
+  }
+  if (!run) return;
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, creekMat); m.renderOrder = -1; m.frustumCulled = false; cityGroup.add(m);
+}
 function buildWater() {
   if (worldFlat()) { buildCityWalls(); return; }
   // вода — один лист под всем миром; видна там, где рельеф ниже её уровня: река, море, озёра, пруды
@@ -793,6 +819,7 @@ function buildWater() {
     const m = new THREE.Mesh(geo, makeWaterMat(-1e6, -1e6, 1e6, 1e6));
     m.position.set(X(l.x), l.level, Z(l.y)); m.renderOrder = -1; cityGroup.add(m);
   }
+  if (creek) buildCreek();
   outskirts.position.y = sea ? WATER_Y - 6 : WATER_Y - 1.2;
   const rail = new THREE.MeshStandardMaterial({ color: 0x8a8d8f, roughness: .5, metalness: .6 }), conc = new THREE.MeshStandardMaterial({ color: 0x9a978f, roughness: .9 });
   for (const b of bridges) {

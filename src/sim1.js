@@ -91,7 +91,7 @@ function genCityBody(layout) {
     rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;
   }
-  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); finishTerrain(); planCableCar();
+  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); carveCreek(); finishTerrain(); planCableCar();
   lamps = lamps.filter(l => cellAt(l.x, l.y) === 1);
   buildBusLines();
 }

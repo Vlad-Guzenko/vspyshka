@@ -65,7 +65,7 @@ const WORLD_WATER = false;
 let relief = "mountains"; // "plain" — равнина, "mountains" — хребет с предгорьями за городом с одной-двух сторон, серпантин к перевалу
 function worldFlat() { return !river && !shore && !lakes.length && !ridgeSides.length; }
 function prepareWater() {
-  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = [];
+  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = []; creek = null; creekMask = null;
   const mountains = relief === "mountains" && L.ridges !== 0;
   // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Граница предгорий гуляет, отроги выходят
   // в равнину; пики соединены гребнями, между двумя — долина к седловине; на умеренных склонах случайные полки с озёрами
@@ -267,13 +267,82 @@ function hillBlock(b) {
 // серпантины врезаны полкой: полотно ровное поперёк, продольный уклон не круче MR.grade,
 // выше дороги — откос выемки 1:0.6, ниже — откос насыпи 1:1.5. Все горные рёбра считаются вместе:
 // общие узлы получают одну высоту, полотно пишет ближайшая ось, выемка/насыпь не трогают чужое полотно
+let creek = null, creekMask = null, creekWhy = ""; // ручей с гор: ломаная [x, y] от истока к устью; маска клеток русла (деревья там не растут)
+/* ---------- ручей ----------
+   Исток — у снеговой линии (не на полке и не на вершине-смотровой). Русло ищется по сетке высот поиском кратчайшего пути:
+   вниз дёшево (чем круче, тем дешевле), вверх дорого, по дворам, домам, полкам и городу нельзя, полотно дороги пересекается
+   за тройную цену (труба под насыпью). Устье — озеро в долине, а без него подножие массива. Русло врезается в рельеф на 3 ед.
+   с пологими берегами; на крутых участках — пороги и водопады (в рендере пена) */
+function carveCreek() {
+  creek = null; creekMask = null; if (!massif || !hasHills) return;
+  const T0 = Date.now(), tm = [];
+  const M = massif, cellOf = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const onShelf = (x, y, pad) => M.terraces.some(t => Math.hypot(x - t.x, y - t.y) < t.r + pad) || (M.summit && Math.hypot(x - M.summit.x, y - M.summit.y) < M.summit.r + pad);
+  const L = M.lake, inLake = (x, y) => !!L && Math.hypot((x - L.x) / L.rx, (y - L.y) / L.ry) < .8;
+  // устье: озеро в долине, а без него — луг у подножия. Проходимость: город, дворы, полки, вода (кроме устья) закрыты;
+  // полотно дорог — втрое дороже
+  const ok = new Uint8Array(GW * GH), tgt = []; const dist = new Float64Array(GW * GH).fill(Infinity), prev = new Int32Array(GW * GH).fill(-1); // Float64: с float32 округлённая цена сравнивалась с точной и клетки релаксировались без конца
+  // только полоса массива с подножием (mountainH на каждую клетку слишком дорог: подножие — низкая земля у массива)
+  const gx0 = M.side === 3 ? Math.max(1, Math.floor((W - M.w - 260) / CS)) : 1, gx1 = M.side === 3 ? GW - 1 : Math.min(GW - 1, Math.ceil((M.w + 260) / CS));
+  for (let gy = 1; gy < GH - 1; gy++) for (let gx = gx0; gx < gx1; gx++) { const i = gy * GW + gx, x = gx * CS + 4, y = gy * CS + 4;
+    if (usedMask[i] || grid[i] === 3 || grid[i] === 5 || onShelf(x, y, 20)) continue;
+    const low = TH[i] < 40, ck = low ? cityK(x, y) : 0; if (ck > .5) continue;
+    const t = L ? inLake(x, y) : (TH[i] < 14 && ck < .35 && grid[i] === 2 && !(patchOf[i] >= 0 && patches[patchOf[i]] && patches[patchOf[i]].kind === "field")); // не на пашню
+    if (grid[i] === 9 && !t) continue;
+    ok[i] = 1; if (t) { tgt.push(i); dist[i] = 0; } }
+  tm.push('маска ' + (Date.now() - T0)); creekWhy = "устья нет"; if (!tgt.length) return;
+  // Дейкстра от устья вверх по восьми соседям (цена шага — как для воды сверху вниз): каждой клетке — её лучшее русло к устью
+  const heap = tgt.map(i => [0, i]);
+  const push = it => { heap.push(it); let k = heap.length - 1; while (k) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  const D2 = CS * Math.SQRT2, NB = [[1, 0, CS], [-1, 0, CS], [0, 1, CS], [0, -1, CS], [1, 1, D2], [1, -1, D2], [-1, 1, D2], [-1, -1, D2]];
+  while (heap.length) {
+    const [d, j] = pop(); if (d > dist[j]) continue;
+    const gx = j % GW, gy = (j / GW) | 0;
+    for (const [dx, dy, len] of NB) { const x = gx + dx, y = gy + dy; if (x < gx0 || y < 1 || x >= gx1 || y >= GH - 1) continue; const i = y * GW + x; if (!ok[i]) continue;
+      const dh = TH[j] - TH[i], c = dh > 0 ? len * (1 + dh * 6) : len * (.35 + .65 * Math.exp(dh / len * 3)), nd = d + c * (roadMask[i] || (benchMask && benchMask[i]) ? 3 : 1);
+      if (nd < dist[i]) { dist[i] = nd; prev[i] = j; push([nd, i]); } }
+  }
+  tm.push('дейкстра ' + (Date.now() - T0));
+  // исток: клетка у снеговой линии (не на полке, не на вершине), от которой русло до устья самое длинное
+  let src = -1, bs = -1e9;
+  for (let gy = 40; gy < GH - 40; gy += 2) for (let gx = 40; gx < GW - 40; gx += 2) { const i = gy * GW + gx, h = TH[i]; if (h < SNOW_H - 120 || h > SNOW_H + 60 || dist[i] === Infinity || !ok[i]) continue; const x = gx * CS + 4, y = gy * CS + 4; if (onShelf(x, y, 60)) continue;
+    let n = 0; for (let k = i; k >= 0 && n < 4000; k = prev[k]) n++;
+    const sc = n + (fbm(x / 70, y / 70) - .5) * 30; if (sc > bs) { bs = sc; src = i; } }
+  tm.push('исток ' + (Date.now() - T0)); creekWhy = "истока нет"; if (src < 0) return;
+  const cells = []; for (let i = src; i >= 0 && cells.length < 4000; i = prev[i]) cells.push(i);
+  creekWhy = "коротко"; if (cells.length < 12) return; creekWhy = "";
+  // ломаная по центрам клеток, сглаженная и пересэмплированная через 6 ед.
+  let P = cells.map(i => [(i % GW) * CS + 4, ((i / GW) | 0) * CS + 4]);
+  for (let pass = 0; pass < 3; pass++) for (let k = 1; k < P.length - 1; k++) P[k] = [(P[k - 1][0] + P[k][0] * 2 + P[k + 1][0]) / 4, (P[k - 1][1] + P[k][1] * 2 + P[k + 1][1]) / 4];
+  const Q = [P[0]]; for (let k = 1; k < P.length; k++) { const a = Q[Q.length - 1]; if (Math.hypot(P[k][0] - a[0], P[k][1] - a[1]) >= 6) Q.push(P[k]); } P = Q;
+  // русло: дно не поднимается вниз по течению; полотно дорог не трогаем (труба под дорогой)
+  let bed = TH[cellOf(P[0][0], P[0][1])];
+  const floor = new Float32Array(P.length);
+  for (let k = 0; k < P.length; k++) { bed = Math.min(bed, TH[cellOf(P[k][0], P[k][1])]); floor[k] = bed; }
+  for (let k = 0; k < P.length; k++) {
+    const [px, py] = P[k], b = floor[k] - 3;
+    for (let oy = -16; oy <= 16; oy += CS) for (let ox = -16; ox <= 16; ox += CS) { const i = cellOf(px + ox, py + oy), cx = (i % GW) * CS + 4, cy = ((i / GW) | 0) * CS + 4, d = Math.hypot(cx - px, cy - py); if (d > 14) continue;
+      if (roadMask[i] || (benchMask && benchMask[i]) || grid[i] === 9 || TH[i] <= WATER_Y) continue;
+      const want = b + 3 * smooth(0, 14, d); if (TH[i] > want) TH[i] = want; if (grid[i] === 4 && d < 9) grid[i] = 2; }
+  }
+  tm.push('русло ' + (Date.now() - T0)); creekWhy = tm.join(' | ');
+  creek = { pts: P.map(p => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]), mouth: L ? "lake" : "foot" };
+  rebuildCreekMask();
+}
+// маска русла по ломаной: деревья и трава там не растут; при загрузке партии строится заново из creek.pts
+function rebuildCreekMask() {
+  creekMask = null; if (!creek) return; creekMask = new Uint8Array(GW * GH);
+  for (const [px, py] of creek.pts) for (let oy = -8; oy <= 8; oy += CS) for (let ox = -8; ox <= 8; ox += CS) { const gx = Math.floor((px + ox) / CS), gy = Math.floor((py + oy) / CS); if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue; if (Math.hypot(gx * CS + 4 - px, gy * CS + 4 - py) < 9) creekMask[gy * GW + gx] = 1; }
+}
 let benchMask = null; // ячейки полотна серпантинов: сглаживание их не трогает
 let terraces = []; // дворы ферм на склонах: площадка выравнивается, вокруг откос
 function levelTerraces() {
   if (!hasHills) return;
   for (const T of terraces) {
     let s = 0, n = 0; for (const i of T.cells) if (TH[i] > WATER_Y && grid[i] !== 9) { s += TH[i]; n++; } if (!n) continue;
-    const h0 = s / n, inside = new Set(T.cells);
+    // двор у дороги (хутор) ровняется в уровень дорожного полотна, иначе дома висели бы над врезкой серпантина
+    const h0 = T.at ? TH[clamp(Math.floor(T.at[1] / CS), 0, GH - 1) * GW + clamp(Math.floor(T.at[0] / CS), 0, GW - 1)] : s / n, inside = new Set(T.cells);
     for (const i of T.cells) if (TH[i] > WATER_Y) TH[i] = h0;
     for (const i of T.cells) { const gx = i % GW, gy = (i / GW) | 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = gx + dx, y = gy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (inside.has(j) || TH[j] <= WATER_Y || grid[j] === 9 || (benchMask && benchMask[j])) continue; const lim = Math.hypot(dx, dy) * CS * .66; TH[j] = clamp(TH[j], h0 - lim, h0 + lim); } }
   }
@@ -400,7 +469,7 @@ function finishTerrain() {
     if (Math.hypot(sx, sy) > 1.1 && TH[i] > WATER_Y) grid[i] = 10;
   }
   // на скалах и выше снеговой линии леса нет
-  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && grid[i] !== 9 && TH[i] < TREE_H && waterD(t.x, t.y) > 5; });
+  trees = trees.filter(t => { const i = clamp(Math.floor(t.y / CS), 0, GH - 1) * GW + clamp(Math.floor(t.x / CS), 0, GW - 1); return grid[i] !== 10 && grid[i] !== 9 && TH[i] < TREE_H && waterD(t.x, t.y) > 5 && !(creekMask && creekMask[i]); });
 }
 function slopeK(x0, y0, x1, y1) {
   const d = Math.hypot(x1 - x0, y1 - y0); if (d < .01) return 1;
