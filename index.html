@@ -609,7 +609,7 @@ function genCityBody(layout) {
     rasterRoads(); computeRegions(); fillCity(); buildCrossMask();
     if (RE.length > 30 && Object.keys(special).length >= 7 && RN.some(n => n.exit)) break;
   }
-  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); carveCreek(); finishTerrain(); planCableCar();
+  fillTerrain(); sinkPonds(); benchRoads(); flattenRoads(); levelTerraces(); carveCreek(); finishTerrain(); buildTrails(); planCableCar();
   lamps = lamps.filter(l => cellAt(l.x, l.y) === 1);
   buildBusLines();
 }
@@ -3218,7 +3218,52 @@ function personIn(a) { a.state = "saved"; a.drove = true; a.hidden = false; a.vx
 // уехавших временных людей убираем из списка: в начале шага, до пересчёта сетки соседей (она хранит индексы)
 function lifeCompact() { if (lifeGone < 30) return; lifeGone = 0; agents = agents.filter(a => !(a.lifeTmp && a.state === "saved")); agentMapN = -1; }
 // шаг человека, занятого уличной жизнью (из thinkHuman)
-function lifeStep(a, dt) { return a.errand ? errandStep(a, dt) : a.waitCar ? waitCarStep(a, dt) : a.hail ? hailStep(a, dt) : null; }
+function lifeStep(a, dt) { return a.errand ? errandStep(a, dt) : a.waitCar ? waitCarStep(a, dt) : a.hail ? hailStep(a, dt) : a.hike ? hikeStep(a, dt) : null; }
+/* туристы: из гостиницы городка на полке выходит компания в один-три человека и идёт по тропе к хижине или на вершину,
+   там отдыхает, возвращается в гостиницу и пропадает (временные жители, как водители по делам). Только днём и в спокойное
+   время; на тропе не больше шести человек. Зомби и паника — как у всех: бегут */
+const HIKE = { gap: 50, max: 6, rest: [45, 110], speed: 5 };
+let hikeT = 0;
+function hikeTick(dt) {
+  hikeT -= dt; if (hikeT > 0) return; hikeT = HIKE.gap;
+  if (!trails.length || !lifeCalm() || settings.curfew) return;
+  const hour = typeof world !== "undefined" && world && world.hour != null ? world.hour : 12; if (hour < 7 || hour > 17) return;
+  let n = 0; for (const a of agents) if (a.hike && a.state === "alive") n++; if (n >= HIKE.max) return;
+  const ti = Math.floor(Math.random() * trails.length), tr = trails[ti], p0 = tr.pts[0];
+  const hotels = []; for (let i = 0; i < buildings.length; i++) { const b = buildings[i]; if (b.hotel && b.state === "ok" && b.door && b.doorHp > 0 && Math.hypot(b.cx - p0[0], b.cy - p0[1]) < 420) hotels.push(i); }
+  if (!hotels.length) return;
+  const bi = pick(hotels), b = buildings[bi], m = 1 + Math.floor(Math.random() * 3), cloth = ["#d94b3a", "#2f7fd0", "#e8a53a", "#3aa06a", "#e86aa0", "#f2f0e6"];
+  for (let k = 0; k < m; k++) {
+    const [x, y] = freeNear(b.door[0], b.door[1], 10), a = newAgent("civ", x, y);
+    if (a.age === "kid" && k === 0) { a.age = null; a.size = rnd(.9, 1.08); } // первым идёт взрослый
+    nameFor(a); a.lifeTmp = true; a.cloth = pick(cloth); a.hat = pick(["cap", "beanie", null, "cap"]);
+    a.hike = { t: ti, k: 0, stage: "up", until: 0, bi };
+  }
+  logT("hike", m > 1 ? "Туристы вышли из гостиницы на тропу" : "Турист вышел из гостиницы на тропу", "", 600);
+}
+function hikeStep(a, dt) {
+  const H = a.hike, tr = trails[H.t]; if (!tr || a.panic > .5 || a.state !== "alive") { a.hike = null; return null; }
+  const P = tr.pts, n = P.length;
+  if (H.stage === "up" || H.stage === "down") {
+    const dir = H.stage === "up" ? 1 : -1, p = P[clamp(H.k, 0, n - 1)], d = Math.hypot(p[0] - a.x, p[1] - a.y);
+    if (d > 60 && H.k > 0 && H.k < n - 1) { // сбился с тропы (убегал) — возвращается к ближайшей точке
+      let bk = 0, bd = 1e9; for (let k = 0; k < n; k++) { const q = Math.hypot(P[k][0] - a.x, P[k][1] - a.y); if (q < bd) { bd = q; bk = k; } } H.k = bk; return goTo(a, P[bk][0], P[bk][1], HIKE.speed);
+    }
+    if (d < 5) {
+      H.k += 2 * dir;
+      if (H.k >= n) { H.k = n - 1; H.stage = "rest"; H.until = simT + rnd(HIKE.rest[0], HIKE.rest[1]); a.idleT = H.until - simT; return [0, 0, 0]; }
+      if (H.k < 0) { H.stage = "home"; return [0, 0, 0]; }
+      const q = P[H.k]; return goTo(a, q[0], q[1], HIKE.speed);
+    }
+    return goTo(a, p[0], p[1], HIKE.speed);
+  }
+  if (H.stage === "rest") { if (simT > H.until) { H.stage = "down"; H.k = n - 3; } return [0, 0, 0]; }
+  const b = buildings[H.bi]; // домой, в гостиницу
+  if (!b || !b.hotel || !b.door || b.state !== "ok") { a.hike = null; a.lifeTmp = false; return null; } // гостиницы нет — остаётся жителем
+  const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y);
+  if (d < 8) { a.hike = null; a.hidden = true; a.vx = a.vy = 0; a.state = "saved"; lifeGone++; return [0, 0, 0]; }
+  return goTo(a, b.door[0], b.door[1], HIKE.speed);
+}
 
 /* по делам: водитель выходит у дома или магазина, заходит внутрь и через 40–90 с возвращается к машине */
 function errandStart(c, b) {
@@ -3283,6 +3328,7 @@ function waitCarStep(a, dt) {
 let lifeT = 0;
 function lifeTick(dt) {
   lifeT -= dt; if (lifeT > 0) return; lifeT = 2;
+  hikeTick(2);
   let n = 0;
   for (const c of cars) {
     const B = c.broken; if (!B || c.gone) continue;
@@ -3425,7 +3471,7 @@ const WORLD_WATER = false;
 let relief = "mountains"; // "plain" — равнина, "mountains" — хребет с предгорьями за городом с одной-двух сторон, серпантин к перевалу
 function worldFlat() { return !river && !shore && !lakes.length && !ridgeSides.length; }
 function prepareWater() {
-  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = []; creek = null; creekMask = null;
+  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = []; creek = null; creekMask = null; trails = [];
   const mountains = relief === "mountains" && L.ridges !== 0;
   // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Граница предгорий гуляет, отроги выходят
   // в равнину; пики соединены гребнями, между двумя — долина к седловине; на умеренных склонах случайные полки с озёрами
@@ -3627,6 +3673,7 @@ function hillBlock(b) {
 // серпантины врезаны полкой: полотно ровное поперёк, продольный уклон не круче MR.grade,
 // выше дороги — откос выемки 1:0.6, ниже — откос насыпи 1:1.5. Все горные рёбра считаются вместе:
 // общие узлы получают одну высоту, полотно пишет ближайшая ось, выемка/насыпь не трогают чужое полотно
+let trails = []; // пешие тропы от городков: { pts: [[x, y]...], kind: "hut" | "summit", hut: [x, y] | null } (mountain.js buildTrails)
 let creek = null, creekMask = null, creekWhy = ""; // ручей с гор: ломаная [x, y] от истока к устью; маска клеток русла (деревья там не растут)
 /* ---------- ручей ----------
    Исток — у снеговой линии (не на полке и не на вершине-смотровой). Русло ищется по сетке высот поиском кратчайшего пути:
@@ -4307,6 +4354,75 @@ function buildMountainHamlets() {
     }
   }
 }
+/* ---------- тропы ----------
+   От курортного городка на полке — пешие тропы: к хижине на склоне выше леса (с лавками и видом на долину) и, если рядом
+   вершина со смотровой, на вершину. Тропа ищется по сетке высот кратчайшим путём с ценой за крутизну: по пологому — прямо,
+   по крутому — вдоль склона серпантином; лес и скалы проходимы, но дороже, дворы, дома, полки других городков и вода —
+   нельзя. Клетки под тропой становятся лугом (по лесу и скалам жители не ходят), деревья у тропы вырубаются.
+   Ходят по тропам туристы из гостиниц (traffic.js, hikeTick) */
+function buildTrails() {
+  trails = []; if (!massif || !hasHills) return;
+  const M = massif, T = M.terraces; if (!T.length) return;
+  const cellOf = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const th = (x, y) => TH[cellOf(x, y)], grad = (x, y) => Math.hypot(th(x + CS, y) - th(x - CS, y), th(x, y + CS) - th(x, y - CS)) / (2 * CS);
+  const nearBuilding = (x, y, r) => buildings.some(b => x > b.x0 - r && x < b.x1 + r && y > b.y0 - r && y < b.y1 + r);
+  // маршрут по клеткам: цена шага — длина × (1 + 3·уклон), лес ×1.4, скалы ×2.2, полотно дороги ×2 (переход), круче 1:1 ×4
+  const route = (sx, sy, ex, ey, skipT) => {
+    const s = cellOf(sx, sy), e = cellOf(ex, ey), dist = new Float64Array(GW * GH).fill(Infinity), prev = new Int32Array(GW * GH).fill(-1), heap = [[0, s]]; dist[s] = 0;
+    const push = it => { heap.push(it); let k = heap.length - 1; while (k) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+    const D2 = CS * Math.SQRT2, NB = [[1, 0, CS], [-1, 0, CS], [0, 1, CS], [0, -1, CS], [1, 1, D2], [1, -1, D2], [-1, 1, D2], [-1, -1, D2]];
+    const okCell = i => { const g = grid[i]; if (i === e || i === s) return true; if (usedMask[i] || g === 3 || g === 5 || g === 9 || g === 6 || TH[i] <= WATER_Y) return false; const x = (i % GW) * CS + 4, y = ((i / GW) | 0) * CS + 4; if (T.some(t => t !== skipT && Math.hypot(x - t.x, y - t.y) < t.r + 20)) return false; return true; };
+    let found = false, steps = 0;
+    while (heap.length && steps++ < 400000) {
+      const [d, i] = pop(); if (d > dist[i]) continue; if (i === e) { found = true; break; }
+      const gx = i % GW, gy = (i / GW) | 0;
+      for (const [dx, dy, len] of NB) { const x = gx + dx, y = gy + dy; if (x < 1 || y < 1 || x >= GW - 1 || y >= GH - 1) continue; const j = y * GW + x; if (!okCell(j)) continue;
+        const sl = Math.abs(TH[j] - TH[i]) / len, g = grid[j]; let c = len * (1 + 3 * sl) * (g === 4 ? 1.4 : g === 10 ? 2.2 : 1) * (roadMask[j] ? 2 : 1); if (sl > 1) c *= 4;
+        const nd = d + c; if (nd < dist[j]) { dist[j] = nd; prev[j] = i; push([nd, j]); } }
+    }
+    if (!found) return null;
+    const cells = []; for (let i = e; i >= 0 && cells.length < 3000; i = prev[i]) cells.push(i); cells.reverse(); if (cells.length < 6) return null;
+    let P = cells.map(i => [(i % GW) * CS + 4, ((i / GW) | 0) * CS + 4]); P[0] = [sx, sy]; P[P.length - 1] = [ex, ey];
+    for (let pass = 0; pass < 2; pass++) for (let k = 1; k < P.length - 1; k++) P[k] = [(P[k - 1][0] + P[k][0] * 2 + P[k + 1][0]) / 4, (P[k - 1][1] + P[k][1] * 2 + P[k + 1][1]) / 4];
+    const Q = [P[0]]; for (let k = 1; k < P.length - 1; k++) { const a = Q[Q.length - 1]; if (Math.hypot(P[k][0] - a[0], P[k][1] - a[1]) >= 6) Q.push(P[k]); } Q.push(P[P.length - 1]);
+    return Q;
+  };
+  // тропа прокладывается по земле: клетки под ней и рядом — луг, деревья вырублены
+  const clear = P => { const gone = new Set(); for (const [px, py] of P) for (let oy = -CS; oy <= CS; oy += CS) for (let ox = -CS; ox <= CS; ox += CS) { const i = cellOf(px + ox, py + oy); const cx = (i % GW) * CS + 4, cy = ((i / GW) | 0) * CS + 4; if (Math.hypot(cx - px, cy - py) > 7) continue; if (grid[i] === 4 || grid[i] === 10) grid[i] = 2; gone.add(i); } trees = trees.filter(t => !gone.has(cellOf(t.x, t.y))); };
+  for (const t of T) {
+    const made = [];
+    // хижина: выше городка на 40–200 ед., ниже снега, на пологом месте, не на полке и не у дороги; ближе к середине карты
+    let best = null;
+    for (let tries = 0; tries < 400; tries++) {
+      const ang = rnd(0, TAU), r = rnd(260, 620), x = t.x + Math.cos(ang) * r, y = t.y + Math.sin(ang) * r; if (x < 100 || y < 100 || x > W - 100 || y > H - 100) continue;
+      const h = th(x, y); if (h < t.h + 40 || h > SNOW_H - 30 || grad(x, y) > .4) continue;
+      if (onTerrace(x, y, 40) || (M.summit && Math.hypot(x - M.summit.x, y - M.summit.y) < M.summit.r + 30) || waterD(x, y) < 30 || nearBuilding(x, y, 40) || cityK(x, y) > .3) continue;
+      const i = cellOf(x, y); if (usedMask[i] || roadMask[i] || grid[i] === 9) continue;
+      if (gEdgeNear(x, y, 40)) continue;
+      const sc = (h - t.h) + rnd(0, 60) - Math.abs(y - H / 2) * .05; if (!best || sc > best.sc) best = { x, y, h, sc };
+    }
+    if (best) {
+      const f = Math.atan2(t.y - best.y, t.x - best.x); // фасадом к городку (вниз по склону)
+      const P = route(...ringPoint(t, Math.atan2(best.y - t.y, best.x - t.x)), best.x + Math.cos(f) * 12, best.y + Math.sin(f) * 12, t);
+      if (P) {
+        // площадка под хижину: ровная, скалы и лес там — луг
+        for (let oy = -16; oy <= 16; oy += CS) for (let ox = -16; ox <= 16; ox += CS) { const i = cellOf(best.x + ox, best.y + oy); if (TH[i] > WATER_Y) TH[i] = best.h; if (grid[i] === 4 || grid[i] === 10) grid[i] = 2; }
+        trees = trees.filter(o => Math.hypot(o.x - best.x, o.y - best.y) > 22);
+        const hut = addRotBuilding(best.x, best.y, 14, 10, f + Math.PI / 2, { kind: "hut", floors: 1, style: 51, ridge: "x", village: true, hut: true, chalet: true });
+        hut.doorPref = [best.x + Math.cos(f) * 8, best.y + Math.sin(f) * 8];
+        for (const s of [-1, 1]) props.push({ k: "bench", x: best.x + Math.cos(f) * 12 + Math.cos(f + Math.PI / 2) * s * 6, y: best.y + Math.sin(f) * 12 + Math.sin(f + Math.PI / 2) * s * 6, a: f + Math.PI }); // лавки лицом к долине
+        clear(P); made.push({ pts: P, kind: "hut", hut: [best.x, best.y] });
+      }
+    }
+    // на вершину со смотровой: от ближайшего городка (там же нижняя станция канатки)
+    if (M.summit && t === T[0] && Math.hypot(M.summit.x - t.x, M.summit.y - t.y) < 900) {
+      const S = M.summit, f = Math.atan2(t.y - S.y, t.x - S.x), P = route(...ringPoint(t, Math.atan2(S.y - t.y, S.x - t.x)), S.x + Math.cos(f) * 40, S.y + Math.sin(f) * 40, t);
+      if (P) { clear(P); made.push({ pts: P, kind: "summit", hut: null }); }
+    }
+    for (const m of made) { m.pts = m.pts.map(p => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]); trails.push(m); }
+  }
+}
 // ---------- канатная дорога: трос над склоном на опорах, кабинки по кругу, посадка на станциях ----------
 // Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
 // в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.
@@ -4796,7 +4912,7 @@ function thinkHuman(a, dt) {
   let dz = null; if (a.role === "civ") { a.dzT -= dt; if (a.dzT <= 0) { a.dzT = .5; a.dz = dangers.length ? inDanger(a) : null; } dz = a.dz; }
   if (dz && !a.dest && !a.homeGoal && !a.campGoal && !a.hideGoal && !a.forage && !(a.bcastT > 0) && !(evac && evac.landed)) { const dd = Math.hypot(a.x - dz.x, a.y - dz.y) || 1; return [(a.x - dz.x) / dd, (a.y - dz.y) / dd, 12 * hurt]; }
   // уличная жизнь: водитель идёт по делам из машины, стоит у заглохшей, пассажир садится в такси (traffic.js)
-  if (a.role === "civ" && (a.errand || a.waitCar || a.hail)) { const r = lifeStep(a, dt); if (r) return r; }
+  if (a.role === "civ" && (a.errand || a.waitCar || a.hail || a.hike)) { const r = lifeStep(a, dt); if (r) return r; }
   if (a.armed && a.role === "civ" && a.ammo < a.magMax && depots.length) { const d = nearestDepot(a, 200); if (d) return goTo(a, d.x, d.y, 7); }
   if (a.role === "medic") {
     let tgt = null, td = 1e9;
@@ -5098,7 +5214,7 @@ function newCitySim(n) {
   for (const k in lastLog) delete lastLog[k];
   resetExtras(); resetBuild(); resetWorld2(); resetThreats(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
-  assignHomes(); seedBusWaiters();
+  assignHomes(); rebuildHash(); seedBusWaiters(); // хэш жителей — по новому списку, а не по прошлому городу (near в seedBusWaiters)
   const p0 = pickPatientZero(); pickHeroes(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
   logE("Нулевой пациент где-то в городе. Он ещё не знает, что заражён", "bad");
   fieldT = 0; record(); logDirty = true;
@@ -10587,6 +10703,20 @@ function buildFountains() {
 const waterTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { g.strokeStyle = `rgba(255,255,255,${rnd(.05, .25)})`; g.lineWidth = rnd(.5, 1.5); const x = rnd(0, w), y = rnd(0, h), l = rnd(4, 14); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 2, x + l, y); g.stroke(); } }, false);
 waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(30, 30);
 const waterMat = new THREE.MeshStandardMaterial({ color: 0x1f4559, roughness: .12, metalness: .35, map: waterTex });
+// тропы: узкая лента утоптанной земли по рельефу
+const trailMat = new THREE.MeshStandardMaterial({ color: 0x9c8460, roughness: 1, side: THREE.DoubleSide });
+function buildTrailMeshes() {
+  for (const tr of trails) {
+    const P = tr.pts, n = P.length; if (n < 3) continue; const pos = [], idx = [];
+    for (let k = 0; k < n; k++) {
+      const a = P[Math.max(0, k - 1)], b = P[Math.min(n - 1, k + 1)], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      for (const s of [-1.3, 1.3]) { const x = P[k][0] + nx * s, y = P[k][1] + ny * s; pos.push(X(x), gY(x, y) + .22, Z(y)); }
+      if (k) { const v = pos.length / 3 - 4; idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, trailMat); m.receiveShadow = true; m.frustumCulled = false; cityGroup.add(m);
+  }
+}
 // ручей: лента воды по руслу чуть выше дна, цвет по уклону — на порогах и водопадах белая пена; над дорогой разрыв (труба)
 const creekMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .18, metalness: .25, map: waterTex, transparent: true, opacity: .88, side: THREE.DoubleSide }); // глубину пишет (иначе рельеф закрашивал ленту); двусторонний — порядок вершин ленты зависит от направления русла
 function buildCreek() {
@@ -10625,6 +10755,7 @@ function buildWater() {
     m.position.set(X(l.x), l.level, Z(l.y)); m.renderOrder = -1; cityGroup.add(m);
   }
   if (creek) buildCreek();
+  buildTrailMeshes();
   outskirts.position.y = sea ? WATER_Y - 6 : WATER_Y - 1.2;
   const rail = new THREE.MeshStandardMaterial({ color: 0x8a8d8f, roughness: .5, metalness: .6 }), conc = new THREE.MeshStandardMaterial({ color: 0x9a978f, roughness: .9 });
   for (const b of bridges) {
@@ -10999,7 +11130,7 @@ function updatePeople(dt) {
   for (const a of list) {
     const s = a.size, dead = a.state === "dead", z = a.role === "zombie", zt = z ? a.ztype : null;
     if ((a.hidden && !a.onRoof) || a.lod) continue;
-    _frS.center.set(X(a.x), 4 + (a.onRoof ? a.roofZ : 0), Z(a.y)); if (!_fr.intersectsSphere(_frS)) continue;
+    _frS.center.set(X(a.x), 4 + (a.onRoof ? a.roofZ : 0) + (hasHills ? gY(a.x, a.y) : 0), Z(a.y)); if (!_fr.intersectsSphere(_frS)) continue; // с высотой рельефа: на горе человек стоял на 40 м выше сферы и за кадром «не был виден» вблизи
     const wounded = !dead && !z && a.hp < 45, bld = a.build || 1;
     const sp = a.speed || 0, run = clamp((sp - 6) / 10), amp = dead ? 0 : clamp(sp / 6) * (.55 + run * .35);
     const ph = a.phase, sw = Math.sin(ph) * amp, bob = dead ? 0 : Math.abs(Math.cos(ph)) * amp * .35;
@@ -14337,7 +14468,7 @@ function chaletMesh(b, obj, box, w, d) {
   const stone = facadeMats[b.style] || facadeMats[11], fh = b.h / b.floors, hotel = !!b.hotel;
   obj.remove(box); box.geometry.dispose();
   // цоколь каменный в один этаж, выше — дерево; у отеля каменных этажей нет, но первый всё равно светлый
-  const base = fbox(w, fh, d, 0, fh / 2, 0, stone); obj.add(base); b.mesh = base;
+  const base = fbox(w, fh, d, 0, fh / 2, 0, b.floors === 1 ? facadeMats[51] : stone); obj.add(base); b.mesh = base; // одноэтажная (хижина) — вся деревянная
   const wood = fbox(w + .8, b.h - fh, d + .8, 0, fh + (b.h - fh) / 2, 0, facadeMats[51]); obj.add(wood); // верх нависает над цоколем на 10 см
   lmAdd(obj, new THREE.BoxGeometry(w + 1.4, .5, d + 1.4), chaletWoodMat, 0, fh + .1, 0); // карниз-обвязка на стыке камня и дерева
   // широкие свесы: по бокам по 3, над фронтоном 2,5; пологая крыша; конёк вдоль x (фронтон на улицу, которая к +z)
@@ -16857,7 +16988,7 @@ const SAVE_SLOTS = 3;
 const b64 = arr => { let s = ""; const u = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
 const unb64 = (str, Type) => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Type(u.buffer); };
 // ссылки на объекты превращаем в индексы и обратно
-const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown", "shape", "farm", "faceSgn", "chalet", "hotel", "alpine", "village", "hamlet"]; // chalet/hotel/alpine — формы горных городков: без них после загрузки шале стали бы обычными домами
+const B_KEYS = ["x0", "y0", "x1", "y1", "kind", "floors", "style", "fire", "scorch", "hp", "maxHp", "state", "ruinH", "cT", "rot", "w", "d", "cx", "cy", "ridge", "prog", "door", "cap", "doorHp", "doorMax", "rebuilt", "gutted", "gutDoor", "doorPref", "gutT", "food", "hungryT", "topple", "fallAng", "fallT", "fallMax", "impacted", "fallZone", "hitX", "hitY", "lot", "doorFixT", "front", "clearedT", "demoT", "siteCells", "beds", "patients", "nest", "nestT", "lotRect", "pitch", "blown", "shape", "farm", "faceSgn", "chalet", "hotel", "alpine", "village", "hamlet", "hut"]; // chalet/hotel/alpine — формы горных городков: без них после загрузки шале стали бы обычными домами
 const A_SKIP = new Set(["busGoal", "onBus", "busWait", "ride", "unit", "job", "hideB", "hideGoal", "vacGoal", "loot", "buildB", "tent", "muzzle", "goal", "wx", "wy", "aim", "aimT", "shotT", "burst", "spin", "roll", "vz", "stuck", "far", "phase", "quietT", "dry", "poolId", "poolR", "poolMax", "seen", "body", "carried", "cpAt", "cpChecked", "detained", "cp", "post", "forage", "campGoal", "inCamp", "guardB", "clearB", "guardJob", "regul", "rescueBy", "lod", "errand", "waitCar", "hail"]); // regul — ребро дороги, rescueBy — вызов или машина спасателей: с ними JSON зацикливался; lod — «рисуется скелетной моделью», после загрузки такого не рисовал бы никто; errand, waitCar, hail — ссылки на машину: после загрузки человек просто живёт дальше
 function serializeGame() {
   if (typeof fps !== "undefined" && fps.on && fps.mode === "drive") exitCar(); // машина игрока сохраняется стоящей, игрок — рядом с ней
@@ -16890,7 +17021,7 @@ function serializeGame() {
     world: { hour: world.hour, target: world.target, cycle: world.cycle, weather: world.weather, season: world.season }, settings: { ...settings }, editRoads,
     families, heroes: heroes.map(h => h.id), metros, depots, strain, chDone, chFail, towers, floods, camps: camps.map(c => ({ ...c })), blackout, power: pwSave(), traps, gens, elecMask: Array.from(elecMask), quarMask: Array.from(quarMask), cps: cps.map(c => ({ ...c })), factions, hq, dangers, dayN, alert, alertT, respLog, medpoints, curfew: settings.curfew,
     camp, // кампания: день, итоги по дням, бюджет (campaign.js)
-    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, creek, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
+    terrain: { seed: terrainSeed, hasHills, ridgeSides: ridgeSides.slice(), intrude: !!ridgeSides.intrude, rocks, river, shore, lakes, cityBlob, walls, creek, trails, funicular: funicular ? { L: funicular.L, U: funicular.U, hL: funicular.hL, hU: funicular.hU, len: funicular.len, supports: funicular.supports, cabins: funicular.cabins.map(c => ({ s: c.s })), trips: funicular.trips } : null, th: b64(Uint8Array.from(TH, v => clamp(Math.round((v + 10) * .5), 0, 255))) }, firstsX: { ...firsts },
   };
 }
 // название планировки и номер города в панели; подсказка — как получить тот же город
@@ -16940,7 +17071,7 @@ function loadGame(S) {
   for (const a of agents) { if (a.post) a.post = towers.find(t => Math.abs(t.x - a.x) < 1 && Math.abs(t.y - a.y) < 1) || null; a.order = a.order || null; a.forage = null; a.campGoal = null; a.inCamp = null; }
   for (const a of agents) if (!a.name) nameFor(a);
   const T = S.terrain || {}; terrainSeed = T.seed || 1; hasHills = !!T.hasHills; ridgeSides = T.ridgeSides || []; ridgeSides.intrude = !!T.intrude; rocks = T.rocks || [];
-  river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || []; creek = T.creek || null; rebuildCreekMask();
+  river = T.river || null; shore = T.shore || null; lakes = T.lakes || []; cityBlob = T.cityBlob || null; walls = T.walls || []; creek = T.creek || null; rebuildCreekMask(); trails = T.trails || [];
   funicular = T.funicular ? { ...T.funicular, cabins: (T.funicular.cabins || []).map(c => ({ s: c.s, riders: [] })) } : null; massif = null;
   TH.fill(0); if (T.th) { const u = unb64(T.th, Uint8Array); for (let i = 0; i < TH.length && i < u.length; i++) TH[i] = u[i] * 2 - 10; }
   scen = SCENARIOS[S.scen] || SCENARIOS.sandbox; scenKey = S.scen; scenT = S.scenT; uses = S.uses || {}; scenDone = false; radioQ = []; wave = S.wave || 0; waveT = S.waveT ?? 40;

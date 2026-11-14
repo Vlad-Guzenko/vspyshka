@@ -787,7 +787,52 @@ function personIn(a) { a.state = "saved"; a.drove = true; a.hidden = false; a.vx
 // уехавших временных людей убираем из списка: в начале шага, до пересчёта сетки соседей (она хранит индексы)
 function lifeCompact() { if (lifeGone < 30) return; lifeGone = 0; agents = agents.filter(a => !(a.lifeTmp && a.state === "saved")); agentMapN = -1; }
 // шаг человека, занятого уличной жизнью (из thinkHuman)
-function lifeStep(a, dt) { return a.errand ? errandStep(a, dt) : a.waitCar ? waitCarStep(a, dt) : a.hail ? hailStep(a, dt) : null; }
+function lifeStep(a, dt) { return a.errand ? errandStep(a, dt) : a.waitCar ? waitCarStep(a, dt) : a.hail ? hailStep(a, dt) : a.hike ? hikeStep(a, dt) : null; }
+/* туристы: из гостиницы городка на полке выходит компания в один-три человека и идёт по тропе к хижине или на вершину,
+   там отдыхает, возвращается в гостиницу и пропадает (временные жители, как водители по делам). Только днём и в спокойное
+   время; на тропе не больше шести человек. Зомби и паника — как у всех: бегут */
+const HIKE = { gap: 50, max: 6, rest: [45, 110], speed: 5 };
+let hikeT = 0;
+function hikeTick(dt) {
+  hikeT -= dt; if (hikeT > 0) return; hikeT = HIKE.gap;
+  if (!trails.length || !lifeCalm() || settings.curfew) return;
+  const hour = typeof world !== "undefined" && world && world.hour != null ? world.hour : 12; if (hour < 7 || hour > 17) return;
+  let n = 0; for (const a of agents) if (a.hike && a.state === "alive") n++; if (n >= HIKE.max) return;
+  const ti = Math.floor(Math.random() * trails.length), tr = trails[ti], p0 = tr.pts[0];
+  const hotels = []; for (let i = 0; i < buildings.length; i++) { const b = buildings[i]; if (b.hotel && b.state === "ok" && b.door && b.doorHp > 0 && Math.hypot(b.cx - p0[0], b.cy - p0[1]) < 420) hotels.push(i); }
+  if (!hotels.length) return;
+  const bi = pick(hotels), b = buildings[bi], m = 1 + Math.floor(Math.random() * 3), cloth = ["#d94b3a", "#2f7fd0", "#e8a53a", "#3aa06a", "#e86aa0", "#f2f0e6"];
+  for (let k = 0; k < m; k++) {
+    const [x, y] = freeNear(b.door[0], b.door[1], 10), a = newAgent("civ", x, y);
+    if (a.age === "kid" && k === 0) { a.age = null; a.size = rnd(.9, 1.08); } // первым идёт взрослый
+    nameFor(a); a.lifeTmp = true; a.cloth = pick(cloth); a.hat = pick(["cap", "beanie", null, "cap"]);
+    a.hike = { t: ti, k: 0, stage: "up", until: 0, bi };
+  }
+  logT("hike", m > 1 ? "Туристы вышли из гостиницы на тропу" : "Турист вышел из гостиницы на тропу", "", 600);
+}
+function hikeStep(a, dt) {
+  const H = a.hike, tr = trails[H.t]; if (!tr || a.panic > .5 || a.state !== "alive") { a.hike = null; return null; }
+  const P = tr.pts, n = P.length;
+  if (H.stage === "up" || H.stage === "down") {
+    const dir = H.stage === "up" ? 1 : -1, p = P[clamp(H.k, 0, n - 1)], d = Math.hypot(p[0] - a.x, p[1] - a.y);
+    if (d > 60 && H.k > 0 && H.k < n - 1) { // сбился с тропы (убегал) — возвращается к ближайшей точке
+      let bk = 0, bd = 1e9; for (let k = 0; k < n; k++) { const q = Math.hypot(P[k][0] - a.x, P[k][1] - a.y); if (q < bd) { bd = q; bk = k; } } H.k = bk; return goTo(a, P[bk][0], P[bk][1], HIKE.speed);
+    }
+    if (d < 5) {
+      H.k += 2 * dir;
+      if (H.k >= n) { H.k = n - 1; H.stage = "rest"; H.until = simT + rnd(HIKE.rest[0], HIKE.rest[1]); a.idleT = H.until - simT; return [0, 0, 0]; }
+      if (H.k < 0) { H.stage = "home"; return [0, 0, 0]; }
+      const q = P[H.k]; return goTo(a, q[0], q[1], HIKE.speed);
+    }
+    return goTo(a, p[0], p[1], HIKE.speed);
+  }
+  if (H.stage === "rest") { if (simT > H.until) { H.stage = "down"; H.k = n - 3; } return [0, 0, 0]; }
+  const b = buildings[H.bi]; // домой, в гостиницу
+  if (!b || !b.hotel || !b.door || b.state !== "ok") { a.hike = null; a.lifeTmp = false; return null; } // гостиницы нет — остаётся жителем
+  const d = Math.hypot(b.door[0] - a.x, b.door[1] - a.y);
+  if (d < 8) { a.hike = null; a.hidden = true; a.vx = a.vy = 0; a.state = "saved"; lifeGone++; return [0, 0, 0]; }
+  return goTo(a, b.door[0], b.door[1], HIKE.speed);
+}
 
 /* по делам: водитель выходит у дома или магазина, заходит внутрь и через 40–90 с возвращается к машине */
 function errandStart(c, b) {
@@ -852,6 +897,7 @@ function waitCarStep(a, dt) {
 let lifeT = 0;
 function lifeTick(dt) {
   lifeT -= dt; if (lifeT > 0) return; lifeT = 2;
+  hikeTick(2);
   let n = 0;
   for (const c of cars) {
     const B = c.broken; if (!B || c.gone) continue;

@@ -281,7 +281,7 @@ function chaletMesh(b, obj, box, w, d) {
   const stone = facadeMats[b.style] || facadeMats[11], fh = b.h / b.floors, hotel = !!b.hotel;
   obj.remove(box); box.geometry.dispose();
   // цоколь каменный в один этаж, выше — дерево; у отеля каменных этажей нет, но первый всё равно светлый
-  const base = fbox(w, fh, d, 0, fh / 2, 0, stone); obj.add(base); b.mesh = base;
+  const base = fbox(w, fh, d, 0, fh / 2, 0, b.floors === 1 ? facadeMats[51] : stone); obj.add(base); b.mesh = base; // одноэтажная (хижина) — вся деревянная
   const wood = fbox(w + .8, b.h - fh, d + .8, 0, fh + (b.h - fh) / 2, 0, facadeMats[51]); obj.add(wood); // верх нависает над цоколем на 10 см
   lmAdd(obj, new THREE.BoxGeometry(w + 1.4, .5, d + 1.4), chaletWoodMat, 0, fh + .1, 0); // карниз-обвязка на стыке камня и дерева
   // широкие свесы: по бокам по 3, над фронтоном 2,5; пологая крыша; конёк вдоль x (фронтон на улицу, которая к +z)

@@ -468,6 +468,75 @@ function buildMountainHamlets() {
     }
   }
 }
+/* ---------- тропы ----------
+   От курортного городка на полке — пешие тропы: к хижине на склоне выше леса (с лавками и видом на долину) и, если рядом
+   вершина со смотровой, на вершину. Тропа ищется по сетке высот кратчайшим путём с ценой за крутизну: по пологому — прямо,
+   по крутому — вдоль склона серпантином; лес и скалы проходимы, но дороже, дворы, дома, полки других городков и вода —
+   нельзя. Клетки под тропой становятся лугом (по лесу и скалам жители не ходят), деревья у тропы вырубаются.
+   Ходят по тропам туристы из гостиниц (traffic.js, hikeTick) */
+function buildTrails() {
+  trails = []; if (!massif || !hasHills) return;
+  const M = massif, T = M.terraces; if (!T.length) return;
+  const cellOf = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
+  const th = (x, y) => TH[cellOf(x, y)], grad = (x, y) => Math.hypot(th(x + CS, y) - th(x - CS, y), th(x, y + CS) - th(x, y - CS)) / (2 * CS);
+  const nearBuilding = (x, y, r) => buildings.some(b => x > b.x0 - r && x < b.x1 + r && y > b.y0 - r && y < b.y1 + r);
+  // маршрут по клеткам: цена шага — длина × (1 + 3·уклон), лес ×1.4, скалы ×2.2, полотно дороги ×2 (переход), круче 1:1 ×4
+  const route = (sx, sy, ex, ey, skipT) => {
+    const s = cellOf(sx, sy), e = cellOf(ex, ey), dist = new Float64Array(GW * GH).fill(Infinity), prev = new Int32Array(GW * GH).fill(-1), heap = [[0, s]]; dist[s] = 0;
+    const push = it => { heap.push(it); let k = heap.length - 1; while (k) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+    const D2 = CS * Math.SQRT2, NB = [[1, 0, CS], [-1, 0, CS], [0, 1, CS], [0, -1, CS], [1, 1, D2], [1, -1, D2], [-1, 1, D2], [-1, -1, D2]];
+    const okCell = i => { const g = grid[i]; if (i === e || i === s) return true; if (usedMask[i] || g === 3 || g === 5 || g === 9 || g === 6 || TH[i] <= WATER_Y) return false; const x = (i % GW) * CS + 4, y = ((i / GW) | 0) * CS + 4; if (T.some(t => t !== skipT && Math.hypot(x - t.x, y - t.y) < t.r + 20)) return false; return true; };
+    let found = false, steps = 0;
+    while (heap.length && steps++ < 400000) {
+      const [d, i] = pop(); if (d > dist[i]) continue; if (i === e) { found = true; break; }
+      const gx = i % GW, gy = (i / GW) | 0;
+      for (const [dx, dy, len] of NB) { const x = gx + dx, y = gy + dy; if (x < 1 || y < 1 || x >= GW - 1 || y >= GH - 1) continue; const j = y * GW + x; if (!okCell(j)) continue;
+        const sl = Math.abs(TH[j] - TH[i]) / len, g = grid[j]; let c = len * (1 + 3 * sl) * (g === 4 ? 1.4 : g === 10 ? 2.2 : 1) * (roadMask[j] ? 2 : 1); if (sl > 1) c *= 4;
+        const nd = d + c; if (nd < dist[j]) { dist[j] = nd; prev[j] = i; push([nd, j]); } }
+    }
+    if (!found) return null;
+    const cells = []; for (let i = e; i >= 0 && cells.length < 3000; i = prev[i]) cells.push(i); cells.reverse(); if (cells.length < 6) return null;
+    let P = cells.map(i => [(i % GW) * CS + 4, ((i / GW) | 0) * CS + 4]); P[0] = [sx, sy]; P[P.length - 1] = [ex, ey];
+    for (let pass = 0; pass < 2; pass++) for (let k = 1; k < P.length - 1; k++) P[k] = [(P[k - 1][0] + P[k][0] * 2 + P[k + 1][0]) / 4, (P[k - 1][1] + P[k][1] * 2 + P[k + 1][1]) / 4];
+    const Q = [P[0]]; for (let k = 1; k < P.length - 1; k++) { const a = Q[Q.length - 1]; if (Math.hypot(P[k][0] - a[0], P[k][1] - a[1]) >= 6) Q.push(P[k]); } Q.push(P[P.length - 1]);
+    return Q;
+  };
+  // тропа прокладывается по земле: клетки под ней и рядом — луг, деревья вырублены
+  const clear = P => { const gone = new Set(); for (const [px, py] of P) for (let oy = -CS; oy <= CS; oy += CS) for (let ox = -CS; ox <= CS; ox += CS) { const i = cellOf(px + ox, py + oy); const cx = (i % GW) * CS + 4, cy = ((i / GW) | 0) * CS + 4; if (Math.hypot(cx - px, cy - py) > 7) continue; if (grid[i] === 4 || grid[i] === 10) grid[i] = 2; gone.add(i); } trees = trees.filter(t => !gone.has(cellOf(t.x, t.y))); };
+  for (const t of T) {
+    const made = [];
+    // хижина: выше городка на 40–200 ед., ниже снега, на пологом месте, не на полке и не у дороги; ближе к середине карты
+    let best = null;
+    for (let tries = 0; tries < 400; tries++) {
+      const ang = rnd(0, TAU), r = rnd(260, 620), x = t.x + Math.cos(ang) * r, y = t.y + Math.sin(ang) * r; if (x < 100 || y < 100 || x > W - 100 || y > H - 100) continue;
+      const h = th(x, y); if (h < t.h + 40 || h > SNOW_H - 30 || grad(x, y) > .4) continue;
+      if (onTerrace(x, y, 40) || (M.summit && Math.hypot(x - M.summit.x, y - M.summit.y) < M.summit.r + 30) || waterD(x, y) < 30 || nearBuilding(x, y, 40) || cityK(x, y) > .3) continue;
+      const i = cellOf(x, y); if (usedMask[i] || roadMask[i] || grid[i] === 9) continue;
+      if (gEdgeNear(x, y, 40)) continue;
+      const sc = (h - t.h) + rnd(0, 60) - Math.abs(y - H / 2) * .05; if (!best || sc > best.sc) best = { x, y, h, sc };
+    }
+    if (best) {
+      const f = Math.atan2(t.y - best.y, t.x - best.x); // фасадом к городку (вниз по склону)
+      const P = route(...ringPoint(t, Math.atan2(best.y - t.y, best.x - t.x)), best.x + Math.cos(f) * 12, best.y + Math.sin(f) * 12, t);
+      if (P) {
+        // площадка под хижину: ровная, скалы и лес там — луг
+        for (let oy = -16; oy <= 16; oy += CS) for (let ox = -16; ox <= 16; ox += CS) { const i = cellOf(best.x + ox, best.y + oy); if (TH[i] > WATER_Y) TH[i] = best.h; if (grid[i] === 4 || grid[i] === 10) grid[i] = 2; }
+        trees = trees.filter(o => Math.hypot(o.x - best.x, o.y - best.y) > 22);
+        const hut = addRotBuilding(best.x, best.y, 14, 10, f + Math.PI / 2, { kind: "hut", floors: 1, style: 51, ridge: "x", village: true, hut: true, chalet: true });
+        hut.doorPref = [best.x + Math.cos(f) * 8, best.y + Math.sin(f) * 8];
+        for (const s of [-1, 1]) props.push({ k: "bench", x: best.x + Math.cos(f) * 12 + Math.cos(f + Math.PI / 2) * s * 6, y: best.y + Math.sin(f) * 12 + Math.sin(f + Math.PI / 2) * s * 6, a: f + Math.PI }); // лавки лицом к долине
+        clear(P); made.push({ pts: P, kind: "hut", hut: [best.x, best.y] });
+      }
+    }
+    // на вершину со смотровой: от ближайшего городка (там же нижняя станция канатки)
+    if (M.summit && t === T[0] && Math.hypot(M.summit.x - t.x, M.summit.y - t.y) < 900) {
+      const S = M.summit, f = Math.atan2(t.y - S.y, t.x - S.x), P = route(...ringPoint(t, Math.atan2(S.y - t.y, S.x - t.x)), S.x + Math.cos(f) * 40, S.y + Math.sin(f) * 40, t);
+      if (P) { clear(P); made.push({ pts: P, kind: "summit", hut: null }); }
+    }
+    for (const m of made) { m.pts = m.pts.map(p => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]); trails.push(m); }
+  }
+}
 // ---------- канатная дорога: трос над склоном на опорах, кабинки по кругу, посадка на станциях ----------
 // Опоры ставит жадный проход по профилю рельефа: от последней опоры берётся самый дальний пролёт (до 360 ед. = 90 м),
 // в котором трос с провисом (3,5 % пролёта) везде выше земли на 10 ед.; если не проходит даже короткий пролёт — высокая опора.

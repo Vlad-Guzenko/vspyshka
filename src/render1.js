@@ -782,6 +782,20 @@ function buildFountains() {
 const waterTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = "#808080"; g.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { g.strokeStyle = `rgba(255,255,255,${rnd(.05, .25)})`; g.lineWidth = rnd(.5, 1.5); const x = rnd(0, w), y = rnd(0, h), l = rnd(4, 14); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 2, x + l, y); g.stroke(); } }, false);
 waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(30, 30);
 const waterMat = new THREE.MeshStandardMaterial({ color: 0x1f4559, roughness: .12, metalness: .35, map: waterTex });
+// тропы: узкая лента утоптанной земли по рельефу
+const trailMat = new THREE.MeshStandardMaterial({ color: 0x9c8460, roughness: 1, side: THREE.DoubleSide });
+function buildTrailMeshes() {
+  for (const tr of trails) {
+    const P = tr.pts, n = P.length; if (n < 3) continue; const pos = [], idx = [];
+    for (let k = 0; k < n; k++) {
+      const a = P[Math.max(0, k - 1)], b = P[Math.min(n - 1, k + 1)], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      for (const s of [-1.3, 1.3]) { const x = P[k][0] + nx * s, y = P[k][1] + ny * s; pos.push(X(x), gY(x, y) + .22, Z(y)); }
+      if (k) { const v = pos.length / 3 - 4; idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, trailMat); m.receiveShadow = true; m.frustumCulled = false; cityGroup.add(m);
+  }
+}
 // ручей: лента воды по руслу чуть выше дна, цвет по уклону — на порогах и водопадах белая пена; над дорогой разрыв (труба)
 const creekMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .18, metalness: .25, map: waterTex, transparent: true, opacity: .88, side: THREE.DoubleSide }); // глубину пишет (иначе рельеф закрашивал ленту); двусторонний — порядок вершин ленты зависит от направления русла
 function buildCreek() {
@@ -820,6 +834,7 @@ function buildWater() {
     m.position.set(X(l.x), l.level, Z(l.y)); m.renderOrder = -1; cityGroup.add(m);
   }
   if (creek) buildCreek();
+  buildTrailMeshes();
   outskirts.position.y = sea ? WATER_Y - 6 : WATER_Y - 1.2;
   const rail = new THREE.MeshStandardMaterial({ color: 0x8a8d8f, roughness: .5, metalness: .6 }), conc = new THREE.MeshStandardMaterial({ color: 0x9a978f, roughness: .9 });
   for (const b of bridges) {

@@ -65,7 +65,7 @@ const WORLD_WATER = false;
 let relief = "mountains"; // "plain" — равнина, "mountains" — хребет с предгорьями за городом с одной-двух сторон, серпантин к перевалу
 function worldFlat() { return !river && !shore && !lakes.length && !ridgeSides.length; }
 function prepareWater() {
-  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = []; creek = null; creekMask = null;
+  terrainSeed = Math.floor(Math.random() * 1e9); river = null; shore = null; lakes = []; rocks = []; terraces = []; creek = null; creekMask = null; trails = [];
   const mountains = relief === "mountains" && L.ridges !== 0;
   // горная страна: полоса MOUNT_W слева или справа от города (карта на неё шире). Граница предгорий гуляет, отроги выходят
   // в равнину; пики соединены гребнями, между двумя — долина к седловине; на умеренных склонах случайные полки с озёрами
@@ -267,6 +267,7 @@ function hillBlock(b) {
 // серпантины врезаны полкой: полотно ровное поперёк, продольный уклон не круче MR.grade,
 // выше дороги — откос выемки 1:0.6, ниже — откос насыпи 1:1.5. Все горные рёбра считаются вместе:
 // общие узлы получают одну высоту, полотно пишет ближайшая ось, выемка/насыпь не трогают чужое полотно
+let trails = []; // пешие тропы от городков: { pts: [[x, y]...], kind: "hut" | "summit", hut: [x, y] | null } (mountain.js buildTrails)
 let creek = null, creekMask = null, creekWhy = ""; // ручей с гор: ломаная [x, y] от истока к устью; маска клеток русла (деревья там не растут)
 /* ---------- ручей ----------
    Исток — у снеговой линии (не на полке и не на вершине-смотровой). Русло ищется по сетке высот поиском кратчайшего пути:

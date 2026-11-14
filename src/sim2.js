@@ -363,7 +363,7 @@ function thinkHuman(a, dt) {
   let dz = null; if (a.role === "civ") { a.dzT -= dt; if (a.dzT <= 0) { a.dzT = .5; a.dz = dangers.length ? inDanger(a) : null; } dz = a.dz; }
   if (dz && !a.dest && !a.homeGoal && !a.campGoal && !a.hideGoal && !a.forage && !(a.bcastT > 0) && !(evac && evac.landed)) { const dd = Math.hypot(a.x - dz.x, a.y - dz.y) || 1; return [(a.x - dz.x) / dd, (a.y - dz.y) / dd, 12 * hurt]; }
   // уличная жизнь: водитель идёт по делам из машины, стоит у заглохшей, пассажир садится в такси (traffic.js)
-  if (a.role === "civ" && (a.errand || a.waitCar || a.hail)) { const r = lifeStep(a, dt); if (r) return r; }
+  if (a.role === "civ" && (a.errand || a.waitCar || a.hail || a.hike)) { const r = lifeStep(a, dt); if (r) return r; }
   if (a.armed && a.role === "civ" && a.ammo < a.magMax && depots.length) { const d = nearestDepot(a, 200); if (d) return goTo(a, d.x, d.y, 7); }
   if (a.role === "medic") {
     let tgt = null, td = 1e9;
@@ -665,7 +665,7 @@ function newCitySim(n) {
   for (const k in lastLog) delete lastLog[k];
   resetExtras(); resetBuild(); resetWorld2(); resetThreats(); resetResponse(); resetAuto(); resetSquads(); resetServices2(); placeMetros();
   for (let i = 0; i < n; i++) { let p = randomFree(); for (let k = 0; k < 8 && Math.random() > .1 + cityK(p[0], p[1]) * .9; k++) p = randomFree(); newAgent("civ", p[0], p[1]); }
-  assignHomes(); seedBusWaiters();
+  assignHomes(); rebuildHash(); seedBusWaiters(); // хэш жителей — по новому списку, а не по прошлому городу (near в seedBusWaiters)
   const p0 = pickPatientZero(); pickHeroes(); p0.bitten = true; p0.incT = settings.inc; p0.zero = true;
   logE("Нулевой пациент где-то в городе. Он ещё не знает, что заражён", "bad");
   fieldT = 0; record(); logDirty = true;

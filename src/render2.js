@@ -92,7 +92,7 @@ function updatePeople(dt) {
   for (const a of list) {
     const s = a.size, dead = a.state === "dead", z = a.role === "zombie", zt = z ? a.ztype : null;
     if ((a.hidden && !a.onRoof) || a.lod) continue;
-    _frS.center.set(X(a.x), 4 + (a.onRoof ? a.roofZ : 0), Z(a.y)); if (!_fr.intersectsSphere(_frS)) continue;
+    _frS.center.set(X(a.x), 4 + (a.onRoof ? a.roofZ : 0) + (hasHills ? gY(a.x, a.y) : 0), Z(a.y)); if (!_fr.intersectsSphere(_frS)) continue; // с высотой рельефа: на горе человек стоял на 40 м выше сферы и за кадром «не был виден» вблизи
     const wounded = !dead && !z && a.hp < 45, bld = a.build || 1;
     const sp = a.speed || 0, run = clamp((sp - 6) / 10), amp = dead ? 0 : clamp(sp / 6) * (.55 + run * .35);
     const ph = a.phase, sw = Math.sin(ph) * amp, bob = dead ? 0 : Math.abs(Math.cos(ph)) * amp * .35;
