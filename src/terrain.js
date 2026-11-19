@@ -287,6 +287,7 @@ function carveCreek() {
   const gx0 = M.side === 3 ? Math.max(1, Math.floor((W - M.w - 260) / CS)) : 1, gx1 = M.side === 3 ? GW - 1 : Math.min(GW - 1, Math.ceil((M.w + 260) / CS));
   for (let gy = 1; gy < GH - 1; gy++) for (let gx = gx0; gx < gx1; gx++) { const i = gy * GW + gx, x = gx * CS + 4, y = gy * CS + 4;
     if (usedMask[i] || grid[i] === 3 || grid[i] === 5 || onShelf(x, y, 20)) continue;
+    if (patchOf[i] >= 0 && patches[patchOf[i]] && patches[patchOf[i]].kind === "field") continue; // не через пашню
     const low = TH[i] < 40, ck = low ? cityK(x, y) : 0; if (ck > .5) continue;
     const t = L ? inLake(x, y) : (TH[i] < 14 && ck < .35 && grid[i] === 2 && !(patchOf[i] >= 0 && patches[patchOf[i]] && patches[patchOf[i]].kind === "field")); // не на пашню
     if (grid[i] === 9 && !t) continue;
@@ -301,7 +302,8 @@ function carveCreek() {
     const [d, j] = pop(); if (d > dist[j]) continue;
     const gx = j % GW, gy = (j / GW) | 0;
     for (const [dx, dy, len] of NB) { const x = gx + dx, y = gy + dy; if (x < gx0 || y < 1 || x >= gx1 || y >= GH - 1) continue; const i = y * GW + x; if (!ok[i]) continue;
-      const dh = TH[j] - TH[i], c = dh > 0 ? len * (1 + dh * 6) : len * (.35 + .65 * Math.exp(dh / len * 3)), nd = d + c * (roadMask[i] || (benchMask && benchMask[i]) ? 3 : 1);
+      // у дороги дороже (иначе ручей ложится прямой канавой в обочину серпантина), и лёгкий шум — русло петляет, а не режет склон по линейке
+      const dh = TH[j] - TH[i], c = dh > 0 ? len * (1 + dh * 6) : len * (.35 + .65 * Math.exp(dh / len * 3)), nd = d + c * (roadMask[i] || (benchMask && benchMask[i]) ? 3 : distRoad[i] < 4 ? 2.2 : 1) * (1 + (fbm(x * CS / 60, y * CS / 60) - .5) * .8);
       if (nd < dist[i]) { dist[i] = nd; prev[i] = j; push([nd, i]); } }
   }
   tm.push('дейкстра ' + (Date.now() - T0));
@@ -313,19 +315,28 @@ function carveCreek() {
   tm.push('исток ' + (Date.now() - T0)); creekWhy = "истока нет"; if (src < 0) return;
   const cells = []; for (let i = src; i >= 0 && cells.length < 4000; i = prev[i]) cells.push(i);
   creekWhy = "коротко"; if (cells.length < 12) return; creekWhy = "";
-  // ломаная по центрам клеток, сглаженная и пересэмплированная через 6 ед.
+  // ломаная по центрам клеток: сглаживается и дважды скругляется (Чайкин), иначе русло ступенчатое по сетке
   let P = cells.map(i => [(i % GW) * CS + 4, ((i / GW) | 0) * CS + 4]);
-  for (let pass = 0; pass < 3; pass++) for (let k = 1; k < P.length - 1; k++) P[k] = [(P[k - 1][0] + P[k][0] * 2 + P[k + 1][0]) / 4, (P[k - 1][1] + P[k][1] * 2 + P[k + 1][1]) / 4];
-  const Q = [P[0]]; for (let k = 1; k < P.length; k++) { const a = Q[Q.length - 1]; if (Math.hypot(P[k][0] - a[0], P[k][1] - a[1]) >= 6) Q.push(P[k]); } P = Q;
+  for (let pass = 0; pass < 4; pass++) for (let k = 1; k < P.length - 1; k++) P[k] = [(P[k - 1][0] + P[k][0] * 2 + P[k + 1][0]) / 4, (P[k - 1][1] + P[k][1] * 2 + P[k + 1][1]) / 4];
+  for (let pass = 0; pass < 2; pass++) { const C = [P[0]]; for (let k = 0; k < P.length - 1; k++) { const a = P[k], b = P[k + 1]; C.push([a[0] * .75 + b[0] * .25, a[1] * .75 + b[1] * .25], [a[0] * .25 + b[0] * .75, a[1] * .25 + b[1] * .75]); } C.push(P[P.length - 1]); P = C; }
+  const Q = [P[0]]; for (let k = 1; k < P.length; k++) { const a = Q[Q.length - 1]; if (Math.hypot(P[k][0] - a[0], P[k][1] - a[1]) >= 5) Q.push(P[k]); } P = Q;
   // русло: дно не поднимается вниз по течению; полотно дорог не трогаем (труба под дорогой)
   let bed = TH[cellOf(P[0][0], P[0][1])];
   const floor = new Float32Array(P.length);
   for (let k = 0; k < P.length; k++) { bed = Math.min(bed, TH[cellOf(P[k][0], P[k][1])]); floor[k] = bed; }
   for (let k = 0; k < P.length; k++) {
-    const [px, py] = P[k], b = floor[k] - 3;
-    for (let oy = -16; oy <= 16; oy += CS) for (let ox = -16; ox <= 16; ox += CS) { const i = cellOf(px + ox, py + oy), cx = (i % GW) * CS + 4, cy = ((i / GW) | 0) * CS + 4, d = Math.hypot(cx - px, cy - py); if (d > 14) continue;
+    const [px, py] = P[k], b = floor[k] - 5; // дно на 5 ед. (1,25 м) ниже земли, берега отлогие на 22 ед.
+    for (let oy = -24; oy <= 24; oy += CS) for (let ox = -24; ox <= 24; ox += CS) { const i = cellOf(px + ox, py + oy), cx = (i % GW) * CS + 4, cy = ((i / GW) | 0) * CS + 4, d = Math.hypot(cx - px, cy - py); if (d > 22) continue;
       if (roadMask[i] || (benchMask && benchMask[i]) || grid[i] === 9 || TH[i] <= WATER_Y) continue;
-      const want = b + 3 * smooth(0, 14, d); if (TH[i] > want) TH[i] = want; if (grid[i] === 4 && d < 9) grid[i] = 2; }
+      const want = b + 5 * smooth(4, 22, d); if (TH[i] > want) TH[i] = want; if (grid[i] === 4 && d < 10) grid[i] = 2; }
+  }
+  // камни: валуны по берегам через 10–20 ед. и в самом русле на крутых участках (пороги), клетки под ними не закрываются
+  for (let k = 2, acc = 0; k < P.length - 2; k++) {
+    const a = P[k - 1], b = P[k + 1], dx = b[0] - a[0], dy = b[1] - a[1], Ln = Math.hypot(dx, dy) || 1, nx = -dy / Ln, ny = dx / Ln, steep = (floor[k - 2] - floor[k + 2]) / Ln > .3;
+    acc += Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]); if (acc < rnd(10, 20)) continue; acc = 0;
+    const half = 3.4 + 2.8 * k / P.length, side = Math.random() < .5 ? -1 : 1, off = steep && Math.random() < .5 ? rnd(-half * .6, half * .6) : side * (half + rnd(.5, 4));
+    const x = P[k][0] + nx * off, y = P[k][1] + ny * off, i = cellOf(x, y); if (roadMask[i] || usedMask[i] || grid[i] === 3 || grid[i] === 9) continue;
+    rocks.push({ x, y, s: rnd(1.1, steep ? 3 : 2.2), rot: rnd(0, TAU), creek: true });
   }
   tm.push('русло ' + (Date.now() - T0)); creekWhy = tm.join(' | ');
   creek = { pts: P.map(p => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]), mouth: L ? "lake" : "foot" };

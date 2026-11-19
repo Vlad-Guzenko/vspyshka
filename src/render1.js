@@ -796,30 +796,40 @@ function buildTrailMeshes() {
     const m = new THREE.Mesh(g, trailMat); m.receiveShadow = true; m.frustumCulled = false; cityGroup.add(m);
   }
 }
-// ручей: лента воды по руслу чуть выше дна, цвет по уклону — на порогах и водопадах белая пена; над дорогой разрыв (труба)
-const creekMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .18, metalness: .25, map: waterTex, transparent: true, opacity: .88, side: THREE.DoubleSide }); // глубину пишет (иначе рельеф закрашивал ленту); двусторонний — порядок вершин ленты зависит от направления русла
+// ручей: лента прозрачной зеленоватой воды по дну русла — поперёк ровной, в желобе ниже берегов, сквозь неё видно тёмное
+// каменистое дно; на крутых участках сверху полупрозрачная белая пена порогов, по берегам и в порогах валуны (rocks);
+// над дорогой разрыв (труба)
+const creekBedMat = new THREE.MeshStandardMaterial({ color: 0x3e3a34, roughness: .9 }), creekFoamMat = new THREE.MeshBasicMaterial({ color: 0xe6eef2, transparent: true, opacity: .55, depthWrite: false });
+const creekWaterMat = new THREE.MeshStandardMaterial({ color: 0x3f8e9c, transparent: true, opacity: .7, roughness: .15, metalness: .1, envMapIntensity: .7, side: THREE.DoubleSide });
 function buildCreek() {
   const P = creek.pts, n = P.length; if (n < 4) return;
-  const pos = [], col = [], uv = [], idx = []; let run = 0; const blue = new THREE.Color(0x6fc0e8).convertSRGBToLinear(), foam = new THREE.Color(0xdcecf4).convertSRGBToLinear(), c = new THREE.Color();
   const cell = (x, y) => clamp(Math.floor(y / CS), 0, GH - 1) * GW + clamp(Math.floor(x / CS), 0, GW - 1);
   const hidden = k => { const i = cell(P[k][0], P[k][1]); return !!roadMask[i] || !!(benchMask && benchMask[i]); };
-  for (let k = 0; k < n; k++) {
-    const a = P[Math.max(0, k - 1)], b = P[Math.min(n - 1, k + 1)], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
-    const w = (3.2 + 2.6 * k / n) * Math.min(1, (n - 1 - k) / 8 + .15), slope = Math.max(0, (gY(a[0], a[1]) - gY(b[0], b[1])) / L), f = clamp((slope - .25) / .5); // у устья на лугу сужается: уходит в землю
-    c.copy(blue).lerp(foam, f);
-    for (const s of [-1, 1]) { const x = P[k][0] + nx * w * s, y = P[k][1] + ny * w * s; pos.push(X(x), gY(x, y) + .9 + f * .4, Z(y)); col.push(c.r, c.g, c.b); uv.push(s > 0 ? 0 : 1, k * .25); }
-    if (k && !hidden(k) && !hidden(k - 1)) { const v = pos.length / 3 - 4; idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); run++; }
-  }
-  if (!run) return;
-  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-  const m = new THREE.Mesh(g, creekMat); m.renderOrder = -1; m.frustumCulled = false; cityGroup.add(m);
+  const ribbon = (half, lift, mat, use, order) => {
+    const pos = [], idx = []; let run = 0;
+    for (let k = 0; k < n; k++) {
+      const a = P[Math.max(0, k - 2)], b = P[Math.min(n - 1, k + 2)], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      const w = half(k), y = gY(P[k][0], P[k][1]) + lift(k); // поперёк лента ровная: уровень воды один на обоих берегах
+      for (const s of [-1, 1]) pos.push(X(P[k][0] + nx * w * s), y, Z(P[k][1] + ny * w * s));
+      if (k && use(k) && use(k - 1) && !hidden(k) && !hidden(k - 1)) { const v = pos.length / 3 - 4; idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); run++; }
+    }
+    if (!run) return;
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, mat); m.renderOrder = order; m.frustumCulled = false; if (mat.side !== undefined) mat.side = THREE.DoubleSide; cityGroup.add(m);
+  };
+  const width = k => (3.4 + 2.8 * k / n) * Math.min(1, (n - 1 - k) / 10 + .12); // книзу шире; у устья на лугу сужается и уходит в землю
+  const slopeAt = k => { const a = P[Math.max(0, k - 6)], b = P[Math.min(n - 1, k + 6)]; return Math.max(0, (gY(a[0], a[1]) - gY(b[0], b[1])) / (Math.hypot(b[0] - a[0], b[1] - a[1]) || 1)); };
+  const foamK = k => clamp((slopeAt(k) - .25) / .35); // пена появляется плавно с крутизной, а не рвётся по сегментам
+  ribbon(k => width(k) + 2.2, () => .25, creekBedMat, () => true, -2);
+  ribbon(width, () => 1.5, creekWaterMat, () => true, -1);
+  ribbon(k => width(k) * .7 * foamK(k), () => 1.75, creekFoamMat, () => true, 0);
 }
 function buildWater() {
   if (worldFlat()) { buildCityWalls(); return; }
   // вода — один лист под всем миром; видна там, где рельеф ниже её уровня: река, море, озёра, пруды
   // карта глубины: у берегов вода светлее и с пеной
   const dc = document.createElement("canvas"); dc.width = GW; dc.height = GH; const dg = dc.getContext("2d"), img = dg.createImageData(GW, GH);
-  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) { const d = clamp(-waterD(gx * CS + 4, gy * CS + 4) / 26), i = (gy * GW + gx) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(d * 255); img.data[i + 3] = 255; }
+  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) { const d = Math.max(clamp(-waterD(gx * CS + 4, gy * CS + 4) / 26), creekMask && creekMask[gy * GW + gx] ? .4 : 0), i = (gy * GW + gx) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(d * 255); img.data[i + 3] = 255; } // ручей мелкий: светлая вода, местами пена
   dg.putImageData(img, 0, 0); const depthTex = new THREE.CanvasTexture(dc); depthTex.magFilter = THREE.LinearFilter; depthTex.flipY = false; // шейдер берёт v = y/H: строка 0 холста — верх мира
   waterU.depthMap.value = depthTex;
   // у моря вода уходит до горизонта, иначе — только под ближними окрестностями; дальняя плоская земля ниже воды только у моря
